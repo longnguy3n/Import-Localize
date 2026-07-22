@@ -36,8 +36,6 @@ class ImportJob:
     first_row_is_header: bool = True
     strict_headers: bool = True
     add_source_column: bool = False
-    # Sau import, sao chép D2:I2 xuống đến hàng dữ liệu cuối trong Translate_Data.
-    fill_translate_data: bool = False
 
 
 @dataclass(slots=True)

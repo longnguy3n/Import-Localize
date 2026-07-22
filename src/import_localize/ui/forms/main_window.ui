@@ -151,7 +151,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.6.0</string>
+         <string>v1.6.1</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -913,57 +913,13 @@
                    </size>
                   </property>
                   <property name="text">
-                   <string>Kiểm tra cấu hình và bắt đầu nhập dữ liệu</string>
+                   <string>Import CSV hoặc chạy Fill Translate_Data độc lập</string>
                   </property>
                  </widget>
                 </item>
                </layout>
               </item>
              </layout>
-            </item>
-            <item>
-             <widget class="QFrame" name="translateFillPanel">
-              <layout class="QVBoxLayout" name="translateFillLayout">
-               <property name="spacing">
-                <number>2</number>
-               </property>
-               <property name="leftMargin">
-                <number>10</number>
-               </property>
-               <property name="topMargin">
-                <number>8</number>
-               </property>
-               <property name="rightMargin">
-                <number>10</number>
-               </property>
-               <property name="bottomMargin">
-                <number>8</number>
-               </property>
-               <item>
-                <widget class="QCheckBox" name="fillTranslateDataCheckBox">
-                 <property name="text">
-                  <string>Fill Translate_Data: sao chép D2:I2 xuống hết dữ liệu</string>
-                 </property>
-                 <property name="checked">
-                  <bool>true</bool>
-                 </property>
-                 <property name="toolTip">
-                  <string>Sau khi import, ứng dụng tìm hàng dữ liệu cuối theo cột A:C của tab Translate_Data rồi sao chép D2:I2 xuống các hàng còn lại.</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QLabel" name="fillTranslateDataHintLabel">
-                 <property name="text">
-                  <string>Hàng cuối được xác định theo dữ liệu A:C; công thức và giá trị mẫu ở D2:I2 được fill xuống tự động.</string>
-                 </property>
-                 <property name="wordWrap">
-                  <bool>true</bool>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
             </item>
             <item>
              <widget class="QWidget" name="progressPage">
@@ -1041,6 +997,28 @@
                  </size>
                 </property>
                </spacer>
+              </item>
+              <item>
+               <widget class="QPushButton" name="fillTranslateDataButton">
+                <property name="minimumSize">
+                 <size>
+                  <width>210</width>
+                  <height>38</height>
+                 </size>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>290</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>Fill Translate_Data</string>
+                </property>
+                <property name="toolTip">
+                 <string>Sao chép D2:I2 xuống đến hàng dữ liệu cuối theo cột A:C trong tab Translate_Data.</string>
+                </property>
+               </widget>
               </item>
               <item>
                <widget class="QPushButton" name="stopButton">

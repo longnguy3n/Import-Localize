@@ -24,7 +24,7 @@ REQUIRED = {
         "startButton",
         "stopButton",
         "progressBar",
-        "fillTranslateDataCheckBox",
+        "fillTranslateDataButton",
         "logCard",
         "logPlaceholder",
         "settingsButton",

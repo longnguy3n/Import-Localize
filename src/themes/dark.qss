@@ -488,20 +488,20 @@ QFrame#helpSection {
 }
 
 
-QFrame#translateFillPanel {
-    background: #16241e;
-    border: 1px solid #294238;
-    border-radius: 8px;
-}
 
-QCheckBox#fillTranslateDataCheckBox {
-    color: #cbe8da;
+QPushButton#fillTranslateDataButton {
+    color: #77e2ae;
+    background: #19392d;
+    border: 1px solid #3f765f;
     font-weight: 700;
-    spacing: 8px;
 }
 
-QLabel#fillTranslateDataHintLabel {
-    color: #91a89e;
-    font-size: 9.2pt;
-    padding-left: 24px;
+QPushButton#fillTranslateDataButton:hover {
+    color: #9aebc4;
+    background: #204a3a;
+    border-color: #58a981;
+}
+
+QPushButton#fillTranslateDataButton:pressed {
+    background: #183c2f;
 }

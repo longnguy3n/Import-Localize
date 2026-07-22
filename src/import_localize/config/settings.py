@@ -17,7 +17,6 @@ class AppSettings:
     first_row_is_header: bool = True
     strict_headers: bool = True
     add_source_column: bool = False
-    fill_translate_data: bool = True
     theme: str = "light"
     last_csv_dir: str = ""
     window_width: int = 760

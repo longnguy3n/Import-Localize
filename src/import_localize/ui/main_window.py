@@ -16,7 +16,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -62,6 +61,7 @@ from import_localize.ui.dialogs import HelpDialog, SettingsDialog
 from import_localize.ui.ui_loader import load_ui, require_object
 from import_localize.ui.widgets import BottomAlignedLogView
 from import_localize.workers.import_worker import ImportWorker
+from import_localize.workers.translate_fill_worker import TranslateFillWorker
 from import_localize.workers.update_worker import UpdateCheckWorker
 
 
@@ -75,7 +75,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings_repository = SettingsRepository()
         self.settings = self.settings_repository.load()
-        self.worker: ImportWorker | None = None
+        self.worker: ImportWorker | TranslateFillWorker | None = None
+        self._active_operation = ""
         self.update_check_worker: UpdateCheckWorker | None = None
         self.file_infos: dict[str, CsvFileInfo] = {}
         self._close_when_finished = False
@@ -156,8 +157,8 @@ class MainWindow(QMainWindow):
         self.target_subtitle_label = require_object(
             root, "targetSubtitleLabel", QLabel
         )
-        self.fill_translate_data_checkbox = require_object(
-            root, "fillTranslateDataCheckBox", QCheckBox
+        self.fill_translate_data_button = require_object(
+            root, "fillTranslateDataButton", QPushButton
         )
 
         self.start_button = require_object(root, "startButton", QPushButton)
@@ -195,6 +196,7 @@ class MainWindow(QMainWindow):
         set_button_icon(self.remove_files_button, "remove", 15)
         set_button_icon(self.clear_files_button, "trash", 15)
         set_button_icon(self.clear_log_button, "trash", 15)
+        set_button_icon(self.fill_translate_data_button, "sheet", 16)
         set_button_icon(self.start_button, "upload", 17)
         set_button_icon(self.stop_button, "stop", 15)
 
@@ -256,7 +258,10 @@ class MainWindow(QMainWindow):
         self.clear_files_button.clicked.connect(self.clear_files)
         self.open_sheet_button.clicked.connect(self.open_sheet)
         self.start_button.clicked.connect(self.start_import)
-        self.stop_button.clicked.connect(self.stop_import)
+        self.fill_translate_data_button.clicked.connect(
+            self.start_fill_translate_data
+        )
+        self.stop_button.clicked.connect(self.stop_current_action)
         self.clear_log_button.clicked.connect(self.log_edit.clear)
         self.settings_button.clicked.connect(self.show_settings)
         self.help_button.clicked.connect(self.show_help)
@@ -288,9 +293,6 @@ class MainWindow(QMainWindow):
         self.single_sheet_name_edit.setText(self.settings.sheet_name)
         self.value_input_combo.setCurrentIndex(
             1 if self.settings.value_input_option == "USER_ENTERED" else 0
-        )
-        self.fill_translate_data_checkbox.setChecked(
-            self.settings.fill_translate_data
         )
         self._on_target_mode_changed()
 
@@ -902,7 +904,6 @@ class MainWindow(QMainWindow):
             first_row_is_header=True,
             strict_headers=True,
             add_source_column=False,
-            fill_translate_data=self.fill_translate_data_checkbox.isChecked(),
         )
 
     def start_import(self) -> None:
@@ -924,11 +925,7 @@ class MainWindow(QMainWindow):
                 "INFO",
                 f"Bắt đầu import {len(job.file_paths)} file CSV vào nhiều tab.",
             )
-        if job.fill_translate_data:
-            self.append_log(
-                "INFO",
-                "Sau import sẽ fill D2:I2 xuống hết dữ liệu của tab Translate_Data.",
-            )
+        self._active_operation = "import"
         self.set_running(True)
 
         worker = ImportWorker(job, self)
@@ -940,7 +937,57 @@ class MainWindow(QMainWindow):
         worker.finished.connect(worker.deleteLater)
         worker.start()
 
-    def stop_import(self) -> None:
+    def _validate_sheet_action(self) -> str | None:
+        url = self.sheet_url_edit.text().strip()
+        if "/spreadsheets/d/" not in url:
+            QMessageBox.warning(
+                self,
+                "Link không hợp lệ",
+                "Hãy nhập đúng link Google Sheet trước khi chạy Fill Translate_Data.",
+            )
+            self.sheet_url_edit.setFocus()
+            return None
+
+        oauth_status = oauth_configuration_status()
+        if not oauth_status["client_ready"]:
+            QMessageBox.warning(
+                self,
+                "Chưa cấu hình Google OAuth",
+                "Mở Cài đặt, chọn oauth_client.json và đăng nhập Google trước.",
+            )
+            self.show_settings()
+            return None
+        return url
+
+    def start_fill_translate_data(self) -> None:
+        if self.worker and self.worker.isRunning():
+            return
+        url = self._validate_sheet_action()
+        if not url:
+            return
+
+        self.save_settings()
+        self.log_edit.clear()
+        self.append_log(
+            "INFO",
+            "Bắt đầu Fill Translate_Data độc lập: sao chép D2:I2 xuống "
+            "đến hàng dữ liệu cuối xác định theo cột A:C.",
+        )
+        self._active_operation = "fill"
+        self.set_running(True)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Đang chuẩn bị Fill Translate_Data")
+
+        worker = TranslateFillWorker(url, self)
+        self.worker = worker
+        worker.progress_changed.connect(self.on_progress)
+        worker.log_emitted.connect(self.append_log)
+        worker.completed.connect(self.on_completed)
+        worker.finished.connect(self.on_worker_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def stop_current_action(self) -> None:
         if self.worker and self.worker.isRunning():
             self.worker.request_stop()
             self.stop_button.setEnabled(False)
@@ -949,6 +996,7 @@ class MainWindow(QMainWindow):
 
     def set_running(self, running: bool) -> None:
         self.start_button.setEnabled(not running)
+        self.fill_translate_data_button.setEnabled(not running)
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(running)
         self.settings_button.setEnabled(not running)
@@ -964,7 +1012,6 @@ class MainWindow(QMainWindow):
         self.target_mode_combo.setEnabled(not running)
         self.single_sheet_name_edit.setEnabled(not running)
         self.value_input_combo.setEnabled(not running)
-        self.fill_translate_data_checkbox.setEnabled(not running)
         if not running:
             self.stop_button.setVisible(False)
 
@@ -974,6 +1021,7 @@ class MainWindow(QMainWindow):
         self.progress_label.setText(text)
 
     def on_completed(self, success: bool, message: str) -> None:
+        operation = self._active_operation
         self.set_running(False)
         self.append_log("SUCCESS" if success else "FAIL", message)
         self.progress_label.setText(
@@ -981,9 +1029,20 @@ class MainWindow(QMainWindow):
         )
         if success:
             self.progress_bar.setValue(100)
-            QMessageBox.information(self, "Import hoàn tất", message)
+            title = (
+                "Fill Translate_Data hoàn tất"
+                if operation == "fill"
+                else "Import hoàn tất"
+            )
+            QMessageBox.information(self, title, message)
         elif "dừng" not in message.casefold():
-            QMessageBox.warning(self, "Import thất bại", message)
+            title = (
+                "Fill Translate_Data thất bại"
+                if operation == "fill"
+                else "Import thất bại"
+            )
+            QMessageBox.warning(self, title, message)
+        self._active_operation = ""
 
     def on_worker_finished(self) -> None:
         self.worker = None
@@ -1007,9 +1066,6 @@ class MainWindow(QMainWindow):
         self.settings.first_row_is_header = True
         self.settings.strict_headers = True
         self.settings.add_source_column = False
-        self.settings.fill_translate_data = (
-            self.fill_translate_data_checkbox.isChecked()
-        )
         self.settings.window_width = self.width()
         self.settings.window_height = self.height()
         try:
@@ -1044,7 +1100,7 @@ class MainWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             answer = QMessageBox.question(
                 self,
-                "Đang import dữ liệu",
+                "Tác vụ đang chạy",
                 "Tác vụ vẫn đang chạy. Dừng an toàn rồi đóng ứng dụng?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
