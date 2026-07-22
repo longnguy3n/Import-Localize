@@ -3,7 +3,7 @@ from __future__ import annotations
 APP_NAME = "Import Localize"
 APP_ID = "import-localize"
 ORGANIZATION_NAME = "Import Localize"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.0.0"
 
 DEFAULT_WINDOW_WIDTH = 720
 DEFAULT_WINDOW_HEIGHT = 900
