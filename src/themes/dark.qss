@@ -288,16 +288,18 @@ QCheckBox::indicator:checked {
 QLabel#progressLabel { color: #9eb0a7; font-weight: 600; }
 
 QProgressBar {
-    min-height: 9px;
-    max-height: 9px;
-    border: none;
-    border-radius: 4px;
-    background: #314139;
+    min-height: 14px;
+    max-height: 14px;
+    border: 1px solid #2c3d36;
+    border-radius: 7px;
+    background: #18231f;
+    padding: 1px;
+    text-align: center;
 }
 
 QProgressBar::chunk {
-    border-radius: 4px;
-    background: #17b876;
+    border-radius: 6px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0ea868, stop:1 #38cf89);
 }
 
 QScrollArea#logConsole {
@@ -468,4 +470,38 @@ QPushButton#installUpdateButton:hover {
 QPushButton#checkUpdateButton,
 QPushButton#openReleaseButton {
     background: #23342c;
+}
+
+
+QPlainTextEdit#releaseNotesEdit,
+QTextBrowser#helpTextBrowser {
+    background: #18231f;
+    border: 1px solid #263730;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+QFrame#helpSection {
+    background: #141d19;
+    border: 1px solid #263730;
+    border-radius: 10px;
+}
+
+
+QFrame#translateFillPanel {
+    background: #16241e;
+    border: 1px solid #294238;
+    border-radius: 8px;
+}
+
+QCheckBox#fillTranslateDataCheckBox {
+    color: #cbe8da;
+    font-weight: 700;
+    spacing: 8px;
+}
+
+QLabel#fillTranslateDataHintLabel {
+    color: #91a89e;
+    font-size: 9.2pt;
+    padding-left: 24px;
 }

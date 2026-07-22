@@ -503,6 +503,148 @@ def _format_api_error(exc: gspread.exceptions.APIError) -> str:
     return f"Lỗi Google Sheets API: {message}"
 
 
+def _last_populated_row(values: list[list[object]]) -> int:
+    """Return the 1-based index of the last non-empty row."""
+    last_row = 0
+    for row_index, row in enumerate(values, start=1):
+        if any(str(value).strip() for value in row if value is not None):
+            last_row = row_index
+    return last_row
+
+
+def _build_translate_data_copy_request(
+    sheet_id: int,
+    last_row: int,
+) -> dict[str, object]:
+    """Build one Sheets copyPaste request for D2:I2 -> D2:I<last_row>."""
+    return {
+        "copyPaste": {
+            "source": {
+                "sheetId": int(sheet_id),
+                "startRowIndex": 1,
+                "endRowIndex": 2,
+                "startColumnIndex": 3,
+                "endColumnIndex": 9,
+            },
+            "destination": {
+                "sheetId": int(sheet_id),
+                "startRowIndex": 1,
+                "endRowIndex": int(last_row),
+                "startColumnIndex": 3,
+                "endColumnIndex": 9,
+            },
+            "pasteType": "PASTE_NORMAL",
+            "pasteOrientation": "NORMAL",
+        }
+    }
+
+
+def fill_translate_data_columns(
+    connection: SheetConnection,
+    *,
+    sheet_name: str = "Translate_Data",
+    progress_callback: ProgressCallback = None,
+    cancel_callback: CancelCallback = None,
+) -> tuple[bool, str, int]:
+    """Fill D2:I2 down to the last populated row of A:C in Translate_Data.
+
+    Missing tabs, an empty sample row, or a sheet without rows below row 2 are
+    treated as non-fatal skips so the CSV import itself can still complete.
+    """
+    _check_cancel(cancel_callback)
+    _progress(progress_callback, 10, "Đang kiểm tra tab Translate_Data")
+
+    worksheets = connection.spreadsheet.worksheets()
+    worksheet = next(
+        (item for item in worksheets if item.title.casefold() == sheet_name.casefold()),
+        None,
+    )
+    if worksheet is None:
+        return (
+            False,
+            f"Không tìm thấy tab '{sheet_name}', đã bỏ qua bước fill D2:I2.",
+            0,
+        )
+
+    _check_cancel(cancel_callback)
+    session = AuthorizedSession(connection.credentials)
+    spreadsheet_base = (
+        "https://sheets.googleapis.com/v4/spreadsheets/"
+        f"{connection.spreadsheet_id}"
+    )
+    quoted_title = _quote_sheet_title(worksheet.title)
+    response = session.get(
+        f"{spreadsheet_base}/values:batchGet",
+        params=[
+            ("ranges", f"{quoted_title}!A:C"),
+            ("ranges", f"{quoted_title}!D2:I2"),
+            ("majorDimension", "ROWS"),
+            ("valueRenderOption", "FORMULA"),
+        ],
+        timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
+    )
+    _raise_for_response(response, "Đọc dữ liệu Translate_Data")
+    _check_cancel(cancel_callback)
+
+    value_ranges = response.json().get("valueRanges", [])
+    data_values = (
+        value_ranges[0].get("values", [])
+        if len(value_ranges) >= 1
+        else []
+    )
+    sample_values = (
+        value_ranges[1].get("values", [])
+        if len(value_ranges) >= 2
+        else []
+    )
+
+    last_row = _last_populated_row(data_values)
+    has_sample = any(
+        str(value).strip()
+        for row in sample_values
+        for value in row
+        if value is not None
+    )
+    if not has_sample:
+        return (
+            False,
+            f"Vùng {sheet_name}!D2:I2 đang trống, đã bỏ qua bước fill.",
+            last_row,
+        )
+    if last_row <= 2:
+        return (
+            False,
+            f"Tab '{sheet_name}' chưa có dữ liệu dưới hàng 2 nên không cần fill.",
+            last_row,
+        )
+
+    _progress(
+        progress_callback,
+        55,
+        f"Đang sao chép D2:I2 xuống hàng {last_row}",
+    )
+    response = session.post(
+        f"{spreadsheet_base}:batchUpdate",
+        json={
+            "requests": [
+                _build_translate_data_copy_request(worksheet.id, last_row)
+            ]
+        },
+        timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
+    )
+    _raise_for_response(response, "Fill Translate_Data")
+    _check_cancel(cancel_callback)
+    _progress(progress_callback, 100, "Đã fill xong Translate_Data")
+
+    added_rows = max(0, last_row - 2)
+    return (
+        True,
+        f"Đã sao chép {sheet_name}!D2:I2 xuống đến hàng {last_row} "
+        f"({added_rows} hàng được fill thêm).",
+        last_row,
+    )
+
+
 def _prepare_value(value: object, option: str) -> object:
     if value is None:
         return ""

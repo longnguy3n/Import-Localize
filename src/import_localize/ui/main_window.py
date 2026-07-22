@@ -16,6 +16,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -155,6 +156,9 @@ class MainWindow(QMainWindow):
         self.target_subtitle_label = require_object(
             root, "targetSubtitleLabel", QLabel
         )
+        self.fill_translate_data_checkbox = require_object(
+            root, "fillTranslateDataCheckBox", QCheckBox
+        )
 
         self.start_button = require_object(root, "startButton", QPushButton)
         self.stop_button = require_object(root, "stopButton", QPushButton)
@@ -284,6 +288,9 @@ class MainWindow(QMainWindow):
         self.single_sheet_name_edit.setText(self.settings.sheet_name)
         self.value_input_combo.setCurrentIndex(
             1 if self.settings.value_input_option == "USER_ENTERED" else 0
+        )
+        self.fill_translate_data_checkbox.setChecked(
+            self.settings.fill_translate_data
         )
         self._on_target_mode_changed()
 
@@ -895,6 +902,7 @@ class MainWindow(QMainWindow):
             first_row_is_header=True,
             strict_headers=True,
             add_source_column=False,
+            fill_translate_data=self.fill_translate_data_checkbox.isChecked(),
         )
 
     def start_import(self) -> None:
@@ -915,6 +923,11 @@ class MainWindow(QMainWindow):
             self.append_log(
                 "INFO",
                 f"Bắt đầu import {len(job.file_paths)} file CSV vào nhiều tab.",
+            )
+        if job.fill_translate_data:
+            self.append_log(
+                "INFO",
+                "Sau import sẽ fill D2:I2 xuống hết dữ liệu của tab Translate_Data.",
             )
         self.set_running(True)
 
@@ -951,6 +964,7 @@ class MainWindow(QMainWindow):
         self.target_mode_combo.setEnabled(not running)
         self.single_sheet_name_edit.setEnabled(not running)
         self.value_input_combo.setEnabled(not running)
+        self.fill_translate_data_checkbox.setEnabled(not running)
         if not running:
             self.stop_button.setVisible(False)
 
@@ -993,6 +1007,9 @@ class MainWindow(QMainWindow):
         self.settings.first_row_is_header = True
         self.settings.strict_headers = True
         self.settings.add_source_column = False
+        self.settings.fill_translate_data = (
+            self.fill_translate_data_checkbox.isChecked()
+        )
         self.settings.window_width = self.width()
         self.settings.window_height = self.height()
         try:

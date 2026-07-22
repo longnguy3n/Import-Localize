@@ -455,7 +455,7 @@ def parse_args() -> argparse.Namespace:
             "OAuth Client để máy cài không phải chọn lại file JSON."
         )
     )
-    parser.add_argument("--version", help="Phiên bản, ví dụ 1.5.0")
+    parser.add_argument("--version", help="Phiên bản, ví dụ 1.6.0")
     parser.add_argument(
         "--oauth-client",
         type=Path,

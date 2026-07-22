@@ -17,6 +17,7 @@ from import_localize.services.csv_service import (
 from import_localize.services.google_service import (
     GoogleServiceError,
     connect_to_spreadsheet,
+    fill_translate_data_columns,
     upload_bundles_fast,
 )
 
@@ -188,6 +189,32 @@ class ImportWorker(QThread):
             else:
                 total_rows, imported_tabs = self._run_multiple(connection)
 
+            fill_summary = ""
+            if self.job.fill_translate_data:
+                self.progress_changed.emit(98, "Đang fill tab Translate_Data")
+                try:
+                    applied, fill_message, _last_row = fill_translate_data_columns(
+                        connection,
+                        progress_callback=lambda value, text: self.progress_changed.emit(
+                            min(99, 98 + round(value * 0.01)), text
+                        ),
+                        cancel_callback=self._is_cancelled,
+                    )
+                    self._log(
+                        fill_message,
+                        "SUCCESS" if applied else "WARNING",
+                    )
+                    fill_summary = f" {fill_message}"
+                except CancelledError:
+                    raise
+                except GoogleServiceError as exc:
+                    fill_message = (
+                        "CSV đã được import nhưng bước fill Translate_Data thất bại: "
+                        f"{exc}"
+                    )
+                    self._log(fill_message, "WARNING")
+                    fill_summary = f" {fill_message}"
+
             self.progress_changed.emit(100, "Hoàn tất")
             tab_preview = ", ".join(imported_tabs[:8])
             if len(imported_tabs) > 8:
@@ -195,7 +222,7 @@ class ImportWorker(QThread):
             self.completed.emit(
                 True,
                 f"Import hoàn tất: {total_rows} dòng vào {len(imported_tabs)} tab "
-                f"({tab_preview}).",
+                f"({tab_preview}).{fill_summary}",
             )
         except CancelledError:
             self.completed.emit(False, "Đã dừng thao tác theo yêu cầu.")

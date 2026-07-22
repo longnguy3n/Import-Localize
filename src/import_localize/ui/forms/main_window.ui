@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>720</width>
-    <height>900</height>
+    <width>760</width>
+    <height>920</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="rootLayout">
@@ -151,7 +151,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.0.0</string>
+         <string>v1.6.0</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -234,16 +234,16 @@
        <number>8</number>
       </property>
       <property name="leftMargin">
-       <number>10</number>
+       <number>12</number>
       </property>
       <property name="topMargin">
-       <number>9</number>
-      </property>
-      <property name="rightMargin">
        <number>10</number>
       </property>
+      <property name="rightMargin">
+       <number>12</number>
+      </property>
       <property name="bottomMargin">
-       <number>11</number>
+       <number>12</number>
       </property>
       <item>
        <widget class="QWidget" name="upperContent">
@@ -391,8 +391,8 @@
                   <widget class="QLabel" name="fileSummaryLabel">
                    <property name="minimumSize">
                     <size>
-                     <width>66</width>
-                     <height>25</height>
+                     <width>112</width>
+                     <height>46</height>
                     </size>
                    </property>
                    <property name="text">
@@ -410,13 +410,13 @@
                  <property name="minimumSize">
                   <size>
                    <width>0</width>
-                   <height>150</height>
+                   <height>180</height>
                   </size>
                  </property>
                  <property name="maximumSize">
                   <size>
                    <width>16777215</width>
-                   <height>185</height>
+                   <height>220</height>
                   </size>
                  </property>
                  <property name="selectionBehavior">
@@ -922,6 +922,50 @@
              </layout>
             </item>
             <item>
+             <widget class="QFrame" name="translateFillPanel">
+              <layout class="QVBoxLayout" name="translateFillLayout">
+               <property name="spacing">
+                <number>2</number>
+               </property>
+               <property name="leftMargin">
+                <number>10</number>
+               </property>
+               <property name="topMargin">
+                <number>8</number>
+               </property>
+               <property name="rightMargin">
+                <number>10</number>
+               </property>
+               <property name="bottomMargin">
+                <number>8</number>
+               </property>
+               <item>
+                <widget class="QCheckBox" name="fillTranslateDataCheckBox">
+                 <property name="text">
+                  <string>Fill Translate_Data: sao chép D2:I2 xuống hết dữ liệu</string>
+                 </property>
+                 <property name="checked">
+                  <bool>true</bool>
+                 </property>
+                 <property name="toolTip">
+                  <string>Sau khi import, ứng dụng tìm hàng dữ liệu cuối theo cột A:C của tab Translate_Data rồi sao chép D2:I2 xuống các hàng còn lại.</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="fillTranslateDataHintLabel">
+                 <property name="text">
+                  <string>Hàng cuối được xác định theo dữ liệu A:C; công thức và giá trị mẫu ở D2:I2 được fill xuống tự động.</string>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
              <widget class="QWidget" name="progressPage">
               <layout class="QVBoxLayout" name="progressLayout">
                <property name="spacing">
@@ -957,6 +1001,18 @@
                </item>
                <item>
                 <widget class="QProgressBar" name="progressBar">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>14</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>14</height>
+                  </size>
+                 </property>
                  <property name="value">
                   <number>0</number>
                  </property>
