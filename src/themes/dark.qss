@@ -1,0 +1,471 @@
+QDialog#designerDialog { background: transparent; }
+QWidget {
+    color: #e3ebe7;
+    font-size: 10.5pt;
+}
+
+QWidget#MainRoot,
+QWidget#contentWidget {
+    background: #101814;
+}
+
+QFrame#topBar {
+    background: #17231e;
+    border: none;
+    border-bottom: 1px solid #2c3d35;
+}
+
+QLabel#logoLabel { background: transparent; }
+
+QLabel#appTitleLabel {
+    color: #f0f7f3;
+    font-size: 16pt;
+    font-weight: 700;
+}
+
+QLabel#appSubtitleLabel {
+    color: #92a49b;
+    font-size: 9.7pt;
+}
+
+QLabel#versionLabel {
+    color: #7ee2b8;
+    background: #173b2d;
+    border: 1px solid #285e49;
+    border-radius: 10px;
+    font-size: 9.2pt;
+    font-weight: 700;
+}
+
+QPushButton#settingsButton,
+QPushButton#helpButton,
+QPushButton#themeButton,
+QPushButton#closeIconButton {
+    min-width: 34px;
+    min-height: 34px;
+    max-width: 36px;
+    max-height: 36px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+}
+
+QPushButton#settingsButton:hover,
+QPushButton#helpButton:hover,
+QPushButton#themeButton:hover,
+QPushButton#closeIconButton:hover {
+    background: #20372d;
+    border-color: #315744;
+}
+
+QFrame#filesCard,
+QFrame#targetCard,
+QFrame#actionCard,
+QFrame#logCard {
+    background: #17231e;
+    border: 1px solid #304239;
+    border-radius: 10px;
+}
+
+QLabel#filesIconLabel,
+QLabel#targetIconLabel,
+QLabel#actionIconLabel,
+QLabel#logIconLabel,
+QLabel#oauthClientIconLabel,
+QLabel#googleAccountIconLabel {
+    background: #1d3a2d;
+    border: 1px solid #2b5642;
+    border-radius: 8px;
+}
+
+QLabel#filesTitleLabel,
+QLabel#targetTitleLabel,
+QLabel#actionTitleLabel,
+QLabel#logTitleLabel,
+QLabel#oauthClientTitleLabel,
+QLabel#googleAccountTitleLabel {
+    color: #c8d9d1;
+    font-size: 10.3pt;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+}
+
+QLabel#filesSubtitleLabel,
+QLabel#targetSubtitleLabel,
+QLabel#actionSubtitleLabel,
+QLabel#logSubtitleLabel,
+QLabel#subtitleLabel,
+QLabel#oauthClientHintLabel,
+QLabel#securityNoteLabel,
+QLabel#helpNoteLabel {
+    color: #8fa198;
+    font-size: 9.5pt;
+}
+
+QLabel#fileSummaryLabel {
+    color: #7ee2b8;
+    background: #193b2e;
+    border: 1px solid #2a5b45;
+    border-radius: 10px;
+    padding: 0 9px;
+    font-weight: 700;
+}
+
+QFrame#targetInnerPanel {
+    background: #131d18;
+    border: 1px solid #2b3b33;
+    border-radius: 8px;
+}
+
+QLabel#sheetUrlLabel,
+QLabel#sheetNameLabel,
+QLabel#importModeLabel,
+QLabel#optionsLabel {
+    color: #b6c7bf;
+    font-weight: 600;
+}
+
+QLineEdit,
+QComboBox,
+QPlainTextEdit,
+QTextBrowser,
+QTableWidget {
+    background: #0f1814;
+    color: #e3ebe7;
+    border: 1px solid #3a4c43;
+    border-radius: 7px;
+    selection-background-color: #245c44;
+    selection-color: #f0f7f3;
+}
+
+QLineEdit,
+QComboBox {
+    min-height: 34px;
+    padding: 0 9px;
+}
+
+QLineEdit:focus,
+QComboBox:focus,
+QPlainTextEdit:focus,
+QTableWidget:focus {
+    border: 1px solid #27b579;
+}
+
+QLineEdit:disabled,
+QComboBox:disabled {
+    color: #6f8178;
+    background: #17201c;
+}
+
+QComboBox::drop-down { width: 24px; border: none; }
+
+QComboBox QAbstractItemView {
+    background: #17231e;
+    color: #e3ebe7;
+    border: 1px solid #3a4c43;
+    selection-background-color: #245c44;
+    selection-color: #ffffff;
+    outline: 0;
+}
+
+QTableWidget {
+    gridline-color: transparent;
+    alternate-background-color: #131e19;
+    outline: 0;
+}
+
+QTableWidget::item {
+    padding: 5px;
+    border-bottom: 1px solid #26362e;
+}
+
+QTableWidget::item:selected {
+    background: #245c44;
+    color: #ffffff;
+}
+
+QHeaderView::section {
+    background: #202e27;
+    color: #bdcec6;
+    border: none;
+    border-bottom: 1px solid #3a4a42;
+    padding: 7px;
+    font-weight: 700;
+}
+
+QPushButton {
+    min-height: 34px;
+    padding: 0 12px;
+    color: #dce7e2;
+    background: #213029;
+    border: 1px solid #43564c;
+    border-radius: 7px;
+    font-weight: 600;
+}
+
+QPushButton:hover {
+    color: #8ce5bd;
+    background: #293d33;
+    border-color: #4f8068;
+}
+
+QPushButton:pressed { background: #315043; }
+
+QPushButton:disabled {
+    color: #65776e;
+    background: #19231e;
+    border-color: #2c3a33;
+}
+
+QPushButton#addFilesButton {
+    color: #81dfb5;
+    background: #1b392c;
+    border-color: #315b47;
+}
+
+QPushButton#removeFilesButton,
+QPushButton#clearFilesButton,
+QPushButton#clearLogButton,
+QPushButton#chooseOauthButton,
+QPushButton#openConfigButton {
+    background: #1d2b25;
+}
+
+QPushButton#startButton,
+QPushButton#loginGoogleButton,
+QPushButton#closeButton {
+    color: #ffffff;
+    background: #0aa66a;
+    border-color: #20bd7d;
+    font-weight: 700;
+}
+
+QPushButton#startButton:hover,
+QPushButton#loginGoogleButton:hover,
+QPushButton#closeButton:hover {
+    color: #ffffff;
+    background: #0cbd79;
+    border-color: #32cf91;
+}
+
+QPushButton#stopButton,
+QPushButton#logoutGoogleButton {
+    color: #ffb8b0;
+    background: #3d211f;
+    border-color: #78413b;
+}
+
+QPushButton#stopButton:hover,
+QPushButton#logoutGoogleButton:hover {
+    color: #ffd0cb;
+    background: #522724;
+    border-color: #a45a50;
+}
+
+QPushButton#openSheetButton {
+    min-width: 34px;
+    max-width: 34px;
+    padding: 0;
+    background: #1d2b25;
+}
+
+QCheckBox { color: #bdccc5; spacing: 6px; }
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #60736a;
+    border-radius: 4px;
+    background: #101814;
+}
+
+QCheckBox::indicator:checked {
+    background: #0aa66a;
+    border-color: #20bd7d;
+}
+
+QLabel#progressLabel { color: #9eb0a7; font-weight: 600; }
+
+QProgressBar {
+    min-height: 9px;
+    max-height: 9px;
+    border: none;
+    border-radius: 4px;
+    background: #314139;
+}
+
+QProgressBar::chunk {
+    border-radius: 4px;
+    background: #17b876;
+}
+
+QScrollArea#logConsole {
+    background: #101914;
+    border: 1px solid #34463d;
+    border-radius: 7px;
+}
+
+QWidget#logViewport,
+QWidget#logContent,
+QWidget#logRow { background: #101914; }
+
+QLabel#logTimestamp {
+    color: #6f8178;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 9pt;
+}
+
+QLabel#logLevel {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 9pt;
+    font-weight: 700;
+}
+
+QLabel#logLevel[level="INFO"] { color: #68cba2; }
+QLabel#logLevel[level="SUCCESS"] { color: #6be5ad; }
+QLabel#logLevel[level="FAIL"] { color: #ff8f85; }
+QLabel#logLevel[level="WARNING"] { color: #e5bc62; }
+
+QLabel#logMessage {
+    color: #bdccc5;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 9pt;
+}
+
+QScrollBar:vertical { width: 10px; margin: 2px; background: transparent; }
+QScrollBar::handle:vertical { min-height: 24px; background: #46594f; border-radius: 5px; }
+QScrollBar::handle:vertical:hover { background: #60766a; }
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical { height: 0; }
+
+QWidget#SettingsForm,
+QWidget#HelpForm { background: transparent; }
+
+QFrame#dialogCard {
+    background: #17231e;
+    border: 1px solid #34473d;
+    border-radius: 13px;
+}
+
+QLabel#dialogIconLabel {
+    background: #1d3a2d;
+    border: 1px solid #2b5642;
+    border-radius: 10px;
+}
+
+QLabel#titleLabel {
+    color: #eff7f3;
+    font-size: 15.5pt;
+    font-weight: 700;
+}
+
+QFrame#dialogDivider {
+    color: #33443b;
+    background: #33443b;
+    border: none;
+}
+
+QFrame#oauthClientCard,
+QFrame#googleAccountCard,
+QFrame#helpSection {
+    background: #121c17;
+    border: 1px solid #2e4037;
+    border-radius: 9px;
+}
+
+QLabel#oauthStatusLabel { color: #a8bbb1; font-weight: 600; }
+
+QPlainTextEdit#oauthLogEdit {
+    padding: 7px;
+    background: #101914;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 9pt;
+}
+
+QFrame#securityNotePanel,
+QFrame#helpNotePanel {
+    background: #183126;
+    border: 1px solid #2b4e3d;
+    border-radius: 8px;
+}
+
+QTextBrowser#helpTextBrowser {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+QToolTip {
+    color: #101814;
+    background: #e5eee9;
+    border: none;
+    padding: 5px;
+}
+
+/* Settings tabs and automatic updates */
+QTabWidget#settingsTabs::pane {
+    border: 1px solid #365047;
+    border-radius: 8px;
+    background: #19251f;
+    top: -1px;
+}
+QTabBar::tab {
+    min-width: 118px;
+    min-height: 32px;
+    padding: 0 14px;
+    color: #9eb0a8;
+    background: #202f28;
+    border: 1px solid #365047;
+    border-bottom: none;
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
+    font-weight: 600;
+}
+QTabBar::tab:selected {
+    color: #67dfaa;
+    background: #19251f;
+    border-color: #3f765f;
+}
+QFrame#updateSourceCard,
+QFrame#updateStatusCard {
+    background: #1e2c25;
+    border: 1px solid #365047;
+    border-radius: 8px;
+}
+QLabel#updateIconLabel {
+    background: #19392d;
+    border: 1px solid #2f5f4c;
+    border-radius: 8px;
+}
+QLabel#updateTitleLabel {
+    color: #d7e6df;
+    font-size: 10.3pt;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+}
+QLabel#updateHintLabel,
+QLabel#updateStatusLabel {
+    color: #98aaa2;
+    font-size: 9.5pt;
+}
+QLabel#currentVersionValueLabel,
+QLabel#latestVersionValueLabel {
+    color: #67dfaa;
+    font-weight: 700;
+}
+QPushButton#installUpdateButton {
+    color: #102219;
+    background: #42cf92;
+    border-color: #42cf92;
+    font-weight: 700;
+}
+QPushButton#installUpdateButton:hover {
+    color: #0b1b13;
+    background: #62dda5;
+    border-color: #62dda5;
+}
+QPushButton#checkUpdateButton,
+QPushButton#openReleaseButton {
+    background: #23342c;
+}

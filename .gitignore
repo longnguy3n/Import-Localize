@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Build
+build/
+dist/
+.pyinstaller/
+*.spec
+
+# IDE
+.vscode/
+.idea/
+
+# Google OAuth secrets and user tokens
+oauth_client.json
+google_oauth_token.json
+token.json
+**/oauth_client.json
+**/google_oauth_token.json
+
+# Local configuration
+config.json
+*.log
+
+# Local build machine settings (may contain the path to OAuth Client)
+.build_config.json
+.build_resources/
+release/
+
+# Auto-update staging
+updates/
+*.update-backup/

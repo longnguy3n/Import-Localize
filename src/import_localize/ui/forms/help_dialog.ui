@@ -1,0 +1,272 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ui version="4.0">
+ <class>HelpForm</class>
+ <widget class="QWidget" name="HelpForm">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>560</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="outsideLayout">
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <property name="leftMargin">
+    <number>18</number>
+   </property>
+   <property name="topMargin">
+    <number>18</number>
+   </property>
+   <property name="rightMargin">
+    <number>18</number>
+   </property>
+   <property name="bottomMargin">
+    <number>18</number>
+   </property>
+   <item>
+    <widget class="QFrame" name="dialogCard">
+     <layout class="QVBoxLayout" name="rootLayout">
+      <property name="spacing">
+       <number>14</number>
+      </property>
+      <property name="leftMargin">
+       <number>22</number>
+      </property>
+      <property name="topMargin">
+       <number>18</number>
+      </property>
+      <property name="rightMargin">
+       <number>22</number>
+      </property>
+      <property name="bottomMargin">
+       <number>20</number>
+      </property>
+      <item>
+       <layout class="QHBoxLayout" name="headerLayout">
+        <property name="spacing">
+         <number>12</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="dialogIconLabel">
+          <property name="minimumSize">
+           <size>
+            <width>42</width>
+            <height>42</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>42</width>
+            <height>42</height>
+           </size>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="titleLayout">
+          <property name="spacing">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="titleLabel">
+            <property name="text">
+             <string>Hướng dẫn Import Localize</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="subtitleLabel">
+            <property name="text">
+             <string>Tự động nhập mỗi CSV vào tab được suy ra từ tên file</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="headerSpacer">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QPushButton" name="closeIconButton">
+          <property name="minimumSize">
+           <size>
+            <width>34</width>
+            <height>34</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>34</width>
+            <height>34</height>
+           </size>
+          </property>
+          <property name="text">
+           <string />
+          </property>
+          <property name="toolTip">
+           <string>Đóng</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QFrame" name="dialogDivider">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>1</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>1</height>
+         </size>
+        </property>
+        <property name="frameShape">
+         <enum>QFrame::Shape::HLine</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QFrame" name="helpSection">
+        <layout class="QVBoxLayout" name="helpSectionLayout">
+         <property name="spacing">
+          <number>7</number>
+         </property>
+         <property name="leftMargin">
+          <number>14</number>
+         </property>
+         <property name="topMargin">
+          <number>12</number>
+         </property>
+         <property name="rightMargin">
+          <number>14</number>
+         </property>
+         <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <item>
+          <widget class="QTextBrowser" name="helpTextBrowser">
+           <property name="html">
+            <string>&lt;h3&gt;THỰC HIỆN&lt;/h3&gt;&lt;ol&gt;&lt;li&gt;Mở &lt;b&gt;Cài đặt&lt;/b&gt;, chọn OAuth Client và đăng nhập Google.&lt;/li&gt;&lt;li&gt;Dán link Google Sheet đích.&lt;/li&gt;&lt;li&gt;Chọn &lt;b&gt;Nhiều sheet&lt;/b&gt; hoặc &lt;b&gt;Một sheet&lt;/b&gt;.&lt;/li&gt;&lt;li&gt;Chọn hoặc kéo thả các file CSV.&lt;/li&gt;&lt;li&gt;Nhấn &lt;b&gt;Import vào Google Sheet&lt;/b&gt;.&lt;/li&gt;&lt;/ol&gt;&lt;h3&gt;NHIỀU SHEET&lt;/h3&gt;&lt;p&gt;Tên file phải theo mẫu &lt;b&gt;[Tên Google Sheet] - [Tên tab].csv&lt;/b&gt;. Mỗi file được nhập vào tab tương ứng; tab chưa có sẽ được tạo mới.&lt;/p&gt;&lt;h3&gt;MỘT SHEET&lt;/h3&gt;&lt;p&gt;Nhập tên tab trong card Google Sheet đích. Ứng dụng chỉ dùng &lt;b&gt;file nằm trên cùng&lt;/b&gt; trong danh sách CSV; các file phía dưới không được nhập.&lt;/p&gt;&lt;h3&gt;MẶC ĐỊNH&lt;/h3&gt;&lt;p&gt;Dòng đầu CSV luôn được xem là tiêu đề và tab đích luôn bị thay thế toàn bộ dữ liệu hiện tại.&lt;/p&gt;&lt;h3&gt;CẬP NHẬT ỨNG DỤNG&lt;/h3&gt;&lt;p&gt;Trong bản EXE, mở &lt;b&gt;Cài đặt → Cập nhật&lt;/b&gt; để kiểm tra GitHub Releases, tải bản mới, xác minh SHA-256 và tự khởi động lại.&lt;/p&gt;</string>
+           </property>
+           <property name="openExternalLinks">
+            <bool>true</bool>
+           </property>
+           <property name="frameShape">
+            <enum>QFrame::Shape::NoFrame</enum>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QFrame" name="helpNotePanel">
+        <layout class="QHBoxLayout" name="helpNoteLayout">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>10</number>
+         </property>
+         <property name="topMargin">
+          <number>8</number>
+         </property>
+         <property name="rightMargin">
+          <number>10</number>
+         </property>
+         <property name="bottomMargin">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="helpNoteIconLabel">
+           <property name="minimumSize">
+            <size>
+             <width>24</width>
+             <height>24</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>24</width>
+             <height>24</height>
+            </size>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignmentFlag::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="helpNoteLabel">
+           <property name="text">
+            <string>Có thể chỉnh sửa toàn bộ bố cục bằng Qt Designer mà không cần biên dịch lại file .ui.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="footerLayout">
+        <item>
+         <spacer name="footerSpacer">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QPushButton" name="closeButton">
+          <property name="minimumSize">
+           <size>
+            <width>125</width>
+            <height>38</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Đã hiểu</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources />
+ <connections />
+</ui>
