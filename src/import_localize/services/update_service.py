@@ -380,14 +380,49 @@ function Write-UpdateLog([string]$Message) {
 }
 
 function Invoke-Robocopy([string]$From, [string]$To) {
-    New-Item -ItemType Directory -Path $To -Force | Out-Null
-    $Process = Start-Process -FilePath 'robocopy.exe' -ArgumentList @(
-        $From, $To, '/MIR', '/COPY:DAT', '/DCOPY:DAT', '/R:4', '/W:1',
-        '/XJ', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'
-    ) -Wait -PassThru -WindowStyle Hidden
-    if ($Process.ExitCode -gt 7) {
-        throw "Robocopy failed with exit code $($Process.ExitCode)"
+    if (-not (Test-Path -LiteralPath $From)) {
+        throw "Robocopy source does not exist: $From"
     }
+
+    New-Item -ItemType Directory -Path $To -Force | Out-Null
+    Write-UpdateLog "Robocopy: '$From' -> '$To'"
+
+    # Do not use Start-Process -ArgumentList here. Start-Process joins the
+    # argument array into one command line and can split paths containing
+    # spaces, which makes Robocopy return fatal exit code 16. Calling the
+    # executable directly with an argument array preserves each path.
+    $Arguments = @(
+        $From,
+        $To,
+        '/MIR',
+        '/COPY:DAT',
+        '/DCOPY:DAT',
+        '/R:3',
+        '/W:1',
+        '/XJ',
+        '/FFT',
+        '/NFL',
+        '/NDL',
+        '/NJH',
+        '/NJS',
+        '/NP'
+    )
+
+    $Output = & robocopy.exe @Arguments 2>&1
+    $ExitCode = $LASTEXITCODE
+
+    foreach ($Line in $Output) {
+        if ($null -ne $Line -and $Line.ToString().Trim()) {
+            Write-UpdateLog ("Robocopy: " + $Line.ToString().Trim())
+        }
+    }
+
+    # Robocopy codes 0..7 are success/warning states. Codes >= 8 are errors.
+    if ($ExitCode -gt 7) {
+        throw "Robocopy failed with exit code $ExitCode. Source='$From'; Destination='$To'"
+    }
+
+    Write-UpdateLog "Robocopy completed with exit code $ExitCode."
 }
 
 function Test-TargetWritable {
