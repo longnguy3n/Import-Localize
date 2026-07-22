@@ -121,11 +121,14 @@ QFrame#targetInnerPanel {
 }
 
 QLabel#sheetUrlLabel,
+QLabel#targetModeLabel,
+QLabel#singleSheetNameLabel,
+QLabel#valueInputLabel,
 QLabel#sheetNameLabel,
 QLabel#importModeLabel,
 QLabel#optionsLabel {
-    color: #445950;
-    font-weight: 600;
+    color: #3f544b;
+    font-weight: 700;
 }
 
 QLineEdit,
@@ -147,6 +150,10 @@ QComboBox {
     padding: 0 9px;
 }
 
+QComboBox {
+    padding-right: 26px;
+}
+
 QLineEdit:focus,
 QComboBox:focus,
 QPlainTextEdit:focus,
@@ -161,8 +168,17 @@ QComboBox:disabled {
 }
 
 QComboBox::drop-down {
-    width: 24px;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 28px;
     border: none;
+    padding-right: 6px;
+}
+
+QComboBox::down-arrow {
+    image: url(__ICON_CHEVRON_DOWN__);
+    width: 12px;
+    height: 12px;
 }
 
 QComboBox QAbstractItemView {

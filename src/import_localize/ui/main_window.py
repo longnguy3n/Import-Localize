@@ -45,7 +45,7 @@ from import_localize.app.constants import (
     MIN_WINDOW_HEIGHT,
     MIN_WINDOW_WIDTH,
 )
-from import_localize.app.paths import FORMS_DIR, IMAGES_DIR, THEMES_DIR
+from import_localize.app.paths import FORMS_DIR, ICONS_DIR, IMAGES_DIR, THEMES_DIR
 from import_localize.config.settings import SettingsRepository
 from import_localize.models.import_job import CsvFileInfo, ImportJob
 from import_localize.services.csv_service import (
@@ -490,7 +490,10 @@ class MainWindow(QMainWindow):
         theme = "dark" if name == "dark" else "light"
         path = THEMES_DIR / f"{theme}.qss"
         try:
-            self.setStyleSheet(path.read_text(encoding="utf-8"))
+            stylesheet = path.read_text(encoding="utf-8")
+            combo_arrow = (ICONS_DIR / "chevron-down.svg").resolve().as_posix()
+            stylesheet = stylesheet.replace("__ICON_CHEVRON_DOWN__", combo_arrow)
+            self.setStyleSheet(stylesheet)
         except OSError:
             self.setStyleSheet("")
         self.settings.theme = theme

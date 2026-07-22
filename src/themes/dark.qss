@@ -119,11 +119,14 @@ QFrame#targetInnerPanel {
 }
 
 QLabel#sheetUrlLabel,
+QLabel#targetModeLabel,
+QLabel#singleSheetNameLabel,
+QLabel#valueInputLabel,
 QLabel#sheetNameLabel,
 QLabel#importModeLabel,
 QLabel#optionsLabel {
-    color: #b6c7bf;
-    font-weight: 600;
+    color: #b8c8c0;
+    font-weight: 700;
 }
 
 QLineEdit,
@@ -143,6 +146,10 @@ QLineEdit,
 QComboBox {
     min-height: 34px;
     padding: 0 9px;
+}
+
+QComboBox {
+    padding-right: 26px;
 }
 
 QLineEdit:focus,

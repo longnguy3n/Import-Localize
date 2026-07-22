@@ -2,7 +2,7 @@
 <ui version="4.0">
  <class>SettingsForm</class>
  <widget class="QWidget" name="SettingsForm">
-  <property name="geometry"><rect><x>0</x><y>0</y><width>590</width><height>650</height></rect></property>
+  <property name="geometry"><rect><x>0</x><y>0</y><width>720</width><height>740</height></rect></property>
   <layout class="QVBoxLayout" name="outsideLayout">
    <property name="spacing"><number>0</number></property>
    <property name="leftMargin"><number>18</number></property>
@@ -33,7 +33,7 @@
         <widget class="QWidget" name="googleTab">
          <attribute name="title"><string>Google Sheets</string></attribute>
          <layout class="QVBoxLayout" name="googleTabLayout">
-          <property name="spacing"><number>12</number></property><property name="leftMargin"><number>2</number></property><property name="topMargin"><number>12</number></property><property name="rightMargin"><number>2</number></property><property name="bottomMargin"><number>4</number></property>
+          <property name="spacing"><number>14</number></property><property name="leftMargin"><number>4</number></property><property name="topMargin"><number>14</number></property><property name="rightMargin"><number>4</number></property><property name="bottomMargin"><number>6</number></property>
           <item>
            <widget class="QFrame" name="oauthClientCard">
             <layout class="QVBoxLayout" name="oauthClientLayout">
@@ -60,7 +60,7 @@
         <widget class="QWidget" name="updateTab">
          <attribute name="title"><string>Cập nhật</string></attribute>
          <layout class="QVBoxLayout" name="updateTabLayout">
-          <property name="spacing"><number>12</number></property><property name="leftMargin"><number>2</number></property><property name="topMargin"><number>12</number></property><property name="rightMargin"><number>2</number></property><property name="bottomMargin"><number>4</number></property>
+          <property name="spacing"><number>14</number></property><property name="leftMargin"><number>4</number></property><property name="topMargin"><number>14</number></property><property name="rightMargin"><number>4</number></property><property name="bottomMargin"><number>6</number></property>
           <item>
            <widget class="QFrame" name="updateSourceCard">
             <layout class="QVBoxLayout" name="updateSourceLayout">
@@ -76,9 +76,9 @@
              <property name="spacing"><number>8</number></property><property name="leftMargin"><number>14</number></property><property name="topMargin"><number>12</number></property><property name="rightMargin"><number>14</number></property><property name="bottomMargin"><number>12</number></property>
              <item><layout class="QGridLayout" name="versionGrid"><property name="horizontalSpacing"><number>10</number></property><property name="verticalSpacing"><number>6</number></property><item row="0" column="0"><widget class="QLabel" name="currentVersionLabel"><property name="text"><string>Phiên bản hiện tại</string></property></widget></item><item row="0" column="1"><widget class="QLabel" name="currentVersionValueLabel"><property name="text"><string>v0.0.0</string></property></widget></item><item row="1" column="0"><widget class="QLabel" name="latestVersionLabel"><property name="text"><string>Phiên bản mới nhất</string></property></widget></item><item row="1" column="1"><widget class="QLabel" name="latestVersionValueLabel"><property name="text"><string>Chưa kiểm tra</string></property></widget></item></layout></item>
              <item><widget class="QLabel" name="updateStatusLabel"><property name="text"><string>Nhấn Kiểm tra cập nhật để tìm bản mới.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-             <item><widget class="QProgressBar" name="updateProgressBar"><property name="value"><number>0</number></property><property name="textVisible"><bool>true</bool></property></widget></item>
-             <item><widget class="QPlainTextEdit" name="releaseNotesEdit"><property name="minimumSize"><size><width>0</width><height>105</height></size></property><property name="maximumSize"><size><width>16777215</width><height>140</height></size></property><property name="readOnly"><bool>true</bool></property><property name="placeholderText"><string>Ghi chú phát hành sẽ hiển thị tại đây.</string></property></widget></item>
-             <item><layout class="QHBoxLayout" name="updateButtonsLayout"><property name="spacing"><number>8</number></property><item><widget class="QPushButton" name="openReleaseButton"><property name="text"><string>Mở trang Release</string></property></widget></item><item><spacer name="updateButtonsSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="checkUpdateButton"><property name="minimumSize"><size><width>142</width><height>36</height></size></property><property name="text"><string>Kiểm tra cập nhật</string></property></widget></item><item><widget class="QPushButton" name="installUpdateButton"><property name="minimumSize"><size><width>172</width><height>38</height></size></property><property name="text"><string>Tải và cài đặt</string></property><property name="enabled"><bool>false</bool></property></widget></item></layout></item>
+             <item><widget class="QProgressBar" name="updateProgressBar"><property name="minimumSize"><size><width>0</width><height>14</height></size></property><property name="maximumSize"><size><width>16777215</width><height>14</height></size></property><property name="value"><number>0</number></property><property name="textVisible"><bool>false</bool></property></widget></item>
+             <item><widget class="QPlainTextEdit" name="releaseNotesEdit"><property name="minimumSize"><size><width>0</width><height>160</height></size></property><property name="maximumSize"><size><width>16777215</width><height>220</height></size></property><property name="readOnly"><bool>true</bool></property><property name="placeholderText"><string>Ghi chú phát hành sẽ hiển thị tại đây.</string></property></widget></item>
+             <item><layout class="QHBoxLayout" name="updateButtonsLayout"><property name="spacing"><number>8</number></property><item><widget class="QPushButton" name="openReleaseButton"><property name="text"><string>Mở trang Release</string></property></widget></item><item><spacer name="updateButtonsSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="checkUpdateButton"><property name="minimumSize"><size><width>156</width><height>38</height></size></property><property name="text"><string>Kiểm tra cập nhật</string></property></widget></item><item><widget class="QPushButton" name="installUpdateButton"><property name="minimumSize"><size><width>184</width><height>40</height></size></property><property name="text"><string>Tải và cài đặt</string></property><property name="enabled"><bool>false</bool></property></widget></item></layout></item>
             </layout>
            </widget>
           </item>

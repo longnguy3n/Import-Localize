@@ -70,7 +70,31 @@
           <height>48</height>
          </size>
         </property>
-        <property name="text">
+        
+                    <property name="font">
+                     <font>
+                      <bold>true</bold>
+                     </font>
+                    </property>
+                    
+                    <property name="font">
+                     <font>
+                      <bold>true</bold>
+                     </font>
+                    </property>
+                    
+                    <property name="font">
+                     <font>
+                      <bold>true</bold>
+                     </font>
+                    </property>
+                    
+                    <property name="font">
+                     <font>
+                      <bold>true</bold>
+                     </font>
+                    </property>
+                    <property name="text">
          <string />
         </property>
         <property name="alignment">
@@ -151,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.1.1</string>
+         <string>v1.1.2</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>

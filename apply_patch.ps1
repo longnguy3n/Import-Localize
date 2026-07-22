@@ -11,7 +11,7 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.6.2_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.6.3_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
@@ -61,6 +61,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.6.2." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.6.3." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
 Write-Host "Cần build và phát hành v1.6.2 thủ công một lần để các máy nhận updater mới." -ForegroundColor Yellow
