@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import threading
 
 from PySide6.QtCore import QUrl, Qt, QSize
 from PySide6.QtGui import QColor, QDesktopServices, QShowEvent
@@ -90,8 +92,10 @@ class SettingsDialog(_DesignerDialog):
     def __init__(self, parent=None, *, initial_tab: str = "google"):
         super().__init__(parent)
         self._configure_window("Cài đặt — Import Localize")
-        self.setMinimumWidth(570)
-        self.setMaximumWidth(650)
+        self.setMinimumWidth(700)
+        self.setMaximumWidth(860)
+        self.setMinimumHeight(700)
+        self.setMaximumHeight(860)
 
         self.settings_repository = SettingsRepository()
         self.settings = self.settings_repository.load()
@@ -476,7 +480,18 @@ class SettingsDialog(_DesignerDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Không thể chạy cập nhật", str(exc))
             return
-        QApplication.instance().quit()
+
+        # The updater has confirmed that it is alive and can write to the
+        # installation folder. Close Qt normally, but keep a short force-exit
+        # fallback so the external updater is never left waiting forever on a
+        # hidden Python/Qt process.
+        app = QApplication.instance()
+        force_exit = threading.Timer(3.0, lambda: os._exit(0))
+        force_exit.daemon = True
+        force_exit.start()
+        if app is not None:
+            app.closeAllWindows()
+            app.quit()
 
     def open_release_page(self) -> None:
         if self.latest_release and self.latest_release.html_url:
@@ -526,8 +541,10 @@ class HelpDialog(_DesignerDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._configure_window("Hướng dẫn — Import Localize")
-        self.setMinimumWidth(520)
-        self.setMaximumWidth(600)
+        self.setMinimumWidth(740)
+        self.setMaximumWidth(980)
+        self.setMinimumHeight(660)
+        self.setMaximumHeight(860)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

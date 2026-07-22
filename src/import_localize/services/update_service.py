@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -349,68 +350,179 @@ def _write_apply_script(
     target_dir: Path,
     release: UpdateRelease,
 ) -> Path:
-    script = staging_dir / "apply_update.ps1"
-    content = f"""
-$ErrorActionPreference = 'Stop'
-$PidToWait = {os.getpid()}
-$SourceDir = {_ps_quote(payload_dir)}
-$TargetDir = {_ps_quote(target_dir)}
-$BackupDir = "$TargetDir.update-backup"
-$ExePath = Join-Path $TargetDir 'Import_Localize.exe'
-$LogPath = Join-Path {_ps_quote(staging_dir)} 'update_apply.log'
+    """Create a self-contained updater that survives the application exit.
 
-function Write-UpdateLog([string]$Message) {{
+    The script performs a write-permission probe before acknowledging startup.
+    When the installation directory requires administrator rights, it relaunches
+    itself with UAC and only creates the ready flag after elevation succeeds.
+    """
+    script = staging_dir / "apply_update.ps1"
+    ready_path = staging_dir / "updater_ready.flag"
+    log_path = staging_dir / "update_apply.log"
+    result_path = staging_dir / "update_result.txt"
+
+    template = r'''param([switch]$Elevated)
+$ErrorActionPreference = 'Stop'
+$PidToWait = __PID_TO_WAIT__
+$SourceDir = __SOURCE_DIR__
+$TargetDir = __TARGET_DIR__
+$StagingDir = __STAGING_DIR__
+$BackupDir = Join-Path $StagingDir 'backup_current'
+$ExePath = Join-Path $TargetDir '__EXE_NAME__'
+$ReadyPath = __READY_PATH__
+$LogPath = __LOG_PATH__
+$ResultPath = __RESULT_PATH__
+$BackupReady = $false
+
+function Write-UpdateLog([string]$Message) {
     $Line = "$(Get-Date -Format o) $Message"
     Add-Content -Path $LogPath -Value $Line -Encoding UTF8
-}}
+}
 
-function Invoke-Robocopy([string]$From, [string]$To) {{
+function Invoke-Robocopy([string]$From, [string]$To) {
     New-Item -ItemType Directory -Path $To -Force | Out-Null
     $Process = Start-Process -FilePath 'robocopy.exe' -ArgumentList @(
-        $From, $To, '/MIR', '/R:3', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'
+        $From, $To, '/MIR', '/COPY:DAT', '/DCOPY:DAT', '/R:4', '/W:1',
+        '/XJ', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'
     ) -Wait -PassThru -WindowStyle Hidden
-    if ($Process.ExitCode -gt 7) {{
+    if ($Process.ExitCode -gt 7) {
         throw "Robocopy failed with exit code $($Process.ExitCode)"
-    }}
-}}
+    }
+}
 
-try {{
-    Write-UpdateLog 'Waiting for application to exit.'
-    while (Get-Process -Id $PidToWait -ErrorAction SilentlyContinue) {{
-        Start-Sleep -Milliseconds 300
-    }}
+function Test-TargetWritable {
+    $Probe = Join-Path $TargetDir ('.update_probe_' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        [System.IO.File]::WriteAllText($Probe, 'probe')
+        Remove-Item $Probe -Force
+        return $true
+    } catch {
+        try { if (Test-Path $Probe) { Remove-Item $Probe -Force } } catch {}
+        return $false
+    }
+}
 
-    if (Test-Path $BackupDir) {{ Remove-Item $BackupDir -Recurse -Force }}
-    Write-UpdateLog 'Creating backup.'
+function Start-ElevatedUpdater {
+    Write-UpdateLog 'Installation folder needs administrator permission; requesting UAC.'
+    $Arguments = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ('"' + $PSCommandPath + '"'),
+        '-Elevated'
+    )
+    try {
+        $ElevatedProcess = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList $Arguments -WorkingDirectory $StagingDir `
+            -Verb RunAs -PassThru
+    } catch {
+        throw "Administrator permission was not granted: $($_.Exception.Message)"
+    }
+
+    $Deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $Deadline) {
+        if (Test-Path $ReadyPath) { return }
+        if ($ElevatedProcess.HasExited) {
+            throw "Elevated updater exited before it was ready (code $($ElevatedProcess.ExitCode))."
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    throw 'Timed out while waiting for administrator permission.'
+}
+
+try {
+    Remove-Item $ReadyPath -Force -ErrorAction SilentlyContinue
+    Remove-Item $ResultPath -Force -ErrorAction SilentlyContinue
+    Write-UpdateLog "Updater started. Elevated=$Elevated"
+
+    if (-not (Test-TargetWritable)) {
+        if ($Elevated) {
+            throw "The installation folder is still not writable after elevation: $TargetDir"
+        }
+        Start-ElevatedUpdater
+        exit 0
+    }
+
+    Set-Content -Path $ReadyPath -Value 'ready' -Encoding ASCII
+    Write-UpdateLog 'Updater is ready; waiting for the application to exit.'
+
+    $ExitDeadline = (Get-Date).AddSeconds(25)
+    while (Get-Process -Id $PidToWait -ErrorAction SilentlyContinue) {
+        if ((Get-Date) -ge $ExitDeadline) {
+            Write-UpdateLog 'Application did not exit in time; forcing it to close.'
+            Stop-Process -Id $PidToWait -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 800
+            break
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    if (Test-Path $BackupDir) { Remove-Item $BackupDir -Recurse -Force }
+    Write-UpdateLog 'Creating a full backup in the update cache.'
     Invoke-Robocopy $TargetDir $BackupDir
+    $BackupReady = $true
 
-    Write-UpdateLog 'Installing version {release.version}.'
+    Write-UpdateLog 'Installing version __RELEASE_VERSION__.'
     Invoke-Robocopy $SourceDir $TargetDir
 
-    if (-not (Test-Path $ExePath)) {{ throw 'Updated executable is missing.' }}
-    Write-UpdateLog 'Update completed; restarting application.'
-    Start-Process -FilePath $ExePath -WorkingDirectory $TargetDir
-}} catch {{
-    Write-UpdateLog "Update failed: $($_.Exception.Message)"
-    if (Test-Path $BackupDir) {{
-        try {{
-            Invoke-Robocopy $BackupDir $TargetDir
-            if (Test-Path $ExePath) {{ Start-Process -FilePath $ExePath -WorkingDirectory $TargetDir }}
-        }} catch {{
-            Write-UpdateLog "Rollback failed: $($_.Exception.Message)"
-        }}
-    }}
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show(
-        "Không thể cài bản cập nhật. Ứng dụng đã thử khôi phục bản cũ.`n`nLog: $LogPath",
-        'Import Localize Update'
-    ) | Out-Null
-    exit 1
-}}
-""".strip()
-    script.write_text(content + "\n", encoding="utf-8-sig")
-    return script
+    if (-not (Test-Path $ExePath)) {
+        throw "Updated executable is missing: $ExePath"
+    }
 
+    Write-UpdateLog 'Starting the updated application.'
+    $Started = Start-Process -FilePath $ExePath -WorkingDirectory $TargetDir -PassThru
+    Start-Sleep -Seconds 2
+    if ($Started.HasExited) {
+        throw "The updated application exited immediately with code $($Started.ExitCode)."
+    }
+
+    Set-Content -Path $ResultPath -Value 'success' -Encoding UTF8
+    Write-UpdateLog 'Update completed successfully.'
+    if (Test-Path $BackupDir) { Remove-Item $BackupDir -Recurse -Force }
+} catch {
+    $Failure = $_.Exception.Message
+    Write-UpdateLog "Update failed: $Failure"
+    Set-Content -Path $ResultPath -Value ("failed: " + $Failure) -Encoding UTF8
+
+    if ($BackupReady -and (Test-Path $BackupDir)) {
+        try {
+            Write-UpdateLog 'Restoring the previous version.'
+            Invoke-Robocopy $BackupDir $TargetDir
+            if (Test-Path $ExePath) {
+                Start-Process -FilePath $ExePath -WorkingDirectory $TargetDir | Out-Null
+            }
+            Write-UpdateLog 'Rollback completed.'
+        } catch {
+            Write-UpdateLog "Rollback failed: $($_.Exception.Message)"
+        }
+    }
+
+    try {
+        Add-Type -AssemblyName PresentationFramework
+        [System.Windows.MessageBox]::Show(
+            "Không thể cài bản cập nhật.`n`n$Failure`n`nLog: $LogPath",
+            'Import Localize Update'
+        ) | Out-Null
+    } catch {}
+    exit 1
+}
+'''
+
+    replacements = {
+        "__PID_TO_WAIT__": str(os.getpid()),
+        "__SOURCE_DIR__": _ps_quote(payload_dir),
+        "__TARGET_DIR__": _ps_quote(target_dir),
+        "__STAGING_DIR__": _ps_quote(staging_dir),
+        "__EXE_NAME__": Path(sys.executable).name,
+        "__READY_PATH__": _ps_quote(ready_path),
+        "__LOG_PATH__": _ps_quote(log_path),
+        "__RESULT_PATH__": _ps_quote(result_path),
+        "__RELEASE_VERSION__": release.version,
+    }
+    content = template
+    for marker, value in replacements.items():
+        content = content.replace(marker, value)
+    script.write_text(content.strip() + "\n", encoding="utf-8-sig")
+    return script
 
 def prepare_update(
     release: UpdateRelease,
@@ -469,16 +581,37 @@ def prepare_update(
     return PreparedUpdate(release=release, script_path=script, staging_dir=staging_dir)
 
 
+def _update_log_tail(staging_dir: Path, *, max_chars: int = 2500) -> str:
+    log_path = staging_dir / "update_apply.log"
+    try:
+        content = log_path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return ""
+    return content[-max_chars:].strip()
+
+
 def launch_prepared_update(update: PreparedUpdate) -> None:
+    """Launch the external updater and wait for its ready handshake."""
     if not update.script_path.is_file():
         raise UpdateError("Không tìm thấy kịch bản cài đặt bản cập nhật.")
+
+    ready_path = update.staging_dir / "updater_ready.flag"
+    result_path = update.staging_dir / "update_result.txt"
+    ready_path.unlink(missing_ok=True)
+    result_path.unlink(missing_ok=True)
+
     creation_flags = 0
+    startupinfo = None
     if sys.platform.startswith("win"):
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-            subprocess, "DETACHED_PROCESS", 0
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
         )
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        startupinfo.wShowWindow = 0
+
     try:
-        subprocess.Popen(
+        process = subprocess.Popen(
             [
                 "powershell.exe",
                 "-NoProfile",
@@ -490,6 +623,33 @@ def launch_prepared_update(update: PreparedUpdate) -> None:
             cwd=str(update.staging_dir),
             close_fds=True,
             creationflags=creation_flags,
+            startupinfo=startupinfo,
         )
     except OSError as exc:
         raise UpdateError(f"Không thể khởi chạy trình cài cập nhật: {exc}") from exc
+
+    deadline = time.monotonic() + 65.0
+    while time.monotonic() < deadline:
+        if ready_path.is_file():
+            return
+        exit_code = process.poll()
+        if exit_code is not None:
+            detail = _update_log_tail(update.staging_dir)
+            suffix = f"\n\nChi tiết:\n{detail}" if detail else ""
+            raise UpdateError(
+                "Trình cài cập nhật đã dừng trước khi sẵn sàng "
+                f"(mã {exit_code}).{suffix}"
+            )
+        time.sleep(0.15)
+
+    try:
+        process.terminate()
+    except OSError:
+        pass
+    detail = _update_log_tail(update.staging_dir)
+    suffix = f"\n\nChi tiết:\n{detail}" if detail else ""
+    raise UpdateError(
+        "Trình cài cập nhật không phản hồi. Hãy kiểm tra cửa sổ UAC hoặc quyền "
+        f"ghi vào thư mục cài đặt.{suffix}"
+    )
+
