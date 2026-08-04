@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QGraphicsDropShadowEffect,
     QGridLayout,
     QHeaderView,
@@ -47,7 +48,7 @@ from import_localize.app.constants import (
 )
 from import_localize.app.paths import FORMS_DIR, ICONS_DIR, IMAGES_DIR, THEMES_DIR
 from import_localize.config.settings import SettingsRepository
-from import_localize.models.import_job import CsvFileInfo, ImportJob
+from import_localize.models.import_job import CsvFileInfo, FillOptions, ImportJob
 from import_localize.services.csv_service import (
     CsvImportError,
     format_size,
@@ -57,9 +58,10 @@ from import_localize.services.csv_service import (
 from import_localize.services.google_service import oauth_configuration_status
 from import_localize.services.update_service import UpdateRelease, is_newer_version
 from import_localize.ui.assets import icon, load_logo, set_button_icon
-from import_localize.ui.dialogs import HelpDialog, SettingsDialog
+from import_localize.ui.dialogs import FillDataDialog, HelpDialog, SettingsDialog
 from import_localize.ui.ui_loader import load_ui, require_object
 from import_localize.ui.widgets import BottomAlignedLogView
+from import_localize.workers.export_tabs_worker import ExportTabsWorker
 from import_localize.workers.import_worker import ImportWorker
 from import_localize.workers.translate_fill_worker import TranslateFillWorker
 from import_localize.workers.update_worker import UpdateCheckWorker
@@ -75,7 +77,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings_repository = SettingsRepository()
         self.settings = self.settings_repository.load()
-        self.worker: ImportWorker | TranslateFillWorker | None = None
+        self.worker: ImportWorker | TranslateFillWorker | ExportTabsWorker | None = None
         self._active_operation = ""
         self.update_check_worker: UpdateCheckWorker | None = None
         self.file_infos: dict[str, CsvFileInfo] = {}
@@ -134,6 +136,19 @@ class MainWindow(QMainWindow):
         self.action_icon_label = require_object(root, "actionIconLabel", QLabel)
         self.log_icon_label = require_object(root, "logIconLabel", QLabel)
 
+        self.files_header_layout = require_object(root, "filesHeaderLayout", QHBoxLayout)
+        self.target_header_layout = require_object(root, "targetHeaderLayout", QHBoxLayout)
+        self.action_header_layout = require_object(root, "actionHeaderLayout", QHBoxLayout)
+        self.log_header_layout = require_object(root, "logHeaderLayout", QHBoxLayout)
+        self.files_title_layout = require_object(root, "filesTitleLayout", QVBoxLayout)
+        self.target_title_layout = require_object(root, "targetTitleLayout", QVBoxLayout)
+        self.action_title_layout = require_object(root, "actionTitleLayout", QVBoxLayout)
+        self.log_title_layout = require_object(root, "logTitleLayout", QVBoxLayout)
+        self.files_subtitle_label = require_object(root, "filesSubtitleLabel", QLabel)
+        self.target_subtitle_label = require_object(root, "targetSubtitleLabel", QLabel)
+        self.action_subtitle_label = require_object(root, "actionSubtitleLabel", QLabel)
+        self.log_subtitle_label = require_object(root, "logSubtitleLabel", QLabel)
+
         self.file_table = require_object(root, "fileTable", QTableWidget)
         self.add_files_button = require_object(root, "addFilesButton", QPushButton)
         self.move_up_button = require_object(root, "moveUpButton", QPushButton)
@@ -154,11 +169,11 @@ class MainWindow(QMainWindow):
             root, "singleSheetNameEdit", QLineEdit
         )
         self.value_input_combo = require_object(root, "valueInputCombo", QComboBox)
-        self.target_subtitle_label = require_object(
-            root, "targetSubtitleLabel", QLabel
-        )
         self.fill_translate_data_button = require_object(
             root, "fillTranslateDataButton", QPushButton
+        )
+        self.download_export_tabs_button = require_object(
+            root, "downloadExportTabsButton", QPushButton
         )
 
         self.start_button = require_object(root, "startButton", QPushButton)
@@ -197,6 +212,7 @@ class MainWindow(QMainWindow):
         set_button_icon(self.clear_files_button, "trash", 15)
         set_button_icon(self.clear_log_button, "trash", 15)
         set_button_icon(self.fill_translate_data_button, "sheet", 16)
+        set_button_icon(self.download_export_tabs_button, "download", 16)
         set_button_icon(self.start_button, "upload", 17)
         set_button_icon(self.stop_button, "stop", 15)
 
@@ -207,6 +223,8 @@ class MainWindow(QMainWindow):
             self.log_card,
         ):
             self._apply_card_shadow(card)
+
+        self._configure_card_headers()
 
         self.file_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -250,6 +268,32 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding,
         )
 
+    def _configure_card_headers(self) -> None:
+        """Cho phép phần mô tả dưới tiêu đề card co giãn theo bề ngang cửa sổ."""
+        for subtitle in (
+            self.files_subtitle_label,
+            self.target_subtitle_label,
+            self.action_subtitle_label,
+            self.log_subtitle_label,
+        ):
+            subtitle.setWordWrap(True)
+            subtitle.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Preferred,
+            )
+
+        # Kéo rộng phần title/subtitle thay vì giữ kích thước theo sizeHint.
+        self.files_header_layout.setStretch(1, 1)
+        self.files_header_layout.setStretch(2, 1)
+        self.target_header_layout.setStretch(1, 1)
+        self.action_header_layout.setStretch(1, 1)
+        self.log_header_layout.setStretch(1, 1)
+
+        self.file_summary_label.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
+
     def _connect_signals(self) -> None:
         self.add_files_button.clicked.connect(self.choose_csv_files)
         self.move_up_button.clicked.connect(lambda: self.move_selected_files(-1))
@@ -260,6 +304,9 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self.start_import)
         self.fill_translate_data_button.clicked.connect(
             self.start_fill_translate_data
+        )
+        self.download_export_tabs_button.clicked.connect(
+            self.start_download_export_tabs
         )
         self.stop_button.clicked.connect(self.stop_current_action)
         self.clear_log_button.clicked.connect(self.log_edit.clear)
@@ -917,7 +964,7 @@ class MainWindow(QMainWindow):
             return
 
         self.save_settings()
-        self.log_edit.clear()
+        self._begin_log_section("IMPORT CSV")
         if job.target_mode == "single":
             self.append_log(
                 "INFO",
@@ -946,7 +993,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Link không hợp lệ",
-                "Hãy nhập đúng link Google Sheet trước khi chạy Fill Translate_Data.",
+                "Hãy nhập đúng link Google Sheet trước khi chạy thao tác.",
             )
             self.sheet_url_edit.setFocus()
             return None
@@ -969,19 +1016,77 @@ class MainWindow(QMainWindow):
         if not url:
             return
 
+        initial_options = FillOptions(
+            sheet_name=self.settings.fill_sheet_name or "Translate_Data",
+            source_row=max(1, int(self.settings.fill_source_row or 2)),
+            columns=self.settings.fill_columns or "D:I",
+            reference_column=self.settings.fill_reference_column or "A",
+        )
+        dialog = FillDataDialog(initial_options, self)
+        dialog.setStyleSheet(self.styleSheet())
+        if not dialog.exec():
+            return
+        options = dialog.options
+
+        self.settings.fill_sheet_name = options.sheet_name
+        self.settings.fill_source_row = options.source_row
+        self.settings.fill_columns = options.columns
+        self.settings.fill_reference_column = options.reference_column
         self.save_settings()
-        self.log_edit.clear()
+
+        self._begin_log_section("FILL DỮ LIỆU")
         self.append_log(
             "INFO",
-            "Bắt đầu Fill Translate_Data độc lập: sao chép D2:I2 xuống "
-            "đến hàng dữ liệu cuối xác định theo cột A:C.",
+            f"Bắt đầu Fill độc lập trên tab '{options.sheet_name}': "
+            f"hàng nguồn {options.source_row}, cột {options.columns}, "
+            f"hàng cuối theo cột {options.reference_column}.",
         )
         self._active_operation = "fill"
         self.set_running(True)
         self.progress_bar.setValue(0)
-        self.progress_label.setText("Đang chuẩn bị Fill Translate_Data")
+        self.progress_label.setText(f"Đang chuẩn bị Fill tab {options.sheet_name}")
 
-        worker = TranslateFillWorker(url, self)
+        worker = TranslateFillWorker(url, options, self)
+        self.worker = worker
+        worker.progress_changed.connect(self.on_progress)
+        worker.log_emitted.connect(self.append_log)
+        worker.completed.connect(self.on_completed)
+        worker.finished.connect(self.on_worker_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def start_download_export_tabs(self) -> None:
+        if self.worker and self.worker.isRunning():
+            return
+        url = self._validate_sheet_action()
+        if not url:
+            return
+
+        initial_dir = self.settings.last_export_dir or str(Path.home())
+        output_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Chọn thư mục lưu các tab export_*",
+            initial_dir,
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if not output_dir:
+            return
+
+        self.settings.last_export_dir = output_dir
+        self.save_settings()
+        self._begin_log_section("TẢI TAB EXPORT_*")
+        self.append_log(
+            "INFO",
+            "Bắt đầu tải toàn bộ tab có tên bắt đầu bằng 'export_' dưới dạng "
+            "CSV trực tiếp từ bộ máy export của Google Sheets.",
+        )
+        self.append_log("INFO", f"Thư mục lưu: {output_dir}")
+        self._active_operation = "download"
+        self.set_running(True)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Đang chuẩn bị tải các tab export_*")
+
+        worker = ExportTabsWorker(url, output_dir, self)
         self.worker = worker
         worker.progress_changed.connect(self.on_progress)
         worker.log_emitted.connect(self.append_log)
@@ -998,8 +1103,13 @@ class MainWindow(QMainWindow):
             self.append_log("INFO", "Đã yêu cầu dừng thao tác.")
 
     def set_running(self, running: bool) -> None:
-        self.start_button.setEnabled(not running)
-        self.fill_translate_data_button.setEnabled(not running)
+        for button in (
+            self.start_button,
+            self.fill_translate_data_button,
+            self.download_export_tabs_button,
+        ):
+            button.setEnabled(not running)
+            button.setVisible(not running)
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(running)
         self.settings_button.setEnabled(not running)
@@ -1032,18 +1142,20 @@ class MainWindow(QMainWindow):
         )
         if success:
             self.progress_bar.setValue(100)
-            title = (
-                "Fill Translate_Data hoàn tất"
-                if operation == "fill"
-                else "Import hoàn tất"
-            )
+            if operation == "fill":
+                title = "Fill dữ liệu hoàn tất"
+            elif operation == "download":
+                title = "Tải CSV hoàn tất"
+            else:
+                title = "Import hoàn tất"
             QMessageBox.information(self, title, message)
         elif "dừng" not in message.casefold():
-            title = (
-                "Fill Translate_Data thất bại"
-                if operation == "fill"
-                else "Import thất bại"
-            )
+            if operation == "fill":
+                title = "Fill dữ liệu thất bại"
+            elif operation == "download":
+                title = "Tải CSV thất bại"
+            else:
+                title = "Import thất bại"
             QMessageBox.warning(self, title, message)
         self._active_operation = ""
 
@@ -1052,6 +1164,10 @@ class MainWindow(QMainWindow):
         if self._close_when_finished:
             self._close_when_finished = False
             self.close()
+
+    def _begin_log_section(self, title: str) -> None:
+        """Phân tách các tác vụ mà không xóa lịch sử log trong phiên hiện tại."""
+        self.append_log("INFO", f"──────── {title} ────────")
 
     def append_log(self, level: str, message: str) -> None:
         self.log_edit.append_entry(level, message)

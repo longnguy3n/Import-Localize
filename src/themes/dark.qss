@@ -131,6 +131,7 @@ QLabel#optionsLabel {
 
 QLineEdit,
 QComboBox,
+QSpinBox,
 QPlainTextEdit,
 QTextBrowser,
 QTableWidget {
@@ -143,7 +144,8 @@ QTableWidget {
 }
 
 QLineEdit,
-QComboBox {
+QComboBox,
+QSpinBox {
     min-height: 34px;
     padding: 0 9px;
 }
@@ -154,13 +156,15 @@ QComboBox {
 
 QLineEdit:focus,
 QComboBox:focus,
+QSpinBox:focus,
 QPlainTextEdit:focus,
 QTableWidget:focus {
     border: 1px solid #27b579;
 }
 
 QLineEdit:disabled,
-QComboBox:disabled {
+QComboBox:disabled,
+QSpinBox:disabled {
     color: #6f8178;
     background: #17201c;
 }
@@ -496,19 +500,60 @@ QFrame#helpSection {
 
 
 
-QPushButton#fillTranslateDataButton {
+QPushButton#fillTranslateDataButton,
+QPushButton#downloadExportTabsButton {
     color: #77e2ae;
     background: #19392d;
     border: 1px solid #3f765f;
     font-weight: 700;
 }
 
-QPushButton#fillTranslateDataButton:hover {
+QPushButton#fillTranslateDataButton:hover,
+QPushButton#downloadExportTabsButton:hover {
     color: #9aebc4;
     background: #204a3a;
     border-color: #58a981;
 }
 
-QPushButton#fillTranslateDataButton:pressed {
+QPushButton#fillTranslateDataButton:pressed,
+QPushButton#downloadExportTabsButton:pressed {
     background: #183c2f;
 }
+
+
+/* Configurable Fill dialog */
+QWidget#FillDataForm { background: transparent; }
+QFrame#fillSettingsCard {
+    background: #17231e;
+    border: 1px solid #2b3b34;
+    border-radius: 9px;
+}
+QFrame#warningPanel {
+    background: #332d1d;
+    border: 1px solid #5b4d28;
+    border-radius: 8px;
+}
+QLabel#sheetNameLabel,
+QLabel#sourceRowLabel,
+QLabel#columnsLabel,
+QLabel#referenceColumnLabel {
+    color: #c0d0c8;
+    font-weight: 700;
+}
+QLabel#columnsHelperLabel,
+QLabel#warningLabel {
+    color: #94a69d;
+    font-size: 9.3pt;
+}
+QPushButton#fillButton {
+    color: #ffffff;
+    background: #0aa66a;
+    border-color: #0aa66a;
+    font-weight: 700;
+}
+QPushButton#fillButton:hover {
+    color: #ffffff;
+    background: #0cbb79;
+    border-color: #0cbb79;
+}
+QPushButton#cancelButton { background: #1c2923; }

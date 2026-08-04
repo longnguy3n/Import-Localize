@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.1.3</string>
+         <string>v1.7.2</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -382,6 +382,12 @@
                    </item>
                    <item>
                     <widget class="QLabel" name="filesSubtitleLabel">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                       <horstretch>1</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
                      <property name="minimumSize">
                       <size>
                        <width>0</width>
@@ -930,6 +936,12 @@
                 </item>
                 <item>
                  <widget class="QLabel" name="actionSubtitleLabel">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                    <horstretch>1</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
                   <property name="minimumSize">
                    <size>
                     <width>0</width>
@@ -937,7 +949,7 @@
                    </size>
                   </property>
                   <property name="text">
-                   <string>Import CSV hoặc chạy Fill Translate_Data độc lập</string>
+                   <string>Import CSV, Fill theo dòng/cột tùy chọn hoặc tải toàn bộ tab export_*</string>
                   </property>
                  </widget>
                 </item>
@@ -1026,13 +1038,13 @@
                <widget class="QPushButton" name="fillTranslateDataButton">
                 <property name="minimumSize">
                  <size>
-                  <width>210</width>
+                  <width>170</width>
                   <height>38</height>
                  </size>
                 </property>
                 <property name="maximumSize">
                  <size>
-                  <width>290</width>
+                  <width>230</width>
                   <height>16777215</height>
                  </size>
                 </property>
@@ -1040,7 +1052,29 @@
                  <string>Fill Translate_Data</string>
                 </property>
                 <property name="toolTip">
-                 <string>Sao chép D2:I2 xuống đến hàng dữ liệu cuối theo cột A:C trong tab Translate_Data.</string>
+                 <string>Mở thiết lập để chọn tab, hàng nguồn, các cột cần fill và cột xác định hàng cuối.</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="downloadExportTabsButton">
+                <property name="minimumSize">
+                 <size>
+                  <width>184</width>
+                  <height>38</height>
+                 </size>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>250</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>Tải các tab export_*</string>
+                </property>
+                <property name="toolTip">
+                 <string>Chọn thư mục và tải trực tiếp toàn bộ tab có tên bắt đầu bằng export_ dưới dạng CSV.</string>
                 </property>
                </widget>
               </item>
@@ -1064,13 +1098,13 @@
                <widget class="QPushButton" name="startButton">
                 <property name="minimumSize">
                  <size>
-                  <width>240</width>
+                  <width>210</width>
                   <height>38</height>
                  </size>
                 </property>
                 <property name="maximumSize">
                  <size>
-                  <width>340</width>
+                  <width>300</width>
                   <height>16777215</height>
                  </size>
                 </property>

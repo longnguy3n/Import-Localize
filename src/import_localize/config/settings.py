@@ -19,6 +19,11 @@ class AppSettings:
     add_source_column: bool = False
     theme: str = "light"
     last_csv_dir: str = ""
+    last_export_dir: str = ""
+    fill_sheet_name: str = "Translate_Data"
+    fill_source_row: int = 2
+    fill_columns: str = "D:I"
+    fill_reference_column: str = "A"
     window_width: int = 760
     window_height: int = 950
     update_repository: str = ""

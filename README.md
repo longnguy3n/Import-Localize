@@ -112,3 +112,16 @@ py .\build_app.py `
 ## Cập nhật tự động
 
 Từ v1.5.0, bản EXE có thể kiểm tra và tự cài bản mới tại **Cài đặt → Cập nhật** thông qua GitHub Releases. Xem [README_V1_5_AUTO_UPDATE.md](README_V1_5_AUTO_UPDATE.md) để cấu hình repository, build và phát hành.
+
+## Tải các tab export_* về máy
+
+Trong card **Hành động**, chọn **Tải các tab export_*** rồi chọn thư mục lưu.
+Ứng dụng sẽ quét mọi tab có tên bắt đầu bằng `export_`, tải nguyên byte CSV do
+Google Sheets tạo và lưu theo mẫu:
+
+```text
+[Tên Google Sheet] - [Tên tab].csv
+```
+
+Các file trùng tên trong thư mục đích sẽ được thay thế. Những file đã tải xong
+được giữ lại nếu người dùng dừng giữa quá trình.

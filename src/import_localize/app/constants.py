@@ -3,7 +3,7 @@ from __future__ import annotations
 APP_NAME = "Import Localize"
 APP_ID = "import-localize"
 ORGANIZATION_NAME = "Import Localize"
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.7.2"
 
 DEFAULT_WINDOW_WIDTH = 760
 DEFAULT_WINDOW_HEIGHT = 950
@@ -17,6 +17,9 @@ UPLOAD_MAX_ROWS_PER_RANGE = 5000
 UPLOAD_MAX_CELLS_PER_RANGE = 120000
 UPLOAD_MAX_REQUEST_BYTES = 7_000_000
 GOOGLE_REQUEST_TIMEOUT_SECONDS = 60
+
+EXPORT_SHEET_PREFIX = "export_"
+CSV_EXPORT_REQUEST_TIMEOUT_SECONDS = 90
 
 # Auto-update uses the latest GitHub Release of this repository. During build,
 # build_app.py can replace this value through --github-repo owner/repository.

@@ -23,6 +23,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from import_localize.app.constants import (
+    CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
+    EXPORT_SHEET_PREFIX,
     GOOGLE_REQUEST_TIMEOUT_SECONDS,
     UPLOAD_MAX_CELLS_PER_RANGE,
     UPLOAD_MAX_REQUEST_BYTES,
@@ -36,6 +38,15 @@ from import_localize.app.paths import (
     application_dir,
 )
 from import_localize.models.import_job import CsvBundle, ImportJob
+from import_localize.services.fill_service import (
+    FillSelectionError,
+    build_fill_copy_requests,
+    column_letters_to_number,
+    column_number_to_letters,
+    group_consecutive_columns,
+    normalize_column_selection,
+    parse_column_selection,
+)
 
 ProgressCallback = Callable[[int, str], None] | None
 LogCallback = Callable[[str], None] | None
@@ -487,6 +498,171 @@ def connect_to_spreadsheet(
     )
 
 
+
+_INVALID_WINDOWS_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1F]')
+
+
+def sanitize_export_filename_part(value: object) -> str:
+    """Return a Windows-safe filename component matching the Apps Script rule."""
+    safe_name = _INVALID_WINDOWS_FILENAME_CHARS.sub("_", str(value or ""))
+    safe_name = re.sub(r"[. ]+$", "", safe_name).strip()
+    return safe_name or "export"
+
+
+def build_csv_export_filename(spreadsheet_name: str, sheet_name: str) -> str:
+    """Build ``[Spreadsheet] - [Tab].csv`` for one exported worksheet."""
+    return (
+        f"{sanitize_export_filename_part(spreadsheet_name)} - "
+        f"{sanitize_export_filename_part(sheet_name)}.csv"
+    )
+
+
+def _csv_export_error_detail(response) -> str:
+    """Extract a compact message from an export endpoint response."""
+    content_type = str(response.headers.get("Content-Type", "")).casefold()
+    if "json" in content_type:
+        try:
+            payload = response.json()
+            return str(payload.get("error", {}).get("message") or payload)
+        except Exception:
+            pass
+    text = str(getattr(response, "text", "") or "").strip()
+    if text:
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = " ".join(text.split())
+        return text[:500]
+    return f"HTTP {response.status_code}"
+
+
+def download_export_tabs_as_csv(
+    connection: SheetConnection,
+    output_dir: str | Path,
+    *,
+    prefix: str = EXPORT_SHEET_PREFIX,
+    progress_callback: ProgressCallback = None,
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+) -> list[Path]:
+    """Download every worksheet beginning with ``prefix`` as Google's raw CSV.
+
+    The bytes are written exactly as returned by the Google Sheets export
+    endpoint. The application does not parse or regenerate the CSV, so the
+    result follows the same engine used by manual CSV export.
+    """
+    _check_cancel(cancel_callback)
+    destination = Path(output_dir).expanduser().resolve()
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise GoogleServiceError(
+            f"Không thể tạo thư mục lưu CSV '{destination}': {exc}"
+        ) from exc
+    if not destination.is_dir():
+        raise GoogleServiceError(f"Đường dẫn lưu không phải thư mục: {destination}")
+
+    _progress(progress_callback, 5, "Đang quét các tab export_*")
+    try:
+        worksheets = connection.spreadsheet.worksheets()
+    except gspread.exceptions.APIError as exc:
+        raise GoogleServiceError(_format_api_error(exc)) from exc
+
+    export_sheets = [sheet for sheet in worksheets if sheet.title.startswith(prefix)]
+    if not export_sheets:
+        raise GoogleServiceError(
+            f"Không tìm thấy tab nào có tên bắt đầu bằng '{prefix}'."
+        )
+
+    _log(
+        log_callback,
+        f"Đã tìm thấy {len(export_sheets)} tab bắt đầu bằng '{prefix}'.",
+    )
+    session = AuthorizedSession(connection.credentials)
+    export_url = (
+        "https://docs.google.com/spreadsheets/d/"
+        f"{connection.spreadsheet_id}/export"
+    )
+    created_files: list[Path] = []
+    total = len(export_sheets)
+
+    for index, worksheet in enumerate(export_sheets, start=1):
+        _check_cancel(cancel_callback)
+        filename = build_csv_export_filename(
+            connection.spreadsheet_name,
+            worksheet.title,
+        )
+        output_path = destination / filename
+        partial_path = output_path.with_name(output_path.name + ".part")
+        start_value = 8 + round((index - 1) / total * 88)
+        _progress(
+            progress_callback,
+            start_value,
+            f"Đang tải {index}/{total}: {worksheet.title}",
+        )
+        _log(
+            log_callback,
+            f"Tải tab {index}/{total}: '{worksheet.title}' → {filename}",
+        )
+
+        try:
+            response = session.get(
+                export_url,
+                params={"format": "csv", "gid": str(worksheet.id)},
+                headers={"Accept": "text/csv,*/*;q=0.8"},
+                timeout=CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            partial_path.unlink(missing_ok=True)
+            raise GoogleServiceError(
+                f"Không thể tải CSV của tab '{worksheet.title}': {exc}"
+            ) from exc
+
+        _check_cancel(cancel_callback)
+        if response.status_code < 200 or response.status_code >= 300:
+            partial_path.unlink(missing_ok=True)
+            detail = _csv_export_error_detail(response)
+            if response.status_code in (401, 403):
+                raise SheetPermissionError(
+                    "Phiên Google không có quyền xuất CSV của bảng tính này. "
+                    f"Chi tiết: {detail}"
+                )
+            raise GoogleServiceError(
+                f"Google Sheets không thể tạo CSV cho tab '{worksheet.title}' "
+                f"(HTTP {response.status_code}): {detail}"
+            )
+
+        content = bytes(response.content)
+        content_type = str(response.headers.get("Content-Type", "")).casefold()
+        preview = content[:300].lstrip().lower()
+        if "text/html" in content_type or preview.startswith(b"<!doctype html"):
+            partial_path.unlink(missing_ok=True)
+            raise GoogleServiceError(
+                f"Google trả về trang HTML thay vì CSV cho tab '{worksheet.title}'. "
+                "Hãy đăng xuất Google trong Cài đặt rồi đăng nhập lại."
+            )
+
+        try:
+            partial_path.write_bytes(content)
+            partial_path.replace(output_path)
+        except OSError as exc:
+            partial_path.unlink(missing_ok=True)
+            raise GoogleServiceError(
+                f"Không thể lưu file '{output_path}': {exc}"
+            ) from exc
+
+        created_files.append(output_path)
+        _log(
+            log_callback,
+            f"Đã lưu {filename} ({len(content):,} byte).",
+        )
+        _progress(
+            progress_callback,
+            8 + round(index / total * 88),
+            f"Đã tải {index}/{total} file CSV",
+        )
+
+    _progress(progress_callback, 100, f"Đã tải xong {total} file CSV")
+    return created_files
+
 def _normalize_header(values: list[object]) -> list[str]:
     return [" ".join(str(value or "").split()).casefold() for value in values]
 
@@ -512,58 +688,62 @@ def _last_populated_row(values: list[list[object]]) -> int:
     return last_row
 
 
-def _build_translate_data_copy_request(
-    sheet_id: int,
-    last_row: int,
-) -> dict[str, object]:
-    """Build one Sheets copyPaste request for D2:I2 -> D2:I<last_row>."""
-    return {
-        "copyPaste": {
-            "source": {
-                "sheetId": int(sheet_id),
-                "startRowIndex": 1,
-                "endRowIndex": 2,
-                "startColumnIndex": 3,
-                "endColumnIndex": 9,
-            },
-            "destination": {
-                "sheetId": int(sheet_id),
-                "startRowIndex": 1,
-                "endRowIndex": int(last_row),
-                "startColumnIndex": 3,
-                "endColumnIndex": 9,
-            },
-            "pasteType": "PASTE_NORMAL",
-            "pasteOrientation": "NORMAL",
-        }
-    }
-
-
 def fill_translate_data_columns(
     connection: SheetConnection,
     *,
     sheet_name: str = "Translate_Data",
+    source_row: int = 2,
+    columns: str = "D:I",
+    reference_column: str = "A",
     progress_callback: ProgressCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> tuple[bool, str, int]:
-    """Fill D2:I2 down to the last populated row of A:C in Translate_Data.
+    """Fill selected source cells down to the last visible row of a reference column.
 
-    Missing tabs, an empty sample row, or a sheet without rows below row 2 are
-    treated as non-fatal skips so the CSV import itself can still complete.
+    The operation mirrors dragging cells in Google Sheets: formulas with relative
+    references are adjusted per row, while values and formatting are copied too.
+    ``columns`` accepts forms such as ``D:I`` and ``D,F,H:J``.
     """
+    cleaned_sheet_name = str(sheet_name or "").strip()
+    if not cleaned_sheet_name:
+        raise GoogleServiceError("Tên tab cần fill không được để trống.")
+    try:
+        source_row = int(source_row)
+    except (TypeError, ValueError) as exc:
+        raise GoogleServiceError("Hàng nguồn phải là số nguyên lớn hơn hoặc bằng 1.") from exc
+    if source_row < 1:
+        raise GoogleServiceError("Hàng nguồn phải là số nguyên lớn hơn hoặc bằng 1.")
+
+    try:
+        selected_columns = parse_column_selection(columns)
+        normalized_columns = normalize_column_selection(columns)
+        reference_column = str(reference_column or "").strip().upper()
+        reference_column_number = column_letters_to_number(reference_column)
+    except FillSelectionError as exc:
+        raise GoogleServiceError(str(exc)) from exc
+
     _check_cancel(cancel_callback)
-    _progress(progress_callback, 10, "Đang kiểm tra tab Translate_Data")
+    _progress(progress_callback, 10, f"Đang kiểm tra tab {cleaned_sheet_name}")
 
     worksheets = connection.spreadsheet.worksheets()
     worksheet = next(
-        (item for item in worksheets if item.title.casefold() == sheet_name.casefold()),
+        (item for item in worksheets if item.title.casefold() == cleaned_sheet_name.casefold()),
         None,
     )
     if worksheet is None:
-        return (
-            False,
-            f"Không tìm thấy tab '{sheet_name}', đã bỏ qua bước fill D2:I2.",
-            0,
+        return False, f"Không tìm thấy tab '{cleaned_sheet_name}'.", 0
+
+    if source_row > worksheet.row_count:
+        raise GoogleServiceError(
+            f"Hàng nguồn {source_row} vượt quá số hàng hiện có của tab "
+            f"({worksheet.row_count})."
+        )
+    max_selected_column = max((*selected_columns, reference_column_number))
+    if max_selected_column > worksheet.col_count:
+        invalid = column_number_to_letters(max_selected_column)
+        raise GoogleServiceError(
+            f"Tab '{worksheet.title}' chưa có cột {invalid}. "
+            f"Số cột hiện tại: {worksheet.col_count}."
         )
 
     _check_cancel(cancel_callback)
@@ -573,74 +753,123 @@ def fill_translate_data_columns(
         f"{connection.spreadsheet_id}"
     )
     quoted_title = _quote_sheet_title(worksheet.title)
-    response = session.get(
+    column_groups = group_consecutive_columns(selected_columns)
+    source_ranges = [
+        f"{quoted_title}!{column_number_to_letters(start)}{source_row}:"
+        f"{column_number_to_letters(end)}{source_row}"
+        for start, end in column_groups
+    ]
+    # Cột tham chiếu dùng FORMATTED_VALUE để công thức trả về chuỗi rỗng
+    # không bị tính là dữ liệu, giống getDisplayValues() trong Apps Script.
+    reference_response = session.get(
         f"{spreadsheet_base}/values:batchGet",
         params=[
-            ("ranges", f"{quoted_title}!A:C"),
-            ("ranges", f"{quoted_title}!D2:I2"),
+            ("ranges", f"{quoted_title}!{reference_column}:{reference_column}"),
             ("majorDimension", "ROWS"),
-            ("valueRenderOption", "FORMULA"),
+            ("valueRenderOption", "FORMATTED_VALUE"),
         ],
         timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
     )
-    _raise_for_response(response, "Đọc dữ liệu Translate_Data")
+    _raise_for_response(reference_response, f"Đọc cột tham chiếu {reference_column}")
     _check_cancel(cancel_callback)
+    reference_ranges = reference_response.json().get("valueRanges", [])
+    reference_values = (
+        reference_ranges[0].get("values", []) if reference_ranges else []
+    )
+    last_row = _last_populated_row(reference_values)
 
-    value_ranges = response.json().get("valueRanges", [])
-    data_values = (
-        value_ranges[0].get("values", [])
-        if len(value_ranges) >= 1
-        else []
+    source_params: list[tuple[str, str]] = [
+        ("ranges", item) for item in source_ranges
+    ]
+    source_params.extend(
+        [
+            ("majorDimension", "ROWS"),
+            ("valueRenderOption", "FORMULA"),
+        ]
     )
-    sample_values = (
-        value_ranges[1].get("values", [])
-        if len(value_ranges) >= 2
-        else []
+    source_response = session.get(
+        f"{spreadsheet_base}/values:batchGet",
+        params=source_params,
+        timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
     )
+    _raise_for_response(source_response, f"Đọc hàng nguồn {source_row}")
+    _check_cancel(cancel_callback)
+    source_value_ranges = source_response.json().get("valueRanges", [])
 
-    last_row = _last_populated_row(data_values)
-    has_sample = any(
-        str(value).strip()
-        for row in sample_values
-        for value in row
-        if value is not None
-    )
-    if not has_sample:
+    missing_cells: list[str] = []
+    array_formula_cells: list[str] = []
+    for range_index, (start_column, end_column) in enumerate(column_groups):
+        expected_width = end_column - start_column + 1
+        values = (
+            source_value_ranges[range_index].get("values", [])
+            if range_index < len(source_value_ranges)
+            else []
+        )
+        row_values = list(values[0]) if values else []
+        row_values.extend([""] * (expected_width - len(row_values)))
+        for offset, cell_value in enumerate(row_values[:expected_width]):
+            column_number = start_column + offset
+            cell_name = f"{column_number_to_letters(column_number)}{source_row}"
+            text_value = str(cell_value or "").strip()
+            if not text_value:
+                missing_cells.append(cell_name)
+            elif re.match(r"^=\s*ARRAYFORMULA\s*\(", text_value, re.IGNORECASE):
+                array_formula_cells.append(cell_name)
+
+    if missing_cells:
         return (
             False,
-            f"Vùng {sheet_name}!D2:I2 đang trống, đã bỏ qua bước fill.",
+            "Các ô nguồn sau đang trống nên không thể fill: "
+            + ", ".join(missing_cells),
             last_row,
         )
-    if last_row <= 2:
+    if array_formula_cells:
         return (
             False,
-            f"Tab '{sheet_name}' chưa có dữ liệu dưới hàng 2 nên không cần fill.",
+            "Không fill ARRAYFORMULA tại: " + ", ".join(array_formula_cells)
+            + ". ARRAYFORMULA tự mở rộng xuống dưới.",
+            last_row,
+        )
+    if last_row == 0:
+        return (
+            False,
+            f"Cột tham chiếu {reference_column} của tab '{worksheet.title}' "
+            "không có dữ liệu.",
+            0,
+        )
+    if last_row <= source_row:
+        return (
+            False,
+            f"Hàng cuối có dữ liệu trong cột {reference_column} là hàng "
+            f"{last_row}, không nằm bên dưới hàng nguồn {source_row}.",
             last_row,
         )
 
     _progress(
         progress_callback,
         55,
-        f"Đang sao chép D2:I2 xuống hàng {last_row}",
+        f"Đang fill {normalized_columns} từ hàng {source_row} đến hàng {last_row}",
     )
     response = session.post(
         f"{spreadsheet_base}:batchUpdate",
         json={
-            "requests": [
-                _build_translate_data_copy_request(worksheet.id, last_row)
-            ]
+            "requests": build_fill_copy_requests(
+                worksheet.id, source_row, last_row, selected_columns
+            )
         },
         timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
     )
-    _raise_for_response(response, "Fill Translate_Data")
+    _raise_for_response(response, f"Fill dữ liệu tab {worksheet.title}")
     _check_cancel(cancel_callback)
-    _progress(progress_callback, 100, "Đã fill xong Translate_Data")
+    _progress(progress_callback, 100, f"Đã fill xong tab {worksheet.title}")
 
-    added_rows = max(0, last_row - 2)
+    added_rows = max(0, last_row - source_row)
+    filled_cells = added_rows * len(selected_columns)
     return (
         True,
-        f"Đã sao chép {sheet_name}!D2:I2 xuống đến hàng {last_row} "
-        f"({added_rows} hàng được fill thêm).",
+        f"Đã fill {worksheet.title}!{normalized_columns} từ hàng {source_row} "
+        f"đến hàng {last_row} theo cột tham chiếu {reference_column} "
+        f"({added_rows} hàng, {filled_cells} ô đích).",
         last_row,
     )
 

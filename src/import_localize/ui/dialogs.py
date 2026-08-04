@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QTabWidget,
     QTextBrowser,
     QVBoxLayout,
@@ -30,6 +31,13 @@ from import_localize.app.constants import (
 )
 from import_localize.app.paths import FORMS_DIR, USER_CONFIG_DIR
 from import_localize.config.settings import SettingsRepository
+from import_localize.models.import_job import FillOptions
+from import_localize.services.csv_service import CsvImportError, validate_worksheet_title
+from import_localize.services.fill_service import (
+    FillSelectionError,
+    column_letters_to_number,
+    normalize_column_selection,
+)
 from import_localize.services.google_service import (
     clear_saved_oauth_token,
     install_oauth_client,
@@ -537,6 +545,76 @@ class SettingsDialog(_DesignerDialog):
         except OSError as exc:
             QMessageBox.warning(self, "Không thể lưu cài đặt", str(exc))
         super().accept()
+class FillDataDialog(_DesignerDialog):
+    """Collect configurable fill parameters before starting the worker."""
+
+    def __init__(self, initial: FillOptions, parent=None):
+        super().__init__(parent)
+        self._configure_window("Thiết lập Fill dữ liệu — Import Localize")
+        self.setMinimumWidth(560)
+        self.setMaximumWidth(680)
+        self._options = initial
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.form = load_ui(FORMS_DIR / "fill_data_dialog.ui", self)
+        layout.addWidget(self.form)
+
+        card = require_object(self.form, "dialogCard", QFrame)
+        dialog_icon = require_object(self.form, "dialogIconLabel", QLabel)
+        warning_icon = require_object(self.form, "warningIconLabel", QLabel)
+        self.sheet_name_edit = require_object(self.form, "sheetNameEdit", QLineEdit)
+        self.source_row_spin = require_object(self.form, "sourceRowSpin", QSpinBox)
+        self.columns_edit = require_object(self.form, "columnsEdit", QLineEdit)
+        self.reference_column_edit = require_object(
+            self.form, "referenceColumnEdit", QLineEdit
+        )
+        close_icon_button = require_object(
+            self.form, "closeIconButton", QPushButton
+        )
+        cancel_button = require_object(self.form, "cancelButton", QPushButton)
+        fill_button = require_object(self.form, "fillButton", QPushButton)
+
+        self._apply_shadow(card)
+        dialog_icon.setPixmap(icon("sheet").pixmap(QSize(22, 22)))
+        warning_icon.setPixmap(icon("info").pixmap(QSize(15, 15)))
+        set_button_icon(close_icon_button, "close", 16)
+        set_button_icon(fill_button, "sheet", 16)
+
+        self.sheet_name_edit.setText(initial.sheet_name)
+        self.source_row_spin.setValue(max(1, int(initial.source_row)))
+        self.columns_edit.setText(initial.columns)
+        self.reference_column_edit.setText(initial.reference_column)
+
+        close_icon_button.clicked.connect(self.reject)
+        cancel_button.clicked.connect(self.reject)
+        fill_button.clicked.connect(self._validate_and_accept)
+
+    @property
+    def options(self) -> FillOptions:
+        return self._options
+
+    def _validate_and_accept(self) -> None:
+        try:
+            sheet_name = validate_worksheet_title(
+                self.sheet_name_edit.text(), source_name="Fill dữ liệu"
+            )
+            columns = normalize_column_selection(self.columns_edit.text())
+            reference_column = self.reference_column_edit.text().strip().upper()
+            column_letters_to_number(reference_column)
+        except (CsvImportError, FillSelectionError) as exc:
+            QMessageBox.warning(self, "Thiết lập Fill không hợp lệ", str(exc))
+            return
+
+        self._options = FillOptions(
+            sheet_name=sheet_name,
+            source_row=self.source_row_spin.value(),
+            columns=columns,
+            reference_column=reference_column,
+        )
+        self.accept()
+
+
 class HelpDialog(_DesignerDialog):
     def __init__(self, parent=None):
         super().__init__(parent)

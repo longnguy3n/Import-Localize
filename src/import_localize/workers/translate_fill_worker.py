@@ -6,6 +6,7 @@ from threading import Event
 
 from PySide6.QtCore import QThread, Signal
 
+from import_localize.models.import_job import FillOptions
 from import_localize.services.google_service import (
     GoogleServiceError,
     connect_to_spreadsheet,
@@ -14,15 +15,21 @@ from import_localize.services.google_service import (
 
 
 class TranslateFillWorker(QThread):
-    """Run the Translate_Data fill action independently from CSV import."""
+    """Run a configurable Google Sheets fill action independently from CSV import."""
 
     progress_changed = Signal(int, str)
     log_emitted = Signal(str, str)
     completed = Signal(bool, str)
 
-    def __init__(self, spreadsheet_url: str, parent=None):
+    def __init__(
+        self,
+        spreadsheet_url: str,
+        options: FillOptions,
+        parent=None,
+    ):
         super().__init__(parent)
         self.spreadsheet_url = spreadsheet_url
+        self.options = options
         self._cancel_event = Event()
 
     def request_stop(self) -> None:
@@ -36,6 +43,7 @@ class TranslateFillWorker(QThread):
 
     def run(self) -> None:
         try:
+            options = self.options
             self.progress_changed.emit(4, "Đang kết nối Google Sheet")
             connection = connect_to_spreadsheet(
                 self.spreadsheet_url,
@@ -46,9 +54,16 @@ class TranslateFillWorker(QThread):
                 cancel_callback=self._is_cancelled,
             )
 
-            self.progress_changed.emit(42, "Đang kiểm tra tab Translate_Data")
+            self.progress_changed.emit(
+                42,
+                f"Đang kiểm tra tab {options.sheet_name}",
+            )
             applied, message, last_row = fill_translate_data_columns(
                 connection,
+                sheet_name=options.sheet_name,
+                source_row=options.source_row,
+                columns=options.columns,
+                reference_column=options.reference_column,
                 progress_callback=lambda value, text: self.progress_changed.emit(
                     min(99, 42 + round(value * 0.57)), text
                 ),
@@ -57,21 +72,22 @@ class TranslateFillWorker(QThread):
 
             if applied:
                 self._log(message, "SUCCESS")
-                self.progress_changed.emit(100, "Đã fill xong Translate_Data")
+                self.progress_changed.emit(
+                    100,
+                    f"Đã fill xong tab {options.sheet_name}",
+                )
                 self.completed.emit(True, message)
                 return
 
-            # A missing tab, empty D2:I2, or no rows below row 2 is a completed
-            # validation result rather than a failed network operation.
             self._log(message, "WARNING")
             self.progress_changed.emit(100, "Không có dữ liệu cần fill")
             suffix = f" Hàng dữ liệu cuối: {last_row}." if last_row else ""
             self.completed.emit(True, message + suffix)
         except CancelledError:
-            self.completed.emit(False, "Đã dừng Fill Translate_Data theo yêu cầu.")
+            self.completed.emit(False, "Đã dừng thao tác Fill theo yêu cầu.")
         except GoogleServiceError as exc:
             self._log(str(exc), "FAIL")
-            self.completed.emit(False, f"Fill Translate_Data thất bại: {exc}")
+            self.completed.emit(False, f"Fill dữ liệu thất bại: {exc}")
         except Exception as exc:
             self._log(traceback.format_exc(), "FAIL")
-            self.completed.emit(False, f"Lỗi không mong đợi khi fill Translate_Data: {exc}")
+            self.completed.emit(False, f"Lỗi không mong đợi khi fill dữ liệu: {exc}")

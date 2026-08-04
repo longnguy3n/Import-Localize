@@ -11,17 +11,14 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.6.4_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.2_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
-    "README_UPDATER_FIX.md",
-    "README_V1_6_4_ROBOCOPY_FIX.md",
-    "src\import_localize\services\update_service.py",
-    "src\import_localize\ui\dialogs.py",
+    "README_V1_7_2_PERSISTENT_LOG.md",
     "src\import_localize\app\constants.py",
-    "src\import_localize\ui\forms\main_window.ui",
-    "tests\test_update_service.py"
+    "src\import_localize\ui\main_window.py",
+    "src\import_localize\ui\forms\main_window.ui"
 )
 
 foreach ($RelativePath in $Items) {
@@ -53,15 +50,10 @@ try {
 
     & py -m compileall -q .\src .\build_app.py
     if ($LASTEXITCODE -ne 0) { throw "Kiểm tra cú pháp thất bại." }
-
-    if (Test-Path ".\tests\test_update_service.py") {
-        & py -m pytest -q .\tests\test_update_service.py
-        if ($LASTEXITCODE -ne 0) { throw "Kiểm thử updater thất bại." }
-    }
 } finally {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.6.4." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.7.2." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "Cần cài/build v1.6.4 thủ công một lần vì updater cũ không thể tự sửa chính nó." -ForegroundColor Yellow
+Write-Host "Nhật ký được giữ xuyên suốt phiên và chỉ xóa khi bấm nút Xóa log." -ForegroundColor Green
