@@ -11,16 +11,17 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.2_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.3_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
-    "README_V1_7_2_PERSISTENT_LOG.md",
+    "README_V1_7_3_SESSION_PERMISSION_CACHE.md",
+    "tests\test_session_permission_cache.py",
     "src\import_localize\app\constants.py",
-    "src\import_localize\ui\main_window.py",
+    "src\import_localize\services\google_service.py",
+    "src\import_localize\services\session_permission_cache.py",
     "src\import_localize\ui\forms\main_window.ui"
 )
-
 foreach ($RelativePath in $Items) {
     $Source = Join-Path $PatchRoot $RelativePath
     if (-not (Test-Path $Source)) {
@@ -54,6 +55,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.7.2." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.7.3." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "Nhật ký được giữ xuyên suốt phiên và chỉ xóa khi bấm nút Xóa log." -ForegroundColor Green
+Write-Host "Quyền Editor chỉ được kiểm tra một lần cho mỗi Spreadsheet trong session." -ForegroundColor Green

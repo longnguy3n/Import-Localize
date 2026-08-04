@@ -47,6 +47,9 @@ from import_localize.services.fill_service import (
     normalize_column_selection,
     parse_column_selection,
 )
+from import_localize.services.session_permission_cache import (
+    EditorPermissionSessionCache,
+)
 
 ProgressCallback = Callable[[int, str], None] | None
 LogCallback = Callable[[str], None] | None
@@ -56,6 +59,44 @@ SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 DRIVE_METADATA_SCOPE = "https://www.googleapis.com/auth/drive.metadata.readonly"
 OAUTH_SCOPES = [SHEETS_SCOPE, DRIVE_METADATA_SCOPE]
 OAUTH_SCOPE_VERSION = 1
+
+
+# Quyền Editor chỉ được kiểm tra một lần cho mỗi tài khoản + spreadsheet
+# trong vòng đời tiến trình ứng dụng. Cache này chỉ nằm trong RAM.
+_EDITOR_PERMISSION_CACHE = EditorPermissionSessionCache(
+    scope_version=OAUTH_SCOPE_VERSION
+)
+
+
+def clear_session_editor_permission_cache() -> None:
+    """Xóa cache quyền Editor trong RAM, chủ yếu khi đổi tài khoản OAuth."""
+    _EDITOR_PERMISSION_CACHE.clear()
+
+
+def _cached_editor_permission_name(
+    credentials: Credentials,
+    spreadsheet_id: str,
+) -> str | None:
+    return _EDITOR_PERMISSION_CACHE.get(credentials, spreadsheet_id)
+
+
+def _remember_editor_permission(
+    credentials: Credentials,
+    spreadsheet_id: str,
+    spreadsheet_name: str,
+) -> None:
+    _EDITOR_PERMISSION_CACHE.remember(
+        credentials,
+        spreadsheet_id,
+        spreadsheet_name,
+    )
+
+
+def _forget_editor_permission(
+    credentials: Credentials,
+    spreadsheet_id: str,
+) -> None:
+    _EDITOR_PERMISSION_CACHE.forget(credentials, spreadsheet_id)
 
 
 class GoogleServiceError(RuntimeError):
@@ -128,6 +169,7 @@ def install_oauth_client(source_path: str | Path) -> Path:
     USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if source != OAUTH_CLIENT_FILE.resolve():
         shutil.copy2(source, OAUTH_CLIENT_FILE)
+    clear_session_editor_permission_cache()
     return OAUTH_CLIENT_FILE
 
 
@@ -389,6 +431,7 @@ def authenticate_google_account(
 
 
 def clear_saved_oauth_token() -> tuple[bool, str]:
+    clear_session_editor_permission_cache()
     try:
         if OAUTH_TOKEN_FILE.exists():
             OAUTH_TOKEN_FILE.unlink()
@@ -478,17 +521,43 @@ def connect_to_spreadsheet(
         cancel_callback=cancel_callback,
     )
     spreadsheet_id = extract_spreadsheet_id(spreadsheet_url)
-    _progress(progress_callback, 40, "Đang kiểm tra quyền Editor")
-    name = _check_editor_permission(
-        credentials,
-        spreadsheet_id,
-        cancel_callback=cancel_callback,
-    )
+
+    name = _cached_editor_permission_name(credentials, spreadsheet_id)
+    permission_was_cached = name is not None
+    if permission_was_cached:
+        _progress(
+            progress_callback,
+            40,
+            "Dùng quyền Editor đã xác nhận trong session",
+        )
+        _log(
+            log_callback,
+            f"Bỏ qua kiểm tra quyền Editor: '{name}' đã được xác nhận trong session này.",
+        )
+    else:
+        _progress(progress_callback, 40, "Đang kiểm tra quyền Editor")
+        name = _check_editor_permission(
+            credentials,
+            spreadsheet_id,
+            cancel_callback=cancel_callback,
+        )
+        _remember_editor_permission(
+            credentials,
+            spreadsheet_id,
+            name,
+        )
+        _log(log_callback, f"Đã xác nhận quyền Editor với '{name}'.")
+
     _check_cancel(cancel_callback)
     client = _authorize(credentials)
-    spreadsheet = client.open_by_key(spreadsheet_id)
+    try:
+        spreadsheet = client.open_by_key(spreadsheet_id)
+    except gspread.exceptions.APIError:
+        # Nếu quyền bị thu hồi giữa session, lần kết nối sau phải kiểm tra lại.
+        _forget_editor_permission(credentials, spreadsheet_id)
+        raise
+
     _progress(progress_callback, 100, f"Đã kết nối: {name}")
-    _log(log_callback, f"Đã xác nhận quyền Editor với '{name}'.")
     return SheetConnection(
         credentials=credentials,
         client=client,
