@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import traceback
+import time
 from concurrent.futures import CancelledError
 from dataclasses import replace
 from threading import Event
@@ -102,6 +103,7 @@ class ImportWorker(QThread):
             ),
             log_callback=lambda message: self._log(message),
             cancel_callback=self._is_cancelled,
+            info_lookup={str(info.path.resolve()): info},
         )
         rows_written = upload_bundles_fast(
             connection,
@@ -116,6 +118,7 @@ class ImportWorker(QThread):
 
     def _run_multiple(self, connection) -> tuple[int, list[str]]:
         infos = self._inspect_multiple_targets(connection.spreadsheet_name)
+        info_lookup = {str(info.path.resolve()): info for info in infos}
         total_files = len(infos)
         imported_tabs = [info.target_sheet_name for info in infos]
         upload_plans = []
@@ -156,6 +159,7 @@ class ImportWorker(QThread):
                 ),
                 log_callback=lambda message: self._log(message),
                 cancel_callback=self._is_cancelled,
+                info_lookup=info_lookup,
             )
             upload_plans.append((bundle, file_job))
 
@@ -172,6 +176,7 @@ class ImportWorker(QThread):
         return total_rows, imported_tabs
 
     def run(self) -> None:
+        started_at = time.perf_counter()
         try:
             self.progress_changed.emit(2, "Đang kiểm tra Google Sheet")
             connection = connect_to_spreadsheet(
@@ -192,10 +197,12 @@ class ImportWorker(QThread):
             tab_preview = ", ".join(imported_tabs[:8])
             if len(imported_tabs) > 8:
                 tab_preview += f", … (+{len(imported_tabs) - 8})"
+            elapsed = time.perf_counter() - started_at
+            self._log(f"Tổng thời gian Import: {elapsed:.2f} giây.", "SUCCESS")
             self.completed.emit(
                 True,
-                f"Import hoàn tất: {total_rows} dòng vào {len(imported_tabs)} tab "
-                f"({tab_preview}).",
+                f"Import hoàn tất trong {elapsed:.2f} giây: {total_rows} dòng vào "
+                f"{len(imported_tabs)} tab ({tab_preview}).",
             )
         except CancelledError:
             self.completed.emit(False, "Đã dừng thao tác theo yêu cầu.")

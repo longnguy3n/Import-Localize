@@ -8,9 +8,10 @@ import stat
 import sys
 import time
 import webbrowser
-from concurrent.futures import CancelledError
-from dataclasses import dataclass
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
+from threading import RLock
 from typing import Callable, Optional
 from urllib.parse import parse_qs, urlparse
 from wsgiref.simple_server import WSGIRequestHandler, make_server
@@ -26,6 +27,9 @@ from import_localize.app.constants import (
     CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
     EXPORT_SHEET_PREFIX,
     GOOGLE_REQUEST_TIMEOUT_SECONDS,
+    GOOGLE_CONNECTION_CACHE_TTL_SECONDS,
+    GOOGLE_WORKSHEET_CACHE_TTL_SECONDS,
+    MAX_PARALLEL_EXPORT_DOWNLOADS,
     UPLOAD_MAX_CELLS_PER_RANGE,
     UPLOAD_MAX_REQUEST_BYTES,
     UPLOAD_MAX_ROWS_PER_RANGE,
@@ -67,10 +71,26 @@ _EDITOR_PERMISSION_CACHE = EditorPermissionSessionCache(
     scope_version=OAUTH_SCOPE_VERSION
 )
 
+# Cache phiên Google và kết nối Spreadsheet trong RAM. Ứng dụng chỉ chạy một
+# tác vụ Google tại một thời điểm nên các đối tượng này được tái sử dụng an toàn
+# giữa các QThread tuần tự trong cùng session.
+_SESSION_CACHE_LOCK = RLock()
+_CACHED_CREDENTIALS: Credentials | None = None
+_CONNECTION_CACHE: dict[str, SheetConnection] = {}
+
+
+def clear_session_google_cache() -> None:
+    """Xóa mọi cache Google chỉ tồn tại trong RAM của session hiện tại."""
+    global _CACHED_CREDENTIALS
+    with _SESSION_CACHE_LOCK:
+        _CACHED_CREDENTIALS = None
+        _CONNECTION_CACHE.clear()
+    _EDITOR_PERMISSION_CACHE.clear()
+
 
 def clear_session_editor_permission_cache() -> None:
-    """Xóa cache quyền Editor trong RAM, chủ yếu khi đổi tài khoản OAuth."""
-    _EDITOR_PERMISSION_CACHE.clear()
+    """Tên tương thích cũ; hiện xóa cả quyền, credential và kết nối session."""
+    clear_session_google_cache()
 
 
 def _cached_editor_permission_name(
@@ -118,6 +138,94 @@ class SheetConnection:
     spreadsheet: gspread.Spreadsheet
     spreadsheet_id: str
     spreadsheet_name: str
+    authorized_session: AuthorizedSession
+    connected_at: float = field(default_factory=time.monotonic)
+    worksheet_cache: dict[str, gspread.Worksheet] = field(default_factory=dict)
+    worksheet_cache_loaded_at: float = 0.0
+
+
+def _same_google_identity(left: Credentials, right: Credentials) -> bool:
+    return (
+        str(getattr(left, "client_id", "") or ""),
+        str(getattr(left, "refresh_token", "") or ""),
+    ) == (
+        str(getattr(right, "client_id", "") or ""),
+        str(getattr(right, "refresh_token", "") or ""),
+    )
+
+
+def _get_memory_credentials() -> Credentials | None:
+    with _SESSION_CACHE_LOCK:
+        return _CACHED_CREDENTIALS
+
+
+def _remember_memory_credentials(credentials: Credentials) -> None:
+    global _CACHED_CREDENTIALS
+    with _SESSION_CACHE_LOCK:
+        if (
+            _CACHED_CREDENTIALS is not None
+            and not _same_google_identity(_CACHED_CREDENTIALS, credentials)
+        ):
+            _CONNECTION_CACHE.clear()
+            _EDITOR_PERMISSION_CACHE.clear()
+        _CACHED_CREDENTIALS = credentials
+
+
+def _get_cached_connection(
+    credentials: Credentials,
+    spreadsheet_id: str,
+) -> SheetConnection | None:
+    with _SESSION_CACHE_LOCK:
+        connection = _CONNECTION_CACHE.get(str(spreadsheet_id))
+        if connection is None:
+            return None
+        if not _same_google_identity(connection.credentials, credentials):
+            _CONNECTION_CACHE.pop(str(spreadsheet_id), None)
+            return None
+        if (
+            time.monotonic() - connection.connected_at
+            > GOOGLE_CONNECTION_CACHE_TTL_SECONDS
+        ):
+            _CONNECTION_CACHE.pop(str(spreadsheet_id), None)
+            return None
+        return connection
+
+
+def _remember_connection(connection: SheetConnection) -> None:
+    with _SESSION_CACHE_LOCK:
+        _CONNECTION_CACHE[str(connection.spreadsheet_id)] = connection
+
+
+def _forget_connection(spreadsheet_id: str) -> None:
+    with _SESSION_CACHE_LOCK:
+        _CONNECTION_CACHE.pop(str(spreadsheet_id), None)
+
+
+def _get_worksheets(
+    connection: SheetConnection,
+    *,
+    force: bool = False,
+) -> list[gspread.Worksheet]:
+    now = time.monotonic()
+    if (
+        not force
+        and connection.worksheet_cache
+        and now - connection.worksheet_cache_loaded_at
+        <= GOOGLE_WORKSHEET_CACHE_TTL_SECONDS
+    ):
+        return list(connection.worksheet_cache.values())
+
+    worksheets = connection.spreadsheet.worksheets()
+    connection.worksheet_cache = {
+        worksheet.title.casefold(): worksheet for worksheet in worksheets
+    }
+    connection.worksheet_cache_loaded_at = now
+    return worksheets
+
+
+def _invalidate_worksheet_cache(connection: SheetConnection) -> None:
+    connection.worksheet_cache.clear()
+    connection.worksheet_cache_loaded_at = 0.0
 
 
 def _check_cancel(callback: CancelCallback) -> None:
@@ -375,7 +483,25 @@ def get_oauth_credentials(
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> Credentials:
+    """Return OAuth credentials, preferring the in-memory session cache."""
     _check_cancel(cancel_callback)
+
+    credentials = _get_memory_credentials()
+    if credentials is not None:
+        if credentials.expired and credentials.refresh_token:
+            try:
+                _log(log_callback, "Đang làm mới phiên Google trong session...")
+                credentials.refresh(Request())
+                _check_cancel(cancel_callback)
+                _save_credentials(credentials)
+            except RefreshError:
+                clear_session_google_cache()
+                OAUTH_TOKEN_FILE.unlink(missing_ok=True)
+                credentials = None
+        if credentials is not None and credentials.valid:
+            _log(log_callback, "Đã dùng phiên Google đang hoạt động trong RAM.")
+            return credentials
+
     client_path = resolve_oauth_client_path(oauth_client_path)
     credentials = _load_saved_credentials(log_callback)
 
@@ -390,7 +516,8 @@ def get_oauth_credentials(
             credentials = None
 
     if credentials and credentials.valid:
-        _log(log_callback, "Đã sử dụng phiên đăng nhập Google đã lưu.")
+        _remember_memory_credentials(credentials)
+        _log(log_callback, "Đã nạp phiên Google đã lưu vào session.")
         return credentials
 
     _log(log_callback, "Đang mở trình duyệt để đăng nhập Google...")
@@ -406,9 +533,9 @@ def get_oauth_credentials(
     if not credentials or not credentials.valid:
         raise OAuthConfigurationError("Google không trả về phiên đăng nhập hợp lệ.")
     _save_credentials(credentials)
+    _remember_memory_credentials(credentials)
     _log(log_callback, f"Đã lưu phiên Google tại {OAUTH_TOKEN_FILE}.")
     return credentials
-
 
 def authenticate_google_account(
     *,
@@ -522,9 +649,19 @@ def connect_to_spreadsheet(
     )
     spreadsheet_id = extract_spreadsheet_id(spreadsheet_url)
 
+    cached_connection = _get_cached_connection(credentials, spreadsheet_id)
     name = _cached_editor_permission_name(credentials, spreadsheet_id)
-    permission_was_cached = name is not None
-    if permission_was_cached:
+
+    if cached_connection is not None and name is not None:
+        _progress(progress_callback, 100, f"Đã kết nối nhanh: {name}")
+        _log(
+            log_callback,
+            f"Tái sử dụng kết nối Google Sheet '{name}' trong session; "
+            "không mở lại spreadsheet.",
+        )
+        return cached_connection
+
+    if name is not None:
         _progress(
             progress_callback,
             40,
@@ -535,17 +672,13 @@ def connect_to_spreadsheet(
             f"Bỏ qua kiểm tra quyền Editor: '{name}' đã được xác nhận trong session này.",
         )
     else:
-        _progress(progress_callback, 40, "Đang kiểm tra quyền Editor")
+        _progress(progress_callback, 35, "Đang kiểm tra quyền Editor")
         name = _check_editor_permission(
             credentials,
             spreadsheet_id,
             cancel_callback=cancel_callback,
         )
-        _remember_editor_permission(
-            credentials,
-            spreadsheet_id,
-            name,
-        )
+        _remember_editor_permission(credentials, spreadsheet_id, name)
         _log(log_callback, f"Đã xác nhận quyền Editor với '{name}'.")
 
     _check_cancel(cancel_callback)
@@ -553,19 +686,21 @@ def connect_to_spreadsheet(
     try:
         spreadsheet = client.open_by_key(spreadsheet_id)
     except gspread.exceptions.APIError:
-        # Nếu quyền bị thu hồi giữa session, lần kết nối sau phải kiểm tra lại.
         _forget_editor_permission(credentials, spreadsheet_id)
+        _forget_connection(spreadsheet_id)
         raise
 
-    _progress(progress_callback, 100, f"Đã kết nối: {name}")
-    return SheetConnection(
+    connection = SheetConnection(
         credentials=credentials,
         client=client,
         spreadsheet=spreadsheet,
         spreadsheet_id=spreadsheet_id,
         spreadsheet_name=name,
+        authorized_session=AuthorizedSession(credentials),
     )
-
+    _remember_connection(connection)
+    _progress(progress_callback, 100, f"Đã kết nối: {name}")
+    return connection
 
 
 _INVALID_WINDOWS_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1F]')
@@ -612,12 +747,7 @@ def download_export_tabs_as_csv(
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> list[Path]:
-    """Download every worksheet beginning with ``prefix`` as Google's raw CSV.
-
-    The bytes are written exactly as returned by the Google Sheets export
-    endpoint. The application does not parse or regenerate the CSV, so the
-    result follows the same engine used by manual CSV export.
-    """
+    """Download all ``export_*`` tabs concurrently as Google's raw CSV bytes."""
     _check_cancel(cancel_callback)
     destination = Path(output_dir).expanduser().resolve()
     try:
@@ -631,8 +761,9 @@ def download_export_tabs_as_csv(
 
     _progress(progress_callback, 5, "Đang quét các tab export_*")
     try:
-        worksheets = connection.spreadsheet.worksheets()
+        worksheets = _get_worksheets(connection)
     except gspread.exceptions.APIError as exc:
+        _invalidate_worksheet_cache(connection)
         raise GoogleServiceError(_format_api_error(exc)) from exc
 
     export_sheets = [sheet for sheet in worksheets if sheet.title.startswith(prefix)]
@@ -641,19 +772,19 @@ def download_export_tabs_as_csv(
             f"Không tìm thấy tab nào có tên bắt đầu bằng '{prefix}'."
         )
 
+    total = len(export_sheets)
+    max_workers = max(1, min(MAX_PARALLEL_EXPORT_DOWNLOADS, total))
     _log(
         log_callback,
-        f"Đã tìm thấy {len(export_sheets)} tab bắt đầu bằng '{prefix}'.",
+        f"Đã tìm thấy {total} tab bắt đầu bằng '{prefix}'. "
+        f"Tải song song tối đa {max_workers} file.",
     )
-    session = AuthorizedSession(connection.credentials)
     export_url = (
         "https://docs.google.com/spreadsheets/d/"
         f"{connection.spreadsheet_id}/export"
     )
-    created_files: list[Path] = []
-    total = len(export_sheets)
 
-    for index, worksheet in enumerate(export_sheets, start=1):
+    def download_one(index: int, worksheet) -> tuple[int, Path, int, str]:
         _check_cancel(cancel_callback)
         filename = build_csv_export_filename(
             connection.spreadsheet_name,
@@ -661,17 +792,7 @@ def download_export_tabs_as_csv(
         )
         output_path = destination / filename
         partial_path = output_path.with_name(output_path.name + ".part")
-        start_value = 8 + round((index - 1) / total * 88)
-        _progress(
-            progress_callback,
-            start_value,
-            f"Đang tải {index}/{total}: {worksheet.title}",
-        )
-        _log(
-            log_callback,
-            f"Tải tab {index}/{total}: '{worksheet.title}' → {filename}",
-        )
-
+        session = AuthorizedSession(connection.credentials)
         try:
             response = session.get(
                 export_url,
@@ -679,56 +800,66 @@ def download_export_tabs_as_csv(
                 headers={"Accept": "text/csv,*/*;q=0.8"},
                 timeout=CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
             )
-        except Exception as exc:
-            partial_path.unlink(missing_ok=True)
-            raise GoogleServiceError(
-                f"Không thể tải CSV của tab '{worksheet.title}': {exc}"
-            ) from exc
-
-        _check_cancel(cancel_callback)
-        if response.status_code < 200 or response.status_code >= 300:
-            partial_path.unlink(missing_ok=True)
-            detail = _csv_export_error_detail(response)
-            if response.status_code in (401, 403):
-                raise SheetPermissionError(
-                    "Phiên Google không có quyền xuất CSV của bảng tính này. "
-                    f"Chi tiết: {detail}"
+            _check_cancel(cancel_callback)
+            if response.status_code < 200 or response.status_code >= 300:
+                detail = _csv_export_error_detail(response)
+                if response.status_code in (401, 403):
+                    raise SheetPermissionError(
+                        "Phiên Google không có quyền xuất CSV của bảng tính này. "
+                        f"Chi tiết: {detail}"
+                    )
+                raise GoogleServiceError(
+                    f"Google Sheets không thể tạo CSV cho tab '{worksheet.title}' "
+                    f"(HTTP {response.status_code}): {detail}"
                 )
-            raise GoogleServiceError(
-                f"Google Sheets không thể tạo CSV cho tab '{worksheet.title}' "
-                f"(HTTP {response.status_code}): {detail}"
-            )
 
-        content = bytes(response.content)
-        content_type = str(response.headers.get("Content-Type", "")).casefold()
-        preview = content[:300].lstrip().lower()
-        if "text/html" in content_type or preview.startswith(b"<!doctype html"):
-            partial_path.unlink(missing_ok=True)
-            raise GoogleServiceError(
-                f"Google trả về trang HTML thay vì CSV cho tab '{worksheet.title}'. "
-                "Hãy đăng xuất Google trong Cài đặt rồi đăng nhập lại."
-            )
+            content = bytes(response.content)
+            content_type = str(response.headers.get("Content-Type", "")).casefold()
+            preview = content[:300].lstrip().lower()
+            if "text/html" in content_type or preview.startswith(b"<!doctype html"):
+                raise GoogleServiceError(
+                    f"Google trả về trang HTML thay vì CSV cho tab '{worksheet.title}'. "
+                    "Hãy đăng xuất Google trong Cài đặt rồi đăng nhập lại."
+                )
 
-        try:
             partial_path.write_bytes(content)
+            _check_cancel(cancel_callback)
             partial_path.replace(output_path)
-        except OSError as exc:
+            return index, output_path, len(content), worksheet.title
+        except Exception:
             partial_path.unlink(missing_ok=True)
-            raise GoogleServiceError(
-                f"Không thể lưu file '{output_path}': {exc}"
-            ) from exc
+            raise
 
-        created_files.append(output_path)
-        _log(
-            log_callback,
-            f"Đã lưu {filename} ({len(content):,} byte).",
-        )
-        _progress(
-            progress_callback,
-            8 + round(index / total * 88),
-            f"Đã tải {index}/{total} file CSV",
-        )
+    results: dict[int, Path] = {}
+    executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="csv-export")
+    futures = {
+        executor.submit(download_one, index, worksheet): (index, worksheet.title)
+        for index, worksheet in enumerate(export_sheets, start=1)
+    }
+    completed_count = 0
+    try:
+        for future in as_completed(futures):
+            _check_cancel(cancel_callback)
+            index, output_path, size_bytes, title = future.result()
+            results[index] = output_path
+            completed_count += 1
+            _log(
+                log_callback,
+                f"Đã lưu {output_path.name} ({size_bytes:,} byte).",
+            )
+            _progress(
+                progress_callback,
+                8 + round(completed_count / total * 92),
+                f"Đã tải {completed_count}/{total}: {title}",
+            )
+    except Exception:
+        for future in futures:
+            future.cancel()
+        raise
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
+    created_files = [results[index] for index in sorted(results)]
     _progress(progress_callback, 100, f"Đã tải xong {total} file CSV")
     return created_files
 
@@ -767,12 +898,7 @@ def fill_translate_data_columns(
     progress_callback: ProgressCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> tuple[bool, str, int]:
-    """Fill selected source cells down to the last visible row of a reference column.
-
-    The operation mirrors dragging cells in Google Sheets: formulas with relative
-    references are adjusted per row, while values and formatting are copied too.
-    ``columns`` accepts forms such as ``D:I`` and ``D,F,H:J``.
-    """
+    """Fill selected source cells using cached metadata and parallel reads."""
     cleaned_sheet_name = str(sheet_name or "").strip()
     if not cleaned_sheet_name:
         raise GoogleServiceError("Tên tab cần fill không được để trống.")
@@ -792,11 +918,19 @@ def fill_translate_data_columns(
         raise GoogleServiceError(str(exc)) from exc
 
     _check_cancel(cancel_callback)
-    _progress(progress_callback, 10, f"Đang kiểm tra tab {cleaned_sheet_name}")
+    _progress(progress_callback, 8, f"Đang kiểm tra tab {cleaned_sheet_name}")
 
-    worksheets = connection.spreadsheet.worksheets()
+    try:
+        worksheets = _get_worksheets(connection)
+    except gspread.exceptions.APIError as exc:
+        _invalidate_worksheet_cache(connection)
+        raise GoogleServiceError(_format_api_error(exc)) from exc
     worksheet = next(
-        (item for item in worksheets if item.title.casefold() == cleaned_sheet_name.casefold()),
+        (
+            item
+            for item in worksheets
+            if item.title.casefold() == cleaned_sheet_name.casefold()
+        ),
         None,
     )
     if worksheet is None:
@@ -807,6 +941,12 @@ def fill_translate_data_columns(
             f"Hàng nguồn {source_row} vượt quá số hàng hiện có của tab "
             f"({worksheet.row_count})."
         )
+    if source_row == worksheet.row_count:
+        return (
+            False,
+            f"Hàng nguồn {source_row} đang là hàng cuối của tab; không có hàng bên dưới để fill.",
+            source_row,
+        )
     max_selected_column = max((*selected_columns, reference_column_number))
     if max_selected_column > worksheet.col_count:
         invalid = column_number_to_letters(max_selected_column)
@@ -816,7 +956,6 @@ def fill_translate_data_columns(
         )
 
     _check_cancel(cancel_callback)
-    session = AuthorizedSession(connection.credentials)
     spreadsheet_base = (
         "https://sheets.googleapis.com/v4/spreadsheets/"
         f"{connection.spreadsheet_id}"
@@ -828,25 +967,20 @@ def fill_translate_data_columns(
         f"{column_number_to_letters(end)}{source_row}"
         for start, end in column_groups
     ]
-    # Cột tham chiếu dùng FORMATTED_VALUE để công thức trả về chuỗi rỗng
-    # không bị tính là dữ liệu, giống getDisplayValues() trong Apps Script.
-    reference_response = session.get(
-        f"{spreadsheet_base}/values:batchGet",
-        params=[
-            ("ranges", f"{quoted_title}!{reference_column}:{reference_column}"),
-            ("majorDimension", "ROWS"),
-            ("valueRenderOption", "FORMATTED_VALUE"),
-        ],
-        timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
-    )
-    _raise_for_response(reference_response, f"Đọc cột tham chiếu {reference_column}")
-    _check_cancel(cancel_callback)
-    reference_ranges = reference_response.json().get("valueRanges", [])
-    reference_values = (
-        reference_ranges[0].get("values", []) if reference_ranges else []
-    )
-    last_row = _last_populated_row(reference_values)
 
+    # Chỉ đọc phần nằm dưới hàng nguồn và dùng majorDimension=COLUMNS. Google
+    # tự bỏ các ô trống ở cuối, nên payload nhỏ hơn đáng kể so với đọc cả cột
+    # theo từng ROW như phiên bản cũ.
+    reference_start_row = source_row + 1
+    reference_range = (
+        f"{quoted_title}!{reference_column}{reference_start_row}:"
+        f"{reference_column}{worksheet.row_count}"
+    )
+    reference_params = [
+        ("ranges", reference_range),
+        ("majorDimension", "COLUMNS"),
+        ("valueRenderOption", "FORMATTED_VALUE"),
+    ]
     source_params: list[tuple[str, str]] = [
         ("ranges", item) for item in source_ranges
     ]
@@ -856,15 +990,49 @@ def fill_translate_data_columns(
             ("valueRenderOption", "FORMULA"),
         ]
     )
-    source_response = session.get(
-        f"{spreadsheet_base}/values:batchGet",
-        params=source_params,
-        timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
+
+    _progress(progress_callback, 22, "Đang đọc nhanh hàng nguồn và cột tham chiếu")
+
+    def fetch_batch(params):
+        session = AuthorizedSession(connection.credentials)
+        return session.get(
+            f"{spreadsheet_base}/values:batchGet",
+            params=params,
+            timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
+        )
+
+    # Hai lần đọc độc lập được chạy song song, giảm gần một nửa thời gian chờ
+    # mạng trong phần kiểm tra trước khi fill.
+    try:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="fill-read") as executor:
+            reference_future = executor.submit(fetch_batch, reference_params)
+            source_future = executor.submit(fetch_batch, source_params)
+            reference_response = reference_future.result()
+            source_response = source_future.result()
+    except CancelledError:
+        raise
+    except Exception as exc:
+        raise GoogleServiceError(
+            f"Không thể đọc dữ liệu phục vụ Fill: {exc}"
+        ) from exc
+
+    _raise_for_response(
+        reference_response,
+        f"Đọc cột tham chiếu {reference_column}",
     )
     _raise_for_response(source_response, f"Đọc hàng nguồn {source_row}")
     _check_cancel(cancel_callback)
-    source_value_ranges = source_response.json().get("valueRanges", [])
 
+    reference_ranges = reference_response.json().get("valueRanges", [])
+    reference_values = (
+        reference_ranges[0].get("values", []) if reference_ranges else []
+    )
+    reference_column_values = (
+        list(reference_values[0]) if reference_values else []
+    )
+    last_row = source_row + len(reference_column_values)
+
+    source_value_ranges = source_response.json().get("valueRanges", [])
     missing_cells: list[str] = []
     array_formula_cells: list[str] = []
     for range_index, (start_column, end_column) in enumerate(column_groups):
@@ -899,31 +1067,27 @@ def fill_translate_data_columns(
             + ". ARRAYFORMULA tự mở rộng xuống dưới.",
             last_row,
         )
-    if last_row == 0:
+    if not reference_column_values:
         return (
             False,
-            f"Cột tham chiếu {reference_column} của tab '{worksheet.title}' "
-            "không có dữ liệu.",
-            0,
-        )
-    if last_row <= source_row:
-        return (
-            False,
-            f"Hàng cuối có dữ liệu trong cột {reference_column} là hàng "
-            f"{last_row}, không nằm bên dưới hàng nguồn {source_row}.",
-            last_row,
+            f"Không có dữ liệu bên dưới hàng nguồn {source_row} trong cột "
+            f"{reference_column} của tab '{worksheet.title}'.",
+            source_row,
         )
 
     _progress(
         progress_callback,
-        55,
-        f"Đang fill {normalized_columns} từ hàng {source_row} đến hàng {last_row}",
+        58,
+        f"Đang fill {normalized_columns} đến hàng {last_row}",
     )
-    response = session.post(
+    response = connection.authorized_session.post(
         f"{spreadsheet_base}:batchUpdate",
         json={
             "requests": build_fill_copy_requests(
-                worksheet.id, source_row, last_row, selected_columns
+                worksheet.id,
+                source_row,
+                last_row,
+                selected_columns,
             )
         },
         timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
@@ -941,7 +1105,6 @@ def fill_translate_data_columns(
         f"({added_rows} hàng, {filled_cells} ô đích).",
         last_row,
     )
-
 
 def _prepare_value(value: object, option: str) -> object:
     if value is None:
@@ -1091,9 +1254,9 @@ def upload_bundles_fast(
             total_data_rows += bundle.row_count
 
         _check_cancel(cancel_callback)
-        worksheets = connection.spreadsheet.worksheets()
+        worksheets = _get_worksheets(connection)
         worksheet_map = {item.title.casefold(): item for item in worksheets}
-        session = AuthorizedSession(connection.credentials)
+        session = connection.authorized_session
         spreadsheet_base = (
             "https://sheets.googleapis.com/v4/spreadsheets/"
             f"{connection.spreadsheet_id}"
@@ -1162,6 +1325,7 @@ def upload_bundles_fast(
                 timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
             )
             _raise_for_response(response, "Chuẩn bị tab")
+            _invalidate_worksheet_cache(connection)
 
         if clear_ranges:
             _check_cancel(cancel_callback)

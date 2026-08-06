@@ -11,15 +11,20 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.3_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.4_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
-    "README_V1_7_3_SESSION_PERMISSION_CACHE.md",
+    "README_V1_7_4_PERFORMANCE.md",
     "tests\test_session_permission_cache.py",
     "src\import_localize\app\constants.py",
+    "src\import_localize\services\csv_service.py",
+    "src\import_localize\services\fill_service.py",
     "src\import_localize\services\google_service.py",
     "src\import_localize\services\session_permission_cache.py",
+    "src\import_localize\workers\import_worker.py",
+    "src\import_localize\workers\translate_fill_worker.py",
+    "src\import_localize\workers\export_tabs_worker.py",
     "src\import_localize\ui\forms\main_window.ui"
 )
 foreach ($RelativePath in $Items) {
@@ -55,6 +60,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.7.3." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.7.4." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "Quyền Editor chỉ được kiểm tra một lần cho mỗi Spreadsheet trong session." -ForegroundColor Green
+Write-Host "Đã bật cache session, Fill đọc song song và tải export_* song song." -ForegroundColor Green

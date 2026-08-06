@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import traceback
+import time
 from concurrent.futures import CancelledError
 from pathlib import Path
 from threading import Event
@@ -37,6 +38,7 @@ class ExportTabsWorker(QThread):
         self.log_emitted.emit(level, message)
 
     def run(self) -> None:
+        started_at = time.perf_counter()
         try:
             self.progress_changed.emit(2, "Đang kết nối Google Sheet")
             connection = connect_to_spreadsheet(

@@ -133,7 +133,7 @@ def inspect_csv(
         raise CsvImportError(f"File không phải CSV: {csv_path.name}")
 
     with csv_path.open("rb") as handle:
-        raw = handle.read(131072)
+        raw = handle.read(65536)
     sample, encoding = _decode_sample(raw)
     delimiter = _detect_delimiter(sample)
     try:
@@ -209,6 +209,7 @@ def load_csv_bundle(
     progress_callback: ProgressCallback = None,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
+    info_lookup: dict[str, CsvFileInfo] | None = None,
 ) -> CsvBundle:
     if not job.file_paths:
         raise CsvImportError("Chưa chọn file CSV.")
@@ -222,7 +223,10 @@ def load_csv_bundle(
 
     for file_index, raw_path in enumerate(job.file_paths, start=1):
         _check_cancel(cancel_callback)
-        info = inspect_csv(raw_path)
+        resolved_path = str(Path(raw_path).expanduser().resolve())
+        info = (info_lookup or {}).get(resolved_path)
+        if info is None:
+            info = inspect_csv(resolved_path)
         bundle.source_files.append(str(info.path))
         bundle.encodings[info.path.name] = info.encoding
         bundle.delimiters[info.path.name] = info.delimiter

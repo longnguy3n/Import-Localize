@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import traceback
+import time
 from concurrent.futures import CancelledError
 from threading import Event
 
@@ -42,6 +43,7 @@ class TranslateFillWorker(QThread):
         self.log_emitted.emit(level, message)
 
     def run(self) -> None:
+        started_at = time.perf_counter()
         try:
             options = self.options
             self.progress_changed.emit(4, "Đang kết nối Google Sheet")
@@ -76,13 +78,16 @@ class TranslateFillWorker(QThread):
                     100,
                     f"Đã fill xong tab {options.sheet_name}",
                 )
-                self.completed.emit(True, message)
+                elapsed = time.perf_counter() - started_at
+                self._log(f"Tổng thời gian Fill: {elapsed:.2f} giây.", "SUCCESS")
+                self.completed.emit(True, f"{message} Thời gian: {elapsed:.2f} giây.")
                 return
 
             self._log(message, "WARNING")
             self.progress_changed.emit(100, "Không có dữ liệu cần fill")
             suffix = f" Hàng dữ liệu cuối: {last_row}." if last_row else ""
-            self.completed.emit(True, message + suffix)
+            elapsed = time.perf_counter() - started_at
+            self.completed.emit(True, message + suffix + f" Thời gian: {elapsed:.2f} giây.")
         except CancelledError:
             self.completed.emit(False, "Đã dừng thao tác Fill theo yêu cầu.")
         except GoogleServiceError as exc:

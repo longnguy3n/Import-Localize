@@ -110,7 +110,7 @@ def build_fill_copy_requests(
                     },
                     "destination": {
                         "sheetId": int(sheet_id),
-                        "startRowIndex": int(source_row) - 1,
+                        "startRowIndex": int(source_row),
                         "endRowIndex": int(last_row),
                         "startColumnIndex": int(start_column) - 1,
                         "endColumnIndex": int(end_column),

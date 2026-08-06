@@ -33,6 +33,7 @@ def test_copy_requests_group_consecutive_columns():
     assert first["source"]["startRowIndex"] == 1
     assert first["source"]["startColumnIndex"] == 3
     assert first["source"]["endColumnIndex"] == 6
+    assert first["destination"]["startRowIndex"] == 2
     assert first["destination"]["endRowIndex"] == 100
     assert second["source"]["startColumnIndex"] == 7
     assert second["source"]["endColumnIndex"] == 9
