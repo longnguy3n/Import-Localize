@@ -22,11 +22,20 @@ from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession, Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    ReadTimeout,
+    Timeout as RequestsTimeout,
+)
 
 from import_localize.app.constants import (
     CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
     EXPORT_SHEET_PREFIX,
     GOOGLE_REQUEST_TIMEOUT_SECONDS,
+    GOOGLE_REQUEST_RETRY_ATTEMPTS,
+    GOOGLE_REQUEST_RETRY_BASE_DELAY_SECONDS,
+    GOOGLE_STRUCTURE_BATCH_SIZE,
+    GOOGLE_CLEAR_BATCH_SIZE,
     GOOGLE_CONNECTION_CACHE_TTL_SECONDS,
     GOOGLE_WORKSHEET_CACHE_TTL_SECONDS,
     MAX_PARALLEL_EXPORT_DOWNLOADS,
@@ -592,13 +601,17 @@ def _check_editor_permission(
 ) -> str:
     _check_cancel(cancel_callback)
     session = AuthorizedSession(credentials)
-    response = session.get(
+    response = _request_with_retry(
+        session,
+        "GET",
         f"https://www.googleapis.com/drive/v3/files/{spreadsheet_id}",
+        action="Kiểm tra quyền Editor",
+        cancel_callback=cancel_callback,
+        timeout=45,
         params={
             "fields": "id,name,mimeType,trashed,capabilities(canEdit)",
             "supportsAllDrives": "true",
         },
-        timeout=30,
     )
     _check_cancel(cancel_callback)
 
@@ -794,11 +807,16 @@ def download_export_tabs_as_csv(
         partial_path = output_path.with_name(output_path.name + ".part")
         session = AuthorizedSession(connection.credentials)
         try:
-            response = session.get(
+            response = _request_with_retry(
+                session,
+                "GET",
                 export_url,
+                action=f"Tải CSV tab {worksheet.title}",
+                log_callback=log_callback,
+                cancel_callback=cancel_callback,
+                timeout=CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
                 params={"format": "csv", "gid": str(worksheet.id)},
                 headers={"Accept": "text/csv,*/*;q=0.8"},
-                timeout=CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
             )
             _check_cancel(cancel_callback)
             if response.status_code < 200 or response.status_code >= 300:
@@ -993,20 +1011,32 @@ def fill_translate_data_columns(
 
     _progress(progress_callback, 22, "Đang đọc nhanh hàng nguồn và cột tham chiếu")
 
-    def fetch_batch(params):
+    def fetch_batch(params, action):
         session = AuthorizedSession(connection.credentials)
-        return session.get(
+        return _request_with_retry(
+            session,
+            "GET",
             f"{spreadsheet_base}/values:batchGet",
+            action=action,
+            log_callback=log_callback,
+            cancel_callback=cancel_callback,
             params=params,
-            timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
         )
 
     # Hai lần đọc độc lập được chạy song song, giảm gần một nửa thời gian chờ
     # mạng trong phần kiểm tra trước khi fill.
     try:
         with ThreadPoolExecutor(max_workers=2, thread_name_prefix="fill-read") as executor:
-            reference_future = executor.submit(fetch_batch, reference_params)
-            source_future = executor.submit(fetch_batch, source_params)
+            reference_future = executor.submit(
+                fetch_batch,
+                reference_params,
+                f"Đọc cột tham chiếu {reference_column}",
+            )
+            source_future = executor.submit(
+                fetch_batch,
+                source_params,
+                f"Đọc hàng nguồn {source_row}",
+            )
             reference_response = reference_future.result()
             source_response = source_future.result()
     except CancelledError:
@@ -1080,8 +1110,13 @@ def fill_translate_data_columns(
         58,
         f"Đang fill {normalized_columns} đến hàng {last_row}",
     )
-    response = connection.authorized_session.post(
+    response = _request_with_retry(
+        connection.authorized_session,
+        "POST",
         f"{spreadsheet_base}:batchUpdate",
+        action=f"Fill dữ liệu tab {worksheet.title}",
+        log_callback=log_callback,
+        cancel_callback=cancel_callback,
         json={
             "requests": build_fill_copy_requests(
                 worksheet.id,
@@ -1090,7 +1125,6 @@ def fill_translate_data_columns(
                 selected_columns,
             )
         },
-        timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
     )
     _raise_for_response(response, f"Fill dữ liệu tab {worksheet.title}")
     _check_cancel(cancel_callback)
@@ -1155,6 +1189,294 @@ def _raise_for_response(response, action: str) -> None:
     raise GoogleServiceError(f"{action} thất bại: {detail}")
 
 
+def _sleep_with_cancel(seconds: float, cancel_callback: CancelCallback) -> None:
+    """Sleep in short intervals so the Stop button remains responsive."""
+    deadline = time.monotonic() + max(0.0, float(seconds))
+    while True:
+        _check_cancel(cancel_callback)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.2, remaining))
+
+
+def _retry_delay_seconds(attempt: int, response=None) -> float:
+    """Return exponential backoff, honoring Retry-After when provided."""
+    if response is not None:
+        raw = str(getattr(response, "headers", {}).get("Retry-After", "") or "").strip()
+        if raw:
+            try:
+                return min(30.0, max(0.5, float(raw)))
+            except ValueError:
+                pass
+    return min(
+        8.0,
+        GOOGLE_REQUEST_RETRY_BASE_DELAY_SECONDS * (2 ** max(0, attempt - 1)),
+    )
+
+
+def _is_transient_http_status(status_code: int) -> bool:
+    return int(status_code) in {408, 429, 500, 502, 503, 504}
+
+
+def _request_with_retry(
+    session: AuthorizedSession,
+    method: str,
+    url: str,
+    *,
+    action: str,
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+    timeout: int | float = GOOGLE_REQUEST_TIMEOUT_SECONDS,
+    max_attempts: int = GOOGLE_REQUEST_RETRY_ATTEMPTS,
+    **kwargs,
+):
+    """Run an idempotent Google API request with cancellable retry/backoff."""
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, int(max_attempts)) + 1):
+        _check_cancel(cancel_callback)
+        try:
+            response = session.request(
+                method=method,
+                url=url,
+                timeout=timeout,
+                **kwargs,
+            )
+        except (ReadTimeout, RequestsTimeout, RequestsConnectionError) as exc:
+            last_error = exc
+            if attempt >= max_attempts:
+                break
+            delay = _retry_delay_seconds(attempt)
+            _log(
+                log_callback,
+                f"{action}: Google phản hồi chậm/mất kết nối; thử lại "
+                f"{attempt + 1}/{max_attempts} sau {delay:.1f}s.",
+            )
+            _sleep_with_cancel(delay, cancel_callback)
+            continue
+
+        if _is_transient_http_status(response.status_code) and attempt < max_attempts:
+            delay = _retry_delay_seconds(attempt, response)
+            _log(
+                log_callback,
+                f"{action}: Google trả HTTP {response.status_code}; thử lại "
+                f"{attempt + 1}/{max_attempts} sau {delay:.1f}s.",
+            )
+            _sleep_with_cancel(delay, cancel_callback)
+            continue
+        return response
+
+    raise GoogleServiceError(
+        f"{action} không nhận được phản hồi ổn định từ Google Sheets sau "
+        f"{max_attempts} lần thử. Lỗi cuối: {last_error}"
+    ) from last_error
+
+
+def _chunked(items: list[object], size: int) -> list[list[object]]:
+    chunk_size = max(1, int(size))
+    return [items[index : index + chunk_size] for index in range(0, len(items), chunk_size)]
+
+
+def _fetch_sheet_properties_fast(
+    connection: SheetConnection,
+    *,
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+) -> dict[str, dict[str, object]]:
+    """Fetch only worksheet properties using the lightweight Sheets REST API."""
+    spreadsheet_base = (
+        "https://sheets.googleapis.com/v4/spreadsheets/"
+        f"{connection.spreadsheet_id}"
+    )
+    response = _request_with_retry(
+        connection.authorized_session,
+        "GET",
+        spreadsheet_base,
+        action="Đọc cấu trúc tab",
+        log_callback=log_callback,
+        cancel_callback=cancel_callback,
+        params={
+            "includeGridData": "false",
+            "fields": (
+                "sheets(properties(sheetId,title,"
+                "gridProperties(rowCount,columnCount,frozenRowCount)))"
+            ),
+        },
+    )
+    _raise_for_response(response, "Đọc cấu trúc tab")
+    result: dict[str, dict[str, object]] = {}
+    for item in response.json().get("sheets", []):
+        properties = item.get("properties", {}) or {}
+        title = str(properties.get("title") or "")
+        if title:
+            result[title.casefold()] = properties
+    return result
+
+
+def _build_structure_requests(
+    prepared: list[tuple[CsvBundle, ImportJob, list[list[object]]]],
+    sheet_properties: dict[str, dict[str, object]],
+) -> tuple[list[dict[str, object]], list[str]]:
+    """Build only the structural mutations still required at this moment."""
+    requests_out: list[dict[str, object]] = []
+    clear_ranges: list[str] = []
+    for bundle, job, values in prepared:
+        required_rows = max(1, len(values))
+        required_cols = max(
+            1,
+            max((len(row) for row in values), default=bundle.column_count or 1),
+        )
+        existing = sheet_properties.get(job.sheet_name.casefold())
+        frozen_rows = 1 if bundle.header else 0
+        if existing is None:
+            requests_out.append(
+                {
+                    "addSheet": {
+                        "properties": {
+                            "title": job.sheet_name,
+                            "gridProperties": {
+                                "rowCount": max(100, required_rows),
+                                "columnCount": max(10, required_cols),
+                                "frozenRowCount": frozen_rows,
+                            },
+                        }
+                    }
+                }
+            )
+            continue
+
+        clear_ranges.append(_quote_sheet_title(job.sheet_name))
+        grid = existing.get("gridProperties", {}) or {}
+        current_rows = int(grid.get("rowCount") or 0)
+        current_cols = int(grid.get("columnCount") or 0)
+        current_frozen = int(grid.get("frozenRowCount") or 0)
+        row_count = max(current_rows, required_rows)
+        column_count = max(current_cols, required_cols)
+        if (
+            row_count != current_rows
+            or column_count != current_cols
+            or frozen_rows != current_frozen
+        ):
+            requests_out.append(
+                {
+                    "updateSheetProperties": {
+                        "properties": {
+                            "sheetId": int(existing.get("sheetId")),
+                            "gridProperties": {
+                                "rowCount": row_count,
+                                "columnCount": column_count,
+                                "frozenRowCount": frozen_rows,
+                            },
+                        },
+                        "fields": (
+                            "gridProperties.rowCount,"
+                            "gridProperties.columnCount,"
+                            "gridProperties.frozenRowCount"
+                        ),
+                    }
+                }
+            )
+    return requests_out, clear_ranges
+
+
+def _apply_structure_requests_resilient(
+    connection: SheetConnection,
+    prepared: list[tuple[CsvBundle, ImportJob, list[list[object]]]],
+    *,
+    progress_callback: ProgressCallback = None,
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+) -> list[str]:
+    """Apply add/resize/freeze requests in small batches with timeout recovery.
+
+    ``addSheet`` is not safe to retry blindly: the server may have created a tab
+    before the client timed out. On every ambiguous failure we re-read metadata,
+    rebuild the remaining work, and therefore never issue a duplicate addSheet
+    for a tab that already exists.
+    """
+    spreadsheet_base = (
+        "https://sheets.googleapis.com/v4/spreadsheets/"
+        f"{connection.spreadsheet_id}"
+    )
+    max_passes = max(2, GOOGLE_REQUEST_RETRY_ATTEMPTS)
+
+    for recovery_pass in range(1, max_passes + 1):
+        _check_cancel(cancel_callback)
+        properties = _fetch_sheet_properties_fast(
+            connection,
+            log_callback=log_callback,
+            cancel_callback=cancel_callback,
+        )
+        structural_requests, clear_ranges = _build_structure_requests(
+            prepared,
+            properties,
+        )
+        if not structural_requests:
+            _invalidate_worksheet_cache(connection)
+            return clear_ranges
+
+        chunks = _chunked(structural_requests, GOOGLE_STRUCTURE_BATCH_SIZE)
+        restart_after_ambiguous_failure = False
+        for chunk_index, chunk in enumerate(chunks, start=1):
+            _check_cancel(cancel_callback)
+            try:
+                response = connection.authorized_session.post(
+                    f"{spreadsheet_base}:batchUpdate",
+                    json={"requests": chunk},
+                    timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
+                )
+            except (ReadTimeout, RequestsTimeout, RequestsConnectionError) as exc:
+                if recovery_pass >= max_passes:
+                    raise GoogleServiceError(
+                        "Chuẩn bị tab bị timeout nhiều lần. Google có thể đã xử lý "
+                        f"một phần request. Lỗi cuối: {exc}"
+                    ) from exc
+                delay = _retry_delay_seconds(recovery_pass)
+                _log(
+                    log_callback,
+                    "Chuẩn bị tab bị timeout; đang đọc lại trạng thái thực tế từ "
+                    f"Google rồi tiếp tục (lần {recovery_pass + 1}/{max_passes}).",
+                )
+                _sleep_with_cancel(delay, cancel_callback)
+                restart_after_ambiguous_failure = True
+                break
+
+            if _is_transient_http_status(response.status_code):
+                if recovery_pass >= max_passes:
+                    _raise_for_response(response, "Chuẩn bị tab")
+                delay = _retry_delay_seconds(recovery_pass, response)
+                _log(
+                    log_callback,
+                    f"Chuẩn bị tab nhận HTTP {response.status_code}; đang đồng bộ "
+                    "lại metadata trước khi thử tiếp.",
+                )
+                _sleep_with_cancel(delay, cancel_callback)
+                restart_after_ambiguous_failure = True
+                break
+
+            _raise_for_response(response, "Chuẩn bị tab")
+            _progress(
+                progress_callback,
+                10 + round(chunk_index / max(1, len(chunks)) * 8),
+                f"Đang chuẩn bị tab {chunk_index}/{len(chunks)}",
+            )
+
+        if restart_after_ambiguous_failure:
+            continue
+
+        # Re-read once so clear ranges include tabs that were just created.
+        final_properties = _fetch_sheet_properties_fast(
+            connection,
+            log_callback=log_callback,
+            cancel_callback=cancel_callback,
+        )
+        _remaining, clear_ranges = _build_structure_requests(prepared, final_properties)
+        _invalidate_worksheet_cache(connection)
+        return clear_ranges
+
+    raise GoogleServiceError("Không thể hoàn tất bước chuẩn bị tab sau nhiều lần khôi phục.")
+
+
 def _split_value_ranges(
     sheet_name: str,
     values: list[list[object]],
@@ -1211,23 +1533,21 @@ def upload_bundles_fast(
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> int:
-    """Replace one or many tabs using a small number of Sheets API requests.
+    """Replace one or many tabs with timeout recovery and bounded batches.
 
-    Compared with the previous implementation this function:
-    - lists worksheets only once;
-    - creates/resizes/freezes all tabs in one ``batchUpdate`` request;
-    - clears all existing target tabs in one ``batchClear`` request;
-    - writes many tabs with ``values:batchUpdate`` instead of one request per
-      750 rows and per worksheet.
+    Performance is still based on Sheets batch APIs, but large structural
+    requests are split into smaller groups. Idempotent clear/value writes are
+    retried automatically. ``addSheet`` timeouts are recovered by re-reading
+    server metadata before rebuilding the remaining structural work.
     """
     if not uploads:
         return 0
 
+    started_at = time.monotonic()
     try:
         _check_cancel(cancel_callback)
         _progress(progress_callback, 2, "Đang chuẩn bị dữ liệu Google Sheets")
 
-        # Validate target uniqueness before making any destructive request.
         target_names: dict[str, str] = {}
         prepared: list[tuple[CsvBundle, ImportJob, list[list[object]]]] = []
         total_data_rows = 0
@@ -1254,88 +1574,43 @@ def upload_bundles_fast(
             total_data_rows += bundle.row_count
 
         _check_cancel(cancel_callback)
-        worksheets = _get_worksheets(connection)
-        worksheet_map = {item.title.casefold(): item for item in worksheets}
-        session = connection.authorized_session
         spreadsheet_base = (
             "https://sheets.googleapis.com/v4/spreadsheets/"
             f"{connection.spreadsheet_id}"
         )
 
-        sheet_requests: list[dict[str, object]] = []
-        clear_ranges: list[str] = []
-        for bundle, job, values in prepared:
-            required_rows = max(1, len(values))
-            required_cols = max(
-                1,
-                max((len(row) for row in values), default=bundle.column_count or 1),
-            )
-            existing = worksheet_map.get(job.sheet_name.casefold())
-            frozen_rows = 1 if bundle.header else 0
-            if existing is None:
-                sheet_requests.append(
-                    {
-                        "addSheet": {
-                            "properties": {
-                                "title": job.sheet_name,
-                                "gridProperties": {
-                                    "rowCount": max(100, required_rows),
-                                    "columnCount": max(10, required_cols),
-                                    "frozenRowCount": frozen_rows,
-                                },
-                            }
-                        }
-                    }
-                )
-            else:
-                clear_ranges.append(_quote_sheet_title(job.sheet_name))
-                row_count = max(existing.row_count, required_rows)
-                column_count = max(existing.col_count, required_cols)
-                if (
-                    row_count != existing.row_count
-                    or column_count != existing.col_count
-                    or frozen_rows != 0
-                ):
-                    sheet_requests.append(
-                        {
-                            "updateSheetProperties": {
-                                "properties": {
-                                    "sheetId": existing.id,
-                                    "gridProperties": {
-                                        "rowCount": row_count,
-                                        "columnCount": column_count,
-                                        "frozenRowCount": frozen_rows,
-                                    },
-                                },
-                                "fields": (
-                                    "gridProperties.rowCount,"
-                                    "gridProperties.columnCount,"
-                                    "gridProperties.frozenRowCount"
-                                ),
-                            }
-                        }
-                    )
-
-        if sheet_requests:
-            _check_cancel(cancel_callback)
-            _progress(progress_callback, 10, "Đang tạo và chuẩn bị các tab đích")
-            response = session.post(
-                f"{spreadsheet_base}:batchUpdate",
-                json={"requests": sheet_requests},
-                timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
-            )
-            _raise_for_response(response, "Chuẩn bị tab")
-            _invalidate_worksheet_cache(connection)
+        # Structural work is the only non-idempotent phase because addSheet may
+        # already have succeeded when a response times out. The resilient helper
+        # always re-reads metadata before retrying so duplicate tabs are avoided.
+        _progress(progress_callback, 8, "Đang tạo và chuẩn bị các tab đích")
+        clear_ranges = _apply_structure_requests_resilient(
+            connection,
+            prepared,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
+            cancel_callback=cancel_callback,
+        )
 
         if clear_ranges:
-            _check_cancel(cancel_callback)
             _progress(progress_callback, 20, "Đang xóa dữ liệu cũ của các tab")
-            response = session.post(
-                f"{spreadsheet_base}/values:batchClear",
-                json={"ranges": clear_ranges},
-                timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
-            )
-            _raise_for_response(response, "Xóa dữ liệu cũ")
+            clear_groups = _chunked(clear_ranges, GOOGLE_CLEAR_BATCH_SIZE)
+            for group_index, ranges in enumerate(clear_groups, start=1):
+                _check_cancel(cancel_callback)
+                response = _request_with_retry(
+                    connection.authorized_session,
+                    "POST",
+                    f"{spreadsheet_base}/values:batchClear",
+                    action="Xóa dữ liệu cũ",
+                    log_callback=log_callback,
+                    cancel_callback=cancel_callback,
+                    json={"ranges": ranges},
+                )
+                _raise_for_response(response, "Xóa dữ liệu cũ")
+                _progress(
+                    progress_callback,
+                    20 + round(group_index / max(1, len(clear_groups)) * 5),
+                    f"Đang xóa dữ liệu cũ {group_index}/{len(clear_groups)}",
+                )
 
         # Google requires one valueInputOption per batch request. Group by mode.
         entries_by_option: dict[str, list[dict[str, object]]] = {}
@@ -1364,14 +1639,18 @@ def upload_bundles_fast(
         written_value_rows = 0
         for request_index, (option, group) in enumerate(all_groups, start=1):
             _check_cancel(cancel_callback)
-            response = session.post(
+            response = _request_with_retry(
+                connection.authorized_session,
+                "POST",
                 f"{spreadsheet_base}/values:batchUpdate",
+                action=f"Ghi dữ liệu gói {request_index}/{len(all_groups)}",
+                log_callback=log_callback,
+                cancel_callback=cancel_callback,
                 json={
                     "valueInputOption": option,
                     "includeValuesInResponse": False,
                     "data": group,
                 },
-                timeout=GOOGLE_REQUEST_TIMEOUT_SECONDS,
             )
             _raise_for_response(response, "Ghi dữ liệu")
             written_value_rows += sum(
@@ -1386,21 +1665,22 @@ def upload_bundles_fast(
                 f"Đang ghi nhanh {request_index}/{len(all_groups)} gói dữ liệu",
             )
 
+        _invalidate_worksheet_cache(connection)
         for bundle, job, _values in prepared:
             _log(
                 log_callback,
                 f"Đã nhập {bundle.row_count} dòng vào tab '{job.sheet_name}'.",
             )
+        elapsed = time.monotonic() - started_at
         _log(
             log_callback,
             f"Tối ưu API hoàn tất: {len(prepared)} tab, "
-            f"{total_data_rows} dòng dữ liệu.",
+            f"{total_data_rows} dòng dữ liệu trong {elapsed:.2f} giây.",
         )
         _progress(progress_callback, 100, "Đã ghi xong dữ liệu")
         return total_data_rows
     except gspread.exceptions.APIError as exc:
         raise GoogleServiceError(_format_api_error(exc)) from exc
-
 
 def upload_bundle(
     connection: SheetConnection,

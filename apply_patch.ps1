@@ -11,11 +11,13 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.4_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.5_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
     "README_V1_7_4_PERFORMANCE.md",
+    "README_V1_7_5_TIMEOUT_RETRY.md",
+    "tests\test_google_retry.py",
     "tests\test_session_permission_cache.py",
     "src\import_localize\app\constants.py",
     "src\import_localize\services\csv_service.py",
@@ -60,6 +62,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.7.4." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.7.5." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "Đã bật cache session, Fill đọc song song và tải export_* song song." -ForegroundColor Green
+Write-Host "Đã bật timeout thích nghi, retry có backoff và khôi phục an toàn khi batchUpdate bị timeout." -ForegroundColor Green
