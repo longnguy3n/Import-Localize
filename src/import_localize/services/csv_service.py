@@ -25,6 +25,8 @@ ENCODING_CANDIDATES = (
 
 INVALID_WORKSHEET_CHARACTERS = re.compile(r"[:\\/?*\[\]]")
 FILENAME_SEPARATOR = " - "
+DEDUPLICATE_KEY_TARGET_SHEETS = {"upload_en"}
+DEDUPLICATE_KEY_HEADER = "key"
 
 
 def parse_localization_filename(path: str | Path) -> tuple[str, str]:
@@ -342,6 +344,11 @@ def load_csv_bundle(
             f"Cột {index}" for index in range(len(bundle.header) + 1, width + 1)
         )
     _pad_rows(bundle.rows, width)
+    _deduplicate_target_rows_by_key(
+        bundle,
+        job,
+        log_callback=log_callback,
+    )
 
     _log(
         log_callback,
@@ -350,6 +357,75 @@ def load_csv_bundle(
     )
     return bundle
 
+
+
+def _deduplicate_target_rows_by_key(
+    bundle: CsvBundle,
+    job: ImportJob,
+    *,
+    log_callback: LogCallback = None,
+) -> int:
+    """Loại dòng key lặp cho các tab được cấu hình, hiện tại là ``upload_en``.
+
+    - Chỉ áp dụng khi target sheet là upload_en, không phân biệt hoa/thường.
+    - Header ``key`` được nhận diện không phân biệt hoa/thường/khoảng trắng.
+    - Key rỗng không bị gộp.
+    - Key được so sánh theo đúng chữ hoa/thường của giá trị để tránh làm thay đổi
+      ngữ nghĩa của localization key.
+    - Giữ lần xuất hiện đầu tiên, xóa các lần lặp phía sau.
+    """
+    target_sheet = str(job.sheet_name or "").strip().casefold()
+    if target_sheet not in DEDUPLICATE_KEY_TARGET_SHEETS:
+        return 0
+
+    if not bundle.header or not bundle.rows:
+        return 0
+
+    normalized_headers = _header_keys(bundle.header)
+    try:
+        key_index = normalized_headers.index(DEDUPLICATE_KEY_HEADER)
+    except ValueError:
+        _log(
+            log_callback,
+            "Tab 'upload_en' không có cột 'key'; bỏ qua bước loại key trùng.",
+        )
+        return 0
+
+    seen_keys: set[str] = set()
+    duplicate_keys: list[str] = []
+    duplicate_key_set: set[str] = set()
+    kept_rows: list[list[str]] = []
+    removed_count = 0
+
+    for row in bundle.rows:
+        key_value = row[key_index].strip() if key_index < len(row) else ""
+        if key_value == "":
+            kept_rows.append(row)
+            continue
+        if key_value in seen_keys:
+            removed_count += 1
+            if key_value not in duplicate_key_set:
+                duplicate_key_set.add(key_value)
+                duplicate_keys.append(key_value)
+            continue
+        seen_keys.add(key_value)
+        kept_rows.append(row)
+
+    if removed_count == 0:
+        _log(log_callback, "upload_en: không phát hiện key bị lặp.")
+        return 0
+
+    bundle.rows[:] = kept_rows
+    preview = ", ".join(duplicate_keys[:8])
+    if len(duplicate_keys) > 8:
+        preview += f", … (+{len(duplicate_keys) - 8})"
+    _log(
+        log_callback,
+        f"upload_en: đã loại {removed_count} dòng có key lặp "
+        f"({len(duplicate_keys)} key trùng), giữ lần xuất hiện đầu tiên."
+        + (f" Key trùng: {preview}." if preview else ""),
+    )
+    return removed_count
 
 def format_size(size_bytes: int) -> str:
     value = float(size_bytes)

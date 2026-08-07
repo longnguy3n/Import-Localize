@@ -11,15 +11,17 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.6_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.7_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
     "README_V1_7_4_PERFORMANCE.md",
     "README_V1_7_5_TIMEOUT_RETRY.md",
     "README_V1_7_6_FILL_CALLBACK_FIX.md",
+    "README_V1_7_7_UPLOAD_EN_DEDUPE.md",
     "tests\test_google_retry.py",
     "tests\test_fill_callback_signature.py",
+    "tests\test_upload_en_dedupe.py",
     "tests\test_session_permission_cache.py",
     "src\import_localize\app\constants.py",
     "src\import_localize\services\csv_service.py",
@@ -64,6 +66,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.7.6." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.7.7." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "Đã sửa lỗi Fill dữ liệu do thiếu log_callback và giữ nguyên cơ chế retry/timeout của v1.7.5." -ForegroundColor Green
+Write-Host "Đã bổ sung loại các dòng có key lặp khi import vào tab upload_en." -ForegroundColor Green
