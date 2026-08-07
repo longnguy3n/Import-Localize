@@ -69,6 +69,7 @@ class TranslateFillWorker(QThread):
                 progress_callback=lambda value, text: self.progress_changed.emit(
                     min(99, 42 + round(value * 0.57)), text
                 ),
+                log_callback=lambda message: self._log(message),
                 cancel_callback=self._is_cancelled,
             )
 

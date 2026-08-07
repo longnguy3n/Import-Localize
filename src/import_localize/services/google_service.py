@@ -914,6 +914,7 @@ def fill_translate_data_columns(
     columns: str = "D:I",
     reference_column: str = "A",
     progress_callback: ProgressCallback = None,
+    log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> tuple[bool, str, int]:
     """Fill selected source cells using cached metadata and parallel reads."""
