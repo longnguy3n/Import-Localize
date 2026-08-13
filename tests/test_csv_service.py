@@ -98,6 +98,26 @@ class CsvServiceTests(unittest.TestCase):
         with self.assertRaises(CsvImportError):
             validate_worksheet_title("bad/name")
 
+    def test_utf8_sample_cut_mid_multibyte_still_detects_utf8(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            path = directory / "Book - upload_vi.csv"
+            prefix = b"Key,Text\n"
+            filler = b"a" * (65534 - len(prefix))
+            # U+1EC5 (ễ) is three UTF-8 bytes; the 64 KiB sample ends after
+            # the first two bytes. Incremental decoding must not call this latin-1.
+            path.write_bytes(prefix + filler + "ễ\n".encode("utf-8"))
+            info = inspect_csv(path)
+            self.assertEqual(info.encoding, "utf-8")
+            self.assertEqual(info.delimiter, ",")
+
+    def test_invalid_non_utf8_csv_is_rejected_instead_of_latin1_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "Book - upload_vi.csv"
+            path.write_bytes(b"Key,Text\na,caf\xe9\n")
+            with self.assertRaises(CsvImportError):
+                inspect_csv(path)
+
 
 if __name__ == "__main__":
     unittest.main()

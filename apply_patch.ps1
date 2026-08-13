@@ -11,26 +11,14 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.7_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.8_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
-    "README_V1_7_4_PERFORMANCE.md",
-    "README_V1_7_5_TIMEOUT_RETRY.md",
-    "README_V1_7_6_FILL_CALLBACK_FIX.md",
-    "README_V1_7_7_UPLOAD_EN_DEDUPE.md",
-    "tests\test_google_retry.py",
-    "tests\test_fill_callback_signature.py",
-    "tests\test_upload_en_dedupe.py",
-    "tests\test_session_permission_cache.py",
+    "README_V1_7_8_UTF8_FIX.md",
+    "tests\test_csv_service.py",
     "src\import_localize\app\constants.py",
     "src\import_localize\services\csv_service.py",
-    "src\import_localize\services\fill_service.py",
-    "src\import_localize\services\google_service.py",
-    "src\import_localize\services\session_permission_cache.py",
-    "src\import_localize\workers\import_worker.py",
-    "src\import_localize\workers\translate_fill_worker.py",
-    "src\import_localize\workers\export_tabs_worker.py",
     "src\import_localize\ui\forms\main_window.ui"
 )
 foreach ($RelativePath in $Items) {
@@ -66,6 +54,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.7.7." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.7.8." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "Đã bổ sung loại các dòng có key lặp khi import vào tab upload_en." -ForegroundColor Green
+Write-Host "CSV giờ luôn dùng UTF-8; đã sửa lỗi sample 64 KiB bị cắt giữa ký tự UTF-8." -ForegroundColor Green

@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.7.7</string>
+         <string>v1.7.8</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>

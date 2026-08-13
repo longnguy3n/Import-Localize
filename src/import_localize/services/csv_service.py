@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import csv
 import os
 import re
@@ -14,13 +15,13 @@ LogCallback = Callable[[str], None] | None
 CancelCallback = Callable[[], bool] | None
 
 SUPPORTED_DELIMITERS = ",;\t|"
-ENCODING_CANDIDATES = (
-    "utf-8-sig",
-    "utf-8",
-    "cp1258",
-    "cp1252",
-    "latin-1",
-)
+# Import Localize dùng UTF-8 làm encoding chuẩn cho toàn bộ workflow.
+# ``utf-8-sig`` được dùng khi mở file để vừa đọc được UTF-8 thường,
+# vừa tự bỏ BOM nếu file có BOM. Trên UI vẫn hiển thị đơn giản là ``utf-8``.
+CSV_READ_ENCODING = "utf-8-sig"
+CSV_DISPLAY_ENCODING = "utf-8"
+CSV_INSPECTION_BYTES = 65536
+
 
 
 INVALID_WORKSHEET_CHARACTERS = re.compile(r"[:\\/?*\[\]]")
@@ -102,13 +103,26 @@ def _progress(callback: ProgressCallback, value: int, message: str) -> None:
         callback(max(0, min(100, int(value))), message)
 
 
-def _decode_sample(raw: bytes) -> tuple[str, str]:
-    for encoding in ENCODING_CANDIDATES:
-        try:
-            return raw.decode(encoding), encoding
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace"), "utf-8 (thay ký tự lỗi)"
+def _decode_utf8_sample(raw: bytes, *, source_name: str = "") -> str:
+    """Decode mẫu CSV theo UTF-8 mà không lỗi khi sample cắt giữa ký tự.
+
+    Incremental decoder với ``final=False`` giữ lại byte cuối chưa hoàn chỉnh
+    thay vì coi nó là lỗi. Đây là điểm sửa trực tiếp cho trường hợp sample
+    64 KiB kết thúc giữa một ký tự tiếng Việt nhiều byte.
+    """
+    if raw.startswith(codecs.BOM_UTF8):
+        raw = raw[len(codecs.BOM_UTF8):]
+
+    decoder = codecs.getincrementaldecoder("utf-8")("strict")
+    try:
+        return decoder.decode(raw, final=False)
+    except UnicodeDecodeError as exc:
+        location = exc.start + 1
+        suffix = f" trong {source_name}" if source_name else ""
+        raise CsvImportError(
+            f"CSV{suffix} không phải UTF-8 hợp lệ tại byte khoảng {location}. "
+            "Import Localize chỉ sử dụng UTF-8; hãy lưu/export lại file dưới dạng UTF-8."
+        ) from exc
 
 
 def _detect_delimiter(sample: str) -> str:
@@ -135,9 +149,10 @@ def inspect_csv(
         raise CsvImportError(f"File không phải CSV: {csv_path.name}")
 
     with csv_path.open("rb") as handle:
-        raw = handle.read(65536)
-    sample, encoding = _decode_sample(raw)
+        raw = handle.read(CSV_INSPECTION_BYTES)
+    sample = _decode_utf8_sample(raw, source_name=csv_path.name)
     delimiter = _detect_delimiter(sample)
+    encoding = CSV_DISPLAY_ENCODING
     try:
         source_spreadsheet_name, target_sheet_name = parse_localization_filename(csv_path)
     except CsvImportError:
@@ -183,9 +198,8 @@ def _read_csv_rows(
     try:
         with info.path.open(
             "r",
-            encoding=info.encoding.split(" ", 1)[0],
+            encoding=CSV_READ_ENCODING,
             newline="",
-            errors="replace",
         ) as handle:
             reader = csv.reader(handle, delimiter=info.delimiter)
             for index, row in enumerate(reader):
@@ -194,6 +208,11 @@ def _read_csv_rows(
                 cleaned = _clean_row(row)
                 if cleaned and any(cell != "" for cell in cleaned):
                     rows.append(cleaned)
+    except UnicodeDecodeError as exc:
+        raise CsvImportError(
+            f"{info.path.name} không phải UTF-8 hợp lệ tại byte khoảng {exc.start + 1}. "
+            "Hãy lưu/export lại CSV bằng UTF-8 rồi thử lại."
+        ) from exc
     except (OSError, csv.Error) as exc:
         raise CsvImportError(f"Không thể đọc {info.path.name}: {exc}") from exc
     return rows
