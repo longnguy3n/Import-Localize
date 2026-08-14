@@ -23,7 +23,6 @@ class AppSettings:
     fill_sheet_name: str = "Translate_Data"
     fill_source_row: int = 2
     fill_columns: str = "D:I"
-    fill_reference_column: str = "A"
     window_width: int = 760
     window_height: int = 950
     update_repository: str = ""

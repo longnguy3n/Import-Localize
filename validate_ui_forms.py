@@ -52,7 +52,6 @@ REQUIRED = {
         "sheetNameEdit",
         "sourceRowSpin",
         "columnsEdit",
-        "referenceColumnEdit",
         "cancelButton",
         "fillButton",
         "closeIconButton",

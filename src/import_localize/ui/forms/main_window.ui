@@ -1052,7 +1052,7 @@
                  <string>Fill Translate_Data</string>
                 </property>
                 <property name="toolTip">
-                 <string>Mở thiết lập để chọn tab, hàng nguồn, các cột cần fill và cột xác định hàng cuối.</string>
+                 <string>Mở thiết lập để chọn tab, hàng nguồn và các cột cần fill. Fill đến toàn bộ số hàng hiện có của tab.</string>
                 </property>
                </widget>
               </item>

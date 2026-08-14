@@ -35,7 +35,6 @@ from import_localize.models.import_job import FillOptions
 from import_localize.services.csv_service import CsvImportError, validate_worksheet_title
 from import_localize.services.fill_service import (
     FillSelectionError,
-    column_letters_to_number,
     normalize_column_selection,
 )
 from import_localize.services.google_service import (
@@ -566,9 +565,6 @@ class FillDataDialog(_DesignerDialog):
         self.sheet_name_edit = require_object(self.form, "sheetNameEdit", QLineEdit)
         self.source_row_spin = require_object(self.form, "sourceRowSpin", QSpinBox)
         self.columns_edit = require_object(self.form, "columnsEdit", QLineEdit)
-        self.reference_column_edit = require_object(
-            self.form, "referenceColumnEdit", QLineEdit
-        )
         close_icon_button = require_object(
             self.form, "closeIconButton", QPushButton
         )
@@ -584,7 +580,6 @@ class FillDataDialog(_DesignerDialog):
         self.sheet_name_edit.setText(initial.sheet_name)
         self.source_row_spin.setValue(max(1, int(initial.source_row)))
         self.columns_edit.setText(initial.columns)
-        self.reference_column_edit.setText(initial.reference_column)
 
         close_icon_button.clicked.connect(self.reject)
         cancel_button.clicked.connect(self.reject)
@@ -600,8 +595,6 @@ class FillDataDialog(_DesignerDialog):
                 self.sheet_name_edit.text(), source_name="Fill dữ liệu"
             )
             columns = normalize_column_selection(self.columns_edit.text())
-            reference_column = self.reference_column_edit.text().strip().upper()
-            column_letters_to_number(reference_column)
         except (CsvImportError, FillSelectionError) as exc:
             QMessageBox.warning(self, "Thiết lập Fill không hợp lệ", str(exc))
             return
@@ -610,7 +603,6 @@ class FillDataDialog(_DesignerDialog):
             sheet_name=sheet_name,
             source_row=self.source_row_spin.value(),
             columns=columns,
-            reference_column=reference_column,
         )
         self.accept()
 

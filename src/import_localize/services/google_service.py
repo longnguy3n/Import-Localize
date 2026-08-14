@@ -912,12 +912,18 @@ def fill_translate_data_columns(
     sheet_name: str = "Translate_Data",
     source_row: int = 2,
     columns: str = "D:I",
-    reference_column: str = "A",
     progress_callback: ProgressCallback = None,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> tuple[bool, str, int]:
-    """Fill selected source cells using cached metadata and parallel reads."""
+    """Fill selected cells to the tab's current grid row count.
+
+    No reference column is read. The destination limit comes from lightweight
+    worksheet metadata (``gridProperties.rowCount``), which is independent of
+    formula calculation and imported values. Only the small source row is read
+    to validate that selected source cells are populated and are not
+    ARRAYFORMULA cells.
+    """
     cleaned_sheet_name = str(sheet_name or "").strip()
     if not cleaned_sheet_name:
         raise GoogleServiceError("Tên tab cần fill không được để trống.")
@@ -931,47 +937,55 @@ def fill_translate_data_columns(
     try:
         selected_columns = parse_column_selection(columns)
         normalized_columns = normalize_column_selection(columns)
-        reference_column = str(reference_column or "").strip().upper()
-        reference_column_number = column_letters_to_number(reference_column)
     except FillSelectionError as exc:
         raise GoogleServiceError(str(exc)) from exc
 
     _check_cancel(cancel_callback)
-    _progress(progress_callback, 8, f"Đang kiểm tra tab {cleaned_sheet_name}")
+    _progress(progress_callback, 8, f"Đang đọc cấu trúc tab {cleaned_sheet_name}")
 
+    # Chỉ đọc metadata cấu trúc; includeGridData=false nên không chờ công thức,
+    # dữ liệu import hoặc giá trị hiển thị trong bất kỳ cột nào.
     try:
-        worksheets = _get_worksheets(connection)
-    except gspread.exceptions.APIError as exc:
-        _invalidate_worksheet_cache(connection)
-        raise GoogleServiceError(_format_api_error(exc)) from exc
-    worksheet = next(
-        (
-            item
-            for item in worksheets
-            if item.title.casefold() == cleaned_sheet_name.casefold()
-        ),
-        None,
-    )
-    if worksheet is None:
+        sheet_properties = _fetch_sheet_properties_fast(
+            connection,
+            log_callback=log_callback,
+            cancel_callback=cancel_callback,
+        )
+    except Exception as exc:
+        if isinstance(exc, (GoogleServiceError, CancelledError)):
+            raise
+        raise GoogleServiceError(f"Không thể đọc cấu trúc tab phục vụ Fill: {exc}") from exc
+
+    properties = sheet_properties.get(cleaned_sheet_name.casefold())
+    if properties is None:
         return False, f"Không tìm thấy tab '{cleaned_sheet_name}'.", 0
 
-    if source_row > worksheet.row_count:
+    actual_title = str(properties.get("title") or cleaned_sheet_name)
+    sheet_id = int(properties.get("sheetId") or 0)
+    grid = properties.get("gridProperties", {}) or {}
+    last_row = int(grid.get("rowCount") or 0)
+    column_count = int(grid.get("columnCount") or 0)
+
+    if last_row < 1:
+        raise GoogleServiceError(f"Không xác định được số hàng hiện có của tab '{actual_title}'.")
+    if source_row > last_row:
         raise GoogleServiceError(
-            f"Hàng nguồn {source_row} vượt quá số hàng hiện có của tab "
-            f"({worksheet.row_count})."
+            f"Hàng nguồn {source_row} vượt quá số hàng hiện có của tab ({last_row})."
         )
-    if source_row == worksheet.row_count:
+    if source_row == last_row:
         return (
             False,
-            f"Hàng nguồn {source_row} đang là hàng cuối của tab; không có hàng bên dưới để fill.",
+            f"Hàng nguồn {source_row} đang là hàng cuối hiện có của tab; "
+            "không có hàng bên dưới để fill.",
             source_row,
         )
-    max_selected_column = max((*selected_columns, reference_column_number))
-    if max_selected_column > worksheet.col_count:
+
+    max_selected_column = max(selected_columns)
+    if max_selected_column > column_count:
         invalid = column_number_to_letters(max_selected_column)
         raise GoogleServiceError(
-            f"Tab '{worksheet.title}' chưa có cột {invalid}. "
-            f"Số cột hiện tại: {worksheet.col_count}."
+            f"Tab '{actual_title}' chưa có cột {invalid}. "
+            f"Số cột hiện tại: {column_count}."
         )
 
     _check_cancel(cancel_callback)
@@ -979,26 +993,12 @@ def fill_translate_data_columns(
         "https://sheets.googleapis.com/v4/spreadsheets/"
         f"{connection.spreadsheet_id}"
     )
-    quoted_title = _quote_sheet_title(worksheet.title)
+    quoted_title = _quote_sheet_title(actual_title)
     column_groups = group_consecutive_columns(selected_columns)
     source_ranges = [
         f"{quoted_title}!{column_number_to_letters(start)}{source_row}:"
         f"{column_number_to_letters(end)}{source_row}"
         for start, end in column_groups
-    ]
-
-    # Chỉ đọc phần nằm dưới hàng nguồn và dùng majorDimension=COLUMNS. Google
-    # tự bỏ các ô trống ở cuối, nên payload nhỏ hơn đáng kể so với đọc cả cột
-    # theo từng ROW như phiên bản cũ.
-    reference_start_row = source_row + 1
-    reference_range = (
-        f"{quoted_title}!{reference_column}{reference_start_row}:"
-        f"{reference_column}{worksheet.row_count}"
-    )
-    reference_params = [
-        ("ranges", reference_range),
-        ("majorDimension", "COLUMNS"),
-        ("valueRenderOption", "FORMATTED_VALUE"),
     ]
     source_params: list[tuple[str, str]] = [
         ("ranges", item) for item in source_ranges
@@ -1010,58 +1010,26 @@ def fill_translate_data_columns(
         ]
     )
 
-    _progress(progress_callback, 22, "Đang đọc nhanh hàng nguồn và cột tham chiếu")
-
-    def fetch_batch(params, action):
-        session = AuthorizedSession(connection.credentials)
-        return _request_with_retry(
-            session,
+    _progress(progress_callback, 26, f"Đang kiểm tra nhanh hàng nguồn {source_row}")
+    try:
+        source_response = _request_with_retry(
+            connection.authorized_session,
             "GET",
             f"{spreadsheet_base}/values:batchGet",
-            action=action,
+            action=f"Đọc hàng nguồn {source_row}",
             log_callback=log_callback,
             cancel_callback=cancel_callback,
-            params=params,
+            params=source_params,
         )
-
-    # Hai lần đọc độc lập được chạy song song, giảm gần một nửa thời gian chờ
-    # mạng trong phần kiểm tra trước khi fill.
-    try:
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="fill-read") as executor:
-            reference_future = executor.submit(
-                fetch_batch,
-                reference_params,
-                f"Đọc cột tham chiếu {reference_column}",
-            )
-            source_future = executor.submit(
-                fetch_batch,
-                source_params,
-                f"Đọc hàng nguồn {source_row}",
-            )
-            reference_response = reference_future.result()
-            source_response = source_future.result()
     except CancelledError:
         raise
     except Exception as exc:
         raise GoogleServiceError(
-            f"Không thể đọc dữ liệu phục vụ Fill: {exc}"
+            f"Không thể đọc hàng nguồn phục vụ Fill: {exc}"
         ) from exc
 
-    _raise_for_response(
-        reference_response,
-        f"Đọc cột tham chiếu {reference_column}",
-    )
     _raise_for_response(source_response, f"Đọc hàng nguồn {source_row}")
     _check_cancel(cancel_callback)
-
-    reference_ranges = reference_response.json().get("valueRanges", [])
-    reference_values = (
-        reference_ranges[0].get("values", []) if reference_ranges else []
-    )
-    reference_column_values = (
-        list(reference_values[0]) if reference_values else []
-    )
-    last_row = source_row + len(reference_column_values)
 
     source_value_ranges = source_response.json().get("valueRanges", [])
     missing_cells: list[str] = []
@@ -1098,13 +1066,6 @@ def fill_translate_data_columns(
             + ". ARRAYFORMULA tự mở rộng xuống dưới.",
             last_row,
         )
-    if not reference_column_values:
-        return (
-            False,
-            f"Không có dữ liệu bên dưới hàng nguồn {source_row} trong cột "
-            f"{reference_column} của tab '{worksheet.title}'.",
-            source_row,
-        )
 
     _progress(
         progress_callback,
@@ -1115,28 +1076,28 @@ def fill_translate_data_columns(
         connection.authorized_session,
         "POST",
         f"{spreadsheet_base}:batchUpdate",
-        action=f"Fill dữ liệu tab {worksheet.title}",
+        action=f"Fill dữ liệu tab {actual_title}",
         log_callback=log_callback,
         cancel_callback=cancel_callback,
         json={
             "requests": build_fill_copy_requests(
-                worksheet.id,
+                sheet_id,
                 source_row,
                 last_row,
                 selected_columns,
             )
         },
     )
-    _raise_for_response(response, f"Fill dữ liệu tab {worksheet.title}")
+    _raise_for_response(response, f"Fill dữ liệu tab {actual_title}")
     _check_cancel(cancel_callback)
-    _progress(progress_callback, 100, f"Đã fill xong tab {worksheet.title}")
+    _progress(progress_callback, 100, f"Đã fill xong tab {actual_title}")
 
     added_rows = max(0, last_row - source_row)
     filled_cells = added_rows * len(selected_columns)
     return (
         True,
-        f"Đã fill {worksheet.title}!{normalized_columns} từ hàng {source_row} "
-        f"đến hàng {last_row} theo cột tham chiếu {reference_column} "
+        f"Đã fill {actual_title}!{normalized_columns} từ hàng {source_row} "
+        f"đến hàng cuối hiện có của tab ({last_row}) "
         f"({added_rows} hàng, {filled_cells} ô đích).",
         last_row,
     )

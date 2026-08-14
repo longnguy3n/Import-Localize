@@ -65,7 +65,6 @@ class TranslateFillWorker(QThread):
                 sheet_name=options.sheet_name,
                 source_row=options.source_row,
                 columns=options.columns,
-                reference_column=options.reference_column,
                 progress_callback=lambda value, text: self.progress_changed.emit(
                     min(99, 42 + round(value * 0.57)), text
                 ),

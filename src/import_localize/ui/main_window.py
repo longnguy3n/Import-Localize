@@ -1020,7 +1020,6 @@ class MainWindow(QMainWindow):
             sheet_name=self.settings.fill_sheet_name or "Translate_Data",
             source_row=max(1, int(self.settings.fill_source_row or 2)),
             columns=self.settings.fill_columns or "D:I",
-            reference_column=self.settings.fill_reference_column or "A",
         )
         dialog = FillDataDialog(initial_options, self)
         dialog.setStyleSheet(self.styleSheet())
@@ -1031,15 +1030,14 @@ class MainWindow(QMainWindow):
         self.settings.fill_sheet_name = options.sheet_name
         self.settings.fill_source_row = options.source_row
         self.settings.fill_columns = options.columns
-        self.settings.fill_reference_column = options.reference_column
         self.save_settings()
 
         self._begin_log_section("FILL DỮ LIỆU")
         self.append_log(
             "INFO",
             f"Bắt đầu Fill độc lập trên tab '{options.sheet_name}': "
-            f"hàng nguồn {options.source_row}, cột {options.columns}, "
-            f"hàng cuối theo cột {options.reference_column}.",
+            f"hàng nguồn {options.source_row}, cột {options.columns}; "
+            "fill xuống toàn bộ số hàng hiện có của tab, không đọc cột tham chiếu.",
         )
         self._active_operation = "fill"
         self.set_running(True)

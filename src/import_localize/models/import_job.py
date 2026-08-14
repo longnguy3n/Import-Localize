@@ -43,7 +43,6 @@ class FillOptions:
     sheet_name: str = "Translate_Data"
     source_row: int = 2
     columns: str = "D:I"
-    reference_column: str = "A"
 
 
 @dataclass(slots=True)

@@ -11,15 +11,22 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.8_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.7.9_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
-    "README_V1_7_8_UTF8_FIX.md",
-    "tests\test_csv_service.py",
+    "README_V1_7_9_NO_REFERENCE_FILL.md",
+    "validate_ui_forms.py",
     "src\import_localize\app\constants.py",
-    "src\import_localize\services\csv_service.py",
-    "src\import_localize\ui\forms\main_window.ui"
+    "src\import_localize\models\import_job.py",
+    "src\import_localize\config\settings.py",
+    "src\import_localize\services\google_service.py",
+    "src\import_localize\workers\translate_fill_worker.py",
+    "src\import_localize\ui\dialogs.py",
+    "src\import_localize\ui\main_window.py",
+    "src\import_localize\ui\forms\main_window.ui",
+    "src\import_localize\ui\forms\fill_data_dialog.ui",
+    "src\import_localize\ui\forms\help_dialog.ui"
 )
 foreach ($RelativePath in $Items) {
     $Source = Join-Path $PatchRoot $RelativePath
@@ -54,6 +61,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.7.8." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.7.9." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "CSV giờ luôn dùng UTF-8; đã sửa lỗi sample 64 KiB bị cắt giữa ký tự UTF-8." -ForegroundColor Green
+Write-Host "Fill không còn đọc cột tham chiếu; đích fill là toàn bộ số hàng hiện có của tab." -ForegroundColor Green
