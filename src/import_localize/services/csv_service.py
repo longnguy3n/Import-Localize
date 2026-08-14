@@ -300,7 +300,7 @@ def load_csv_bundle(
 
             file_index_by_key = {key: index for index, key in enumerate(file_keys)}
             for row_number, row in enumerate(file_rows, start=2):
-                _check_cancel(cancel_callback if row_number % 500 == 0 else None)
+                _check_cancel(cancel_callback if row_number % 50 == 0 else None)
                 if len(row) > len(file_header):
                     raise CsvImportError(
                         f"{info.path.name}, dòng {row_number} có {len(row)} cột "
@@ -327,7 +327,7 @@ def load_csv_bundle(
                     if missing > 0:
                         previous_row.extend([""] * missing)
             for row_number, row in enumerate(file_rows, start=1):
-                _check_cancel(cancel_callback if row_number % 500 == 0 else None)
+                _check_cancel(cancel_callback if row_number % 50 == 0 else None)
                 if len(row) < no_header_width:
                     row.extend([""] * (no_header_width - len(row)))
                 if job.add_source_column:

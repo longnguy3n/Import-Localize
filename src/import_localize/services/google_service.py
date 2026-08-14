@@ -8,7 +8,7 @@ import stat
 import sys
 import time
 import webbrowser
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
@@ -32,6 +32,9 @@ from import_localize.app.constants import (
     CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
     EXPORT_SHEET_PREFIX,
     GOOGLE_REQUEST_TIMEOUT_SECONDS,
+    GOOGLE_CONNECT_TIMEOUT_SECONDS,
+    GOOGLE_CANCELLABLE_READ_TIMEOUT_SECONDS,
+    GOOGLE_CANCEL_POLL_SECONDS,
     GOOGLE_REQUEST_RETRY_ATTEMPTS,
     GOOGLE_REQUEST_RETRY_BASE_DELAY_SECONDS,
     GOOGLE_STRUCTURE_BATCH_SIZE,
@@ -589,7 +592,8 @@ def extract_spreadsheet_id(url: str) -> str:
 def _authorize(credentials: Credentials) -> gspread.Client:
     client = gspread.authorize(credentials)
     if hasattr(client, "set_timeout"):
-        client.set_timeout(30)
+        # Giữ các lệnh gspread metadata ngắn để nút Dừng không phải chờ lâu.
+        client.set_timeout(GOOGLE_CANCELLABLE_READ_TIMEOUT_SECONDS)
     return client
 
 
@@ -855,21 +859,33 @@ def download_export_tabs_as_csv(
         for index, worksheet in enumerate(export_sheets, start=1)
     }
     completed_count = 0
+    pending = set(futures)
     try:
-        for future in as_completed(futures):
+        # Không dùng as_completed() vì nó có thể block đến khi một request mạng
+        # hoàn thành. Poll rất ngắn để nút Dừng phản hồi gần như tức thời.
+        while pending:
             _check_cancel(cancel_callback)
-            index, output_path, size_bytes, title = future.result()
-            results[index] = output_path
-            completed_count += 1
-            _log(
-                log_callback,
-                f"Đã lưu {output_path.name} ({size_bytes:,} byte).",
+            done, pending = wait(
+                pending,
+                timeout=GOOGLE_CANCEL_POLL_SECONDS,
+                return_when=FIRST_COMPLETED,
             )
-            _progress(
-                progress_callback,
-                8 + round(completed_count / total * 92),
-                f"Đã tải {completed_count}/{total}: {title}",
-            )
+            if not done:
+                continue
+            for future in done:
+                _check_cancel(cancel_callback)
+                index, output_path, size_bytes, title = future.result()
+                results[index] = output_path
+                completed_count += 1
+                _log(
+                    log_callback,
+                    f"Đã lưu {output_path.name} ({size_bytes:,} byte).",
+                )
+                _progress(
+                    progress_callback,
+                    8 + round(completed_count / total * 92),
+                    f"Đã tải {completed_count}/{total}: {title}",
+                )
     except Exception:
         for future in futures:
             future.cancel()
@@ -1159,7 +1175,7 @@ def _sleep_with_cancel(seconds: float, cancel_callback: CancelCallback) -> None:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return
-        time.sleep(min(0.2, remaining))
+        time.sleep(min(GOOGLE_CANCEL_POLL_SECONDS, remaining))
 
 
 def _retry_delay_seconds(attempt: int, response=None) -> float:
@@ -1181,6 +1197,28 @@ def _is_transient_http_status(status_code: int) -> bool:
     return int(status_code) in {408, 429, 500, 502, 503, 504}
 
 
+def _effective_request_timeout(
+    timeout: int | float | tuple[float, float],
+    cancel_callback: CancelCallback,
+) -> int | float | tuple[float, float]:
+    """Giới hạn thời gian chờ socket cho tác vụ có thể bị người dùng dừng.
+
+    requests/urllib3 không thể hủy một recv() đồng bộ đang block chỉ bằng Event.
+    Vì vậy các worker có nút Dừng dùng read-timeout ngắn và request nhỏ; sau
+    timeout, callback được kiểm tra ngay trước khi quyết định retry.
+    """
+    if not cancel_callback:
+        return timeout
+    if isinstance(timeout, tuple):
+        connect_timeout = min(float(timeout[0]), GOOGLE_CONNECT_TIMEOUT_SECONDS)
+        read_timeout = min(
+            float(timeout[1]), GOOGLE_CANCELLABLE_READ_TIMEOUT_SECONDS
+        )
+        return (max(0.5, connect_timeout), max(0.5, read_timeout))
+    read_timeout = min(float(timeout), GOOGLE_CANCELLABLE_READ_TIMEOUT_SECONDS)
+    return (GOOGLE_CONNECT_TIMEOUT_SECONDS, max(0.5, read_timeout))
+
+
 def _request_with_retry(
     session: AuthorizedSession,
     method: str,
@@ -1189,7 +1227,7 @@ def _request_with_retry(
     action: str,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
-    timeout: int | float = GOOGLE_REQUEST_TIMEOUT_SECONDS,
+    timeout: int | float | tuple[float, float] = GOOGLE_REQUEST_TIMEOUT_SECONDS,
     max_attempts: int = GOOGLE_REQUEST_RETRY_ATTEMPTS,
     **kwargs,
 ):
@@ -1201,10 +1239,11 @@ def _request_with_retry(
             response = session.request(
                 method=method,
                 url=url,
-                timeout=timeout,
+                timeout=_effective_request_timeout(timeout, cancel_callback),
                 **kwargs,
             )
         except (ReadTimeout, RequestsTimeout, RequestsConnectionError) as exc:
+            _check_cancel(cancel_callback)
             last_error = exc
             if attempt >= max_attempts:
                 break
@@ -1217,6 +1256,7 @@ def _request_with_retry(
             _sleep_with_cancel(delay, cancel_callback)
             continue
 
+        _check_cancel(cancel_callback)
         if _is_transient_http_status(response.status_code) and attempt < max_attempts:
             delay = _retry_delay_seconds(attempt, response)
             _log(

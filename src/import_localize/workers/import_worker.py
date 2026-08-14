@@ -34,9 +34,10 @@ class ImportWorker(QThread):
 
     def request_stop(self) -> None:
         self._cancel_event.set()
+        self.requestInterruption()
 
     def _is_cancelled(self) -> bool:
-        return self._cancel_event.is_set()
+        return self._cancel_event.is_set() or self.isInterruptionRequested()
 
     def _log(self, message: str, level: str = "INFO") -> None:
         self.log_emitted.emit(level, message)

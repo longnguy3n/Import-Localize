@@ -1097,8 +1097,8 @@ class MainWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.request_stop()
             self.stop_button.setEnabled(False)
-            self.progress_label.setText("Đang dừng an toàn...")
-            self.append_log("INFO", "Đã yêu cầu dừng thao tác.")
+            self.progress_label.setText("Đang dừng... (tối đa vài giây nếu Google đang trả dữ liệu)")
+            self.append_log("INFO", "Đã yêu cầu dừng ngay. Nếu đang có request Google trên mạng, app sẽ cắt ở timeout ngắn gần nhất.")
 
     def set_running(self, running: bool) -> None:
         for button in (
