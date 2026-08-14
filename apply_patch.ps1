@@ -11,11 +11,12 @@ if (-not (Test-Path (Join-Path $ProjectRoot "src\main.py"))) {
 }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.8.0_$Timestamp"
+$BackupRoot = Join-Path $ProjectRoot ".patch_backups\v1.8.1_$Timestamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
 $Items = @(
     "README_V1_8_0_FAST_STOP.md",
+    "README_V1_8_1_FILL_RELIABILITY.md",
     "validate_ui_forms.py",
     "src\import_localize\app\constants.py",
     "src\import_localize\models\import_job.py",
@@ -61,6 +62,6 @@ try {
     Pop-Location
 }
 
-Write-Host "Đã cập nhật Import Localize lên v1.8.0." -ForegroundColor Green
+Write-Host "Đã cập nhật Import Localize lên v1.8.1." -ForegroundColor Green
 Write-Host "Backup file cũ: $BackupRoot" -ForegroundColor DarkGray
-Write-Host "Fill không còn đọc cột tham chiếu; đích fill là toàn bộ số hàng hiện có của tab." -ForegroundColor Green
+Write-Host "Fill dùng timeout dài riêng cho sheet nặng, Dừng vẫn nhanh và chỉ báo thành công sau khi xác minh ô đích." -ForegroundColor Green

@@ -3,7 +3,7 @@ from __future__ import annotations
 APP_NAME = "Import Localize"
 APP_ID = "import-localize"
 ORGANIZATION_NAME = "Import Localize"
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.8.1"
 
 DEFAULT_WINDOW_WIDTH = 760
 DEFAULT_WINDOW_HEIGHT = 950
@@ -25,6 +25,14 @@ GOOGLE_CANCELLABLE_READ_TIMEOUT_SECONDS = 6.0
 GOOGLE_CANCEL_POLL_SECONDS = 0.05
 GOOGLE_REQUEST_RETRY_ATTEMPTS = 6
 GOOGLE_REQUEST_RETRY_BASE_DELAY_SECONDS = 0.4
+# Fill trên sheet nặng dùng timeout riêng dài hơn. Request được chạy trong
+# background daemon thread nên nút Dừng vẫn phản hồi ngay mà không cần ép
+# socket timeout xuống 6 giây như các request thông thường.
+FILL_REQUEST_CONNECT_TIMEOUT_SECONDS = 5.0
+FILL_REQUEST_READ_TIMEOUT_SECONDS = 180.0
+FILL_VERIFY_READ_TIMEOUT_SECONDS = 20.0
+FILL_VERIFY_ATTEMPTS = 5
+FILL_VERIFY_POLL_SECONDS = 0.6
 GOOGLE_STRUCTURE_BATCH_SIZE = 10
 GOOGLE_CLEAR_BATCH_SIZE = 25
 

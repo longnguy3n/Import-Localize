@@ -11,7 +11,8 @@ import webbrowser
 from concurrent.futures import CancelledError, FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
-from threading import RLock
+from queue import Empty, Queue
+from threading import RLock, Thread
 from typing import Callable, Optional
 from urllib.parse import parse_qs, urlparse
 from wsgiref.simple_server import WSGIRequestHandler, make_server
@@ -37,6 +38,11 @@ from import_localize.app.constants import (
     GOOGLE_CANCEL_POLL_SECONDS,
     GOOGLE_REQUEST_RETRY_ATTEMPTS,
     GOOGLE_REQUEST_RETRY_BASE_DELAY_SECONDS,
+    FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
+    FILL_REQUEST_READ_TIMEOUT_SECONDS,
+    FILL_VERIFY_READ_TIMEOUT_SECONDS,
+    FILL_VERIFY_ATTEMPTS,
+    FILL_VERIFY_POLL_SECONDS,
     GOOGLE_STRUCTURE_BATCH_SIZE,
     GOOGLE_CLEAR_BATCH_SIZE,
     GOOGLE_CONNECTION_CACHE_TTL_SECONDS,
@@ -922,6 +928,276 @@ def _last_populated_row(values: list[list[object]]) -> int:
     return last_row
 
 
+
+def _request_in_background_for_fill(
+    credentials: Credentials,
+    method: str,
+    url: str,
+    *,
+    cancel_callback: CancelCallback = None,
+    timeout: tuple[float, float] | float = (
+        FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
+        FILL_REQUEST_READ_TIMEOUT_SECONDS,
+    ),
+    **kwargs,
+):
+    """Run one potentially long Sheets request without blocking Stop.
+
+    ``requests`` cannot abort a synchronous socket read from another thread.
+    Fill therefore uses a dedicated AuthorizedSession in a daemon thread and
+    polls the result from the worker thread.  If the user presses Stop, the
+    worker can return immediately while the isolated network request is left
+    to finish in the daemon thread.
+    """
+    result_queue = Queue(maxsize=1)
+
+    def _runner() -> None:
+        session = AuthorizedSession(credentials)
+        try:
+            response = session.request(
+                method=method,
+                url=url,
+                timeout=timeout,
+                **kwargs,
+            )
+            result_queue.put(("response", response))
+        except Exception as exc:  # pragma: no cover - depends on live network
+            result_queue.put(("error", exc))
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    thread = Thread(
+        target=_runner,
+        name="import-localize-fill-http",
+        daemon=True,
+    )
+    thread.start()
+
+    while True:
+        _check_cancel(cancel_callback)
+        try:
+            kind, payload = result_queue.get(timeout=GOOGLE_CANCEL_POLL_SECONDS)
+        except Empty:
+            continue
+        if kind == "error":
+            raise payload
+        return payload
+
+
+def _fill_verification_ranges(
+    sheet_title: str,
+    source_row: int,
+    last_row: int,
+    selected_columns: tuple[int, ...],
+) -> list[str]:
+    """Build a tiny set of destination cells used to confirm Fill."""
+    if last_row <= source_row:
+        return []
+    quoted_title = _quote_sheet_title(sheet_title)
+    sample_rows = [source_row + 1]
+    if last_row != source_row + 1:
+        sample_rows.append(last_row)
+
+    sample_columns: list[int] = []
+    for start_column, end_column in group_consecutive_columns(selected_columns):
+        sample_columns.append(start_column)
+        if end_column != start_column:
+            sample_columns.append(end_column)
+
+    ranges: list[str] = []
+    seen: set[tuple[int, int]] = set()
+    for row_number in sample_rows:
+        for column_number in sample_columns:
+            key = (row_number, column_number)
+            if key in seen:
+                continue
+            seen.add(key)
+            column_name = column_number_to_letters(column_number)
+            ranges.append(f"{quoted_title}!{column_name}{row_number}")
+    return ranges
+
+
+def _read_fill_verification_values(
+    connection: SheetConnection,
+    ranges: list[str],
+    *,
+    cancel_callback: CancelCallback = None,
+) -> dict[str, str]:
+    """Read only a few destination cells using FORMULA render mode."""
+    if not ranges:
+        return {}
+    spreadsheet_base = (
+        "https://sheets.googleapis.com/v4/spreadsheets/"
+        f"{connection.spreadsheet_id}"
+    )
+    params: list[tuple[str, str]] = [("ranges", item) for item in ranges]
+    params.extend(
+        [
+            ("majorDimension", "ROWS"),
+            ("valueRenderOption", "FORMULA"),
+        ]
+    )
+    response = _request_in_background_for_fill(
+        connection.credentials,
+        "GET",
+        f"{spreadsheet_base}/values:batchGet",
+        cancel_callback=cancel_callback,
+        timeout=(
+            FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
+            FILL_VERIFY_READ_TIMEOUT_SECONDS,
+        ),
+        params=params,
+    )
+    _raise_for_response(response, "Xác minh kết quả Fill")
+    payload = response.json()
+    value_ranges = payload.get("valueRanges", [])
+    result: dict[str, str] = {}
+    for index, requested_range in enumerate(ranges):
+        entry = value_ranges[index] if index < len(value_ranges) else {}
+        values = entry.get("values", []) or []
+        value = ""
+        if values and values[0]:
+            value = str(values[0][0] if values[0][0] is not None else "").strip()
+        result[requested_range] = value
+    return result
+
+
+def _verification_is_complete(values: dict[str, str], ranges: list[str]) -> bool:
+    return bool(ranges) and all(str(values.get(item, "")).strip() for item in ranges)
+
+
+def _verify_fill_result(
+    connection: SheetConnection,
+    ranges: list[str],
+    *,
+    cancel_callback: CancelCallback = None,
+    log_callback: LogCallback = None,
+) -> dict[str, str]:
+    """Poll a few cells until the copied formulas/values are observable."""
+    last_values: dict[str, str] = {}
+    for attempt in range(1, FILL_VERIFY_ATTEMPTS + 1):
+        _check_cancel(cancel_callback)
+        try:
+            last_values = _read_fill_verification_values(
+                connection,
+                ranges,
+                cancel_callback=cancel_callback,
+            )
+        except CancelledError:
+            raise
+        except Exception as exc:
+            if attempt >= FILL_VERIFY_ATTEMPTS:
+                raise GoogleServiceError(
+                    f"Không thể xác minh kết quả Fill: {exc}"
+                ) from exc
+            _log(
+                log_callback,
+                f"Xác minh Fill chưa phản hồi (lần {attempt}/"
+                f"{FILL_VERIFY_ATTEMPTS}); thử lại.",
+            )
+        else:
+            if _verification_is_complete(last_values, ranges):
+                return last_values
+        if attempt < FILL_VERIFY_ATTEMPTS:
+            _sleep_with_cancel(FILL_VERIFY_POLL_SECONDS, cancel_callback)
+    return last_values
+
+
+def _execute_fill_batch_update(
+    connection: SheetConnection,
+    *,
+    spreadsheet_base: str,
+    actual_title: str,
+    requests_payload: list[dict[str, object]],
+    verification_ranges: list[str],
+    before_values: dict[str, str],
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+):
+    """Execute the heavy Fill request with long timeout and safe recovery."""
+    max_attempts = 2
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        _check_cancel(cancel_callback)
+        try:
+            response = _request_in_background_for_fill(
+                connection.credentials,
+                "POST",
+                f"{spreadsheet_base}:batchUpdate",
+                cancel_callback=cancel_callback,
+                timeout=(
+                    FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    FILL_REQUEST_READ_TIMEOUT_SECONDS,
+                ),
+                json={"requests": requests_payload},
+            )
+        except CancelledError:
+            _log(
+                log_callback,
+                "Đã dừng chờ Fill ngay. Nếu Google đã nhận request trước khi "
+                "bấm Dừng, thay đổi phía server vẫn có thể hoàn tất sau đó.",
+            )
+            raise
+        except (ReadTimeout, RequestsTimeout, RequestsConnectionError) as exc:
+            last_error = exc
+            _log(
+                log_callback,
+                f"Fill {actual_title}: phản hồi mạng bị timeout; đang kiểm tra "
+                "trực tiếp các ô đích trước khi quyết định gửi lại.",
+            )
+            try:
+                after_values = _verify_fill_result(
+                    connection,
+                    verification_ranges,
+                    cancel_callback=cancel_callback,
+                    log_callback=log_callback,
+                )
+            except GoogleServiceError:
+                after_values = {}
+            if (
+                _verification_is_complete(after_values, verification_ranges)
+                and after_values != before_values
+            ):
+                _log(
+                    log_callback,
+                    "Google đã áp dụng Fill dù response trước đó bị timeout; "
+                    "đã xác minh trực tiếp trên ô đích.",
+                )
+                return None
+            if attempt < max_attempts:
+                _log(
+                    log_callback,
+                    "Chưa thấy kết quả Fill trên ô đích; gửi lại request một lần "
+                    "với timeout dài.",
+                )
+                _sleep_with_cancel(1.0, cancel_callback)
+                continue
+            break
+
+        if _is_transient_http_status(response.status_code) and attempt < max_attempts:
+            last_error = GoogleServiceError(
+                f"HTTP {response.status_code}: {_response_error_detail(response)}"
+            )
+            _log(
+                log_callback,
+                f"Fill {actual_title}: Google trả HTTP {response.status_code}; "
+                "thử lại một lần.",
+            )
+            _sleep_with_cancel(_retry_delay_seconds(attempt, response), cancel_callback)
+            continue
+
+        _raise_for_response(response, f"Fill dữ liệu tab {actual_title}")
+        return response
+
+    raise GoogleServiceError(
+        f"Fill dữ liệu tab {actual_title} không nhận được phản hồi ổn định từ "
+        "Google Sheets. Lỗi cuối: {last_error}"
+    ) from last_error
+
+
 def fill_translate_data_columns(
     connection: SheetConnection,
     *,
@@ -1083,30 +1359,70 @@ def fill_translate_data_columns(
             last_row,
         )
 
+    verification_ranges = _fill_verification_ranges(
+        actual_title,
+        source_row,
+        last_row,
+        selected_columns,
+    )
+    try:
+        before_values = _read_fill_verification_values(
+            connection,
+            verification_ranges,
+            cancel_callback=cancel_callback,
+        )
+    except CancelledError:
+        raise
+    except Exception as exc:
+        _log(
+            log_callback,
+            f"Không đọc được mẫu ô đích trước Fill ({exc}); vẫn tiếp tục và "
+            "sẽ xác minh sau khi Google xử lý xong.",
+        )
+        before_values = {}
+
     _progress(
         progress_callback,
         58,
         f"Đang fill {normalized_columns} đến hàng {last_row}",
     )
-    response = _request_with_retry(
-        connection.authorized_session,
-        "POST",
-        f"{spreadsheet_base}:batchUpdate",
-        action=f"Fill dữ liệu tab {actual_title}",
+    fill_requests = build_fill_copy_requests(
+        sheet_id,
+        source_row,
+        last_row,
+        selected_columns,
+    )
+    _execute_fill_batch_update(
+        connection,
+        spreadsheet_base=spreadsheet_base,
+        actual_title=actual_title,
+        requests_payload=fill_requests,
+        verification_ranges=verification_ranges,
+        before_values=before_values,
         log_callback=log_callback,
         cancel_callback=cancel_callback,
-        json={
-            "requests": build_fill_copy_requests(
-                sheet_id,
-                source_row,
-                last_row,
-                selected_columns,
-            )
-        },
     )
-    _raise_for_response(response, f"Fill dữ liệu tab {actual_title}")
+
     _check_cancel(cancel_callback)
-    _progress(progress_callback, 100, f"Đã fill xong tab {actual_title}")
+    _progress(progress_callback, 88, "Đang xác minh kết quả Fill trên Google Sheet")
+    after_values = _verify_fill_result(
+        connection,
+        verification_ranges,
+        cancel_callback=cancel_callback,
+        log_callback=log_callback,
+    )
+    if not _verification_is_complete(after_values, verification_ranges):
+        missing = [
+            item for item in verification_ranges
+            if not str(after_values.get(item, "")).strip()
+        ]
+        raise GoogleServiceError(
+            "Google đã nhận request Fill nhưng ứng dụng chưa xác minh được dữ "
+            "liệu/công thức tại các ô đích: " + ", ".join(missing)
+        )
+
+    _check_cancel(cancel_callback)
+    _progress(progress_callback, 100, f"Đã fill và xác minh xong tab {actual_title}")
 
     added_rows = max(0, last_row - source_row)
     filled_cells = added_rows * len(selected_columns)

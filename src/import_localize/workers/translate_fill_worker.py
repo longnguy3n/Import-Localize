@@ -85,10 +85,14 @@ class TranslateFillWorker(QThread):
                 return
 
             self._log(message, "WARNING")
-            self.progress_changed.emit(100, "Không có dữ liệu cần fill")
+            self.progress_changed.emit(0, "Fill chưa được thực hiện")
             suffix = f" Hàng dữ liệu cuối: {last_row}." if last_row else ""
             elapsed = time.perf_counter() - started_at
-            self.completed.emit(True, message + suffix + f" Thời gian: {elapsed:.2f} giây.")
+            self.completed.emit(
+                False,
+                "Fill chưa được thực hiện: " + message + suffix
+                + f" Thời gian: {elapsed:.2f} giây.",
+            )
         except CancelledError:
             self.completed.emit(False, "Đã dừng thao tác Fill theo yêu cầu.")
         except GoogleServiceError as exc:
