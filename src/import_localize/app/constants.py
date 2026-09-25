@@ -3,12 +3,12 @@ from __future__ import annotations
 APP_NAME = "Import Localize"
 APP_ID = "import-localize"
 ORGANIZATION_NAME = "Import Localize"
-APP_VERSION = "1.8.1"
+APP_VERSION = "1.9.2"
 
 DEFAULT_WINDOW_WIDTH = 760
 DEFAULT_WINDOW_HEIGHT = 950
 MIN_WINDOW_WIDTH = 660
-MIN_WINDOW_HEIGHT = 780
+MIN_WINDOW_HEIGHT = 620
 
 MAX_CSV_FILES = 200
 # Legacy fallback for older upload code. The fast uploader uses dynamic chunks.

@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui version="4.0">
+ <class>TargetSettings</class>
+ <widget class="QWidget" name="TargetSettings">
+  <layout class="QVBoxLayout" name="targetSettingsLayout">
+   <item><widget class="QFrame" name="targetCard">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <layout class="QVBoxLayout" name="targetCardLayout">
+               <property name="spacing">
+                <number>7</number>
+               </property>
+               <property name="leftMargin">
+                <number>14</number>
+               </property>
+               <property name="topMargin">
+                <number>10</number>
+               </property>
+               <property name="rightMargin">
+                <number>14</number>
+               </property>
+               <property name="bottomMargin">
+                <number>12</number>
+               </property>
+               <item>
+                <layout class="QHBoxLayout" name="targetHeaderLayout">
+                 <property name="spacing">
+                  <number>9</number>
+                 </property>
+                 <item>
+                  <widget class="QLabel" name="targetIconLabel">
+                   <property name="minimumSize">
+                    <size>
+                     <width>34</width>
+                     <height>34</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>34</width>
+                     <height>34</height>
+                    </size>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <layout class="QVBoxLayout" name="targetTitleLayout">
+                   <property name="spacing">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="targetTitleLabel">
+                     <property name="minimumSize">
+                      <size>
+                       <width>0</width>
+                       <height>24</height>
+                      </size>
+                     </property>
+                     <property name="text">
+                      <string>GOOGLE SHEET ĐÍCH</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="targetSubtitleLabel">
+                     <property name="minimumSize">
+                      <size>
+                       <width>0</width>
+                       <height>17</height>
+                      </size>
+                     </property>
+                     <property name="text">
+                      <string>Chọn nhập một tab hoặc nhiều tab từ tên file</string>
+                     </property>
+                     <property name="wordWrap">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="QFrame" name="targetInnerPanel">
+                 <layout class="QGridLayout" name="targetGrid">
+                  <property name="horizontalSpacing">
+                   <number>8</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>5</number>
+                  </property>
+                  <property name="leftMargin">
+                   <number>10</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>7</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>10</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>7</number>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="sheetUrlLabel">
+                    <property name="minimumSize">
+                     <size>
+                      <width>88</width>
+                      <height>34</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>88</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string>Link Sheet</string>
+                    </property>
+                    <property name="alignment">
+                     <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QLineEdit" name="sheetUrlEdit">
+                    <property name="placeholderText">
+                     <string>https://docs.google.com/spreadsheets/d/...</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="2">
+                   <widget class="QPushButton" name="openSheetButton">
+                    <property name="minimumSize">
+                     <size>
+                      <width>34</width>
+                      <height>34</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>34</width>
+                      <height>34</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string />
+                    </property>
+                    <property name="toolTip">
+                     <string>Mở Google Sheet</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="targetModeLabel">
+                    <property name="minimumSize">
+                     <size>
+                      <width>88</width>
+                      <height>34</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>88</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string>Kiểu nhập</string>
+                    </property>
+                    <property name="alignment">
+                     <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1" colspan="2">
+                   <widget class="QComboBox" name="targetModeCombo">
+                    <item>
+                     <property name="text">
+                      <string>Nhiều sheet (theo tên file)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Một sheet (dùng file đầu tiên)</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="singleSheetNameLabel">
+                    <property name="minimumSize">
+                     <size>
+                      <width>88</width>
+                      <height>34</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>88</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string>Tên Sheet</string>
+                    </property>
+                    <property name="alignment">
+                     <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1" colspan="2">
+                   <widget class="QLineEdit" name="singleSheetNameEdit">
+                    <property name="placeholderText">
+                     <string>Ví dụ: import_vi</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="3" column="0">
+                   <widget class="QLabel" name="valueInputLabel">
+                    <property name="minimumSize">
+                     <size>
+                      <width>88</width>
+                      <height>34</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>88</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string>Dữ liệu</string>
+                    </property>
+                    <property name="alignment">
+                     <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="3" column="1" colspan="2">
+                   <widget class="QComboBox" name="valueInputCombo">
+                    <item>
+                     <property name="text">
+                      <string>Giữ nguyên dữ liệu (RAW)</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Google tự nhận diện</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </widget></item>
+   <item><spacer name="targetSettingsSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

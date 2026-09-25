@@ -125,3 +125,7 @@ Google Sheets tạo và lưu theo mẫu:
 
 Các file trùng tên trong thư mục đích sẽ được thay thế. Những file đã tải xong
 được giữ lại nếu người dùng dừng giữa quá trình.
+
+## So sánh CSV theo key
+
+Chọn hai tệp trong card Tệp CSV → **So sánh 2 CSV** để xem key mới, đã xóa và thay đổi. Link Google Sheet và kiểu nhập nằm trong **Cài đặt → Google Sheet đích**. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).

@@ -43,7 +43,8 @@ class _FakeSession:
         self.payloads = payloads
         self.calls = []
 
-    def get(self, url, *, params, headers, timeout):
+    def request(self, method, url, *, params, headers, timeout):
+        assert method == "GET"
         self.calls.append((url, params, headers, timeout))
         gid = int(params["gid"])
         return _FakeResponse(self.payloads[gid])
@@ -52,6 +53,7 @@ class _FakeSession:
 def _connection(worksheets):
     return SheetConnection(
         credentials=object(),
+        authorized_session=object(),
         client=object(),
         spreadsheet=_FakeSpreadsheet(worksheets),
         spreadsheet_id="spreadsheet-id",
@@ -92,7 +94,7 @@ def test_download_only_export_prefix_and_preserve_raw_bytes(tmp_path, monkeypatc
     ]
     assert created[0].read_bytes() == payloads[2]
     assert created[1].read_bytes() == payloads[3]
-    assert [call[1]["gid"] for call in fake_session.calls] == ["2", "3"]
+    assert sorted(call[1]["gid"] for call in fake_session.calls) == ["2", "3"]
 
 
 def test_download_reports_when_no_export_tabs(tmp_path):

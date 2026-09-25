@@ -96,7 +96,7 @@ class _DesignerDialog(QDialog):
 
 
 class SettingsDialog(_DesignerDialog):
-    def __init__(self, parent=None, *, initial_tab: str = "google"):
+    def __init__(self, parent=None, *, initial_tab: str = "google", target_form=None):
         super().__init__(parent)
         self._configure_window("Cài đặt — Import Localize")
         self.setMinimumWidth(700)
@@ -126,6 +126,9 @@ class SettingsDialog(_DesignerDialog):
             self.form, "closeIconButton", QPushButton
         )
         self.settings_tabs = require_object(self.form, "settingsTabs", QTabWidget)
+        self.target_tab_index = None
+        if target_form is not None:
+            self.target_tab_index = self.settings_tabs.addTab(target_form, "Google Sheet đích")
 
         self.oauth_client_icon_label = require_object(
             self.form, "oauthClientIconLabel", QLabel
@@ -235,6 +238,8 @@ class SettingsDialog(_DesignerDialog):
 
         self.refresh_status()
         self.settings_tabs.setCurrentIndex(1 if initial_tab == "update" else 0)
+        if initial_tab == "target" and self.target_tab_index is not None:
+            self.settings_tabs.setCurrentIndex(self.target_tab_index)
 
     def refresh_status(self) -> None:
         status = oauth_configuration_status()
@@ -514,6 +519,8 @@ class SettingsDialog(_DesignerDialog):
         self.close_icon_button.setEnabled(enabled)
         self.settings_tabs.setTabEnabled(0, enabled or self.oauth_worker is not None)
         self.settings_tabs.setTabEnabled(1, enabled or self.update_check_worker is not None or self.update_download_worker is not None)
+        if self.target_tab_index is not None:
+            self.settings_tabs.setTabEnabled(self.target_tab_index, enabled)
 
     def _has_running_worker(self) -> bool:
         return any(

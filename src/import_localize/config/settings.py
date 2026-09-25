@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from import_localize.app.paths import CONFIG_FILE
@@ -25,6 +25,7 @@ class AppSettings:
     fill_columns: str = "D:I"
     window_width: int = 760
     window_height: int = 950
+    card_sizes: list[int] = field(default_factory=list)
     update_repository: str = ""
     auto_check_updates: bool = True
 

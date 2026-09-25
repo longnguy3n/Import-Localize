@@ -557,3 +557,10 @@ QPushButton#fillButton:hover {
     border-color: #0cbb79;
 }
 QPushButton#cancelButton { background: #1c2923; }
+
+QDialog#csvCompareDialog { background: #131e19; }
+
+QTableView#csvComparisonTable { background: #0f1814; color: #e3ebe7; border: 1px solid #3a4c43; gridline-color: #3a4c43; selection-background-color: #287551; selection-color: #ffffff; }
+
+QSplitter#cardsSplitter::handle:vertical { background: #314b3d; border-radius: 3px; margin: 2px 16px; }
+QSplitter#cardsSplitter::handle:vertical:hover { background: #55a87f; }

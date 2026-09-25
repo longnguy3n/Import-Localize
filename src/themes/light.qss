@@ -601,3 +601,10 @@ QPushButton#fillButton:hover {
     border-color: #078d59;
 }
 QPushButton#cancelButton { background: #f8faf9; }
+
+QDialog#csvCompareDialog { background: #f3f7f5; }
+
+QTableView#csvComparisonTable { background: #ffffff; color: #25372f; border: 1px solid #cfdcd6; gridline-color: #cfdcd6; selection-background-color: #287551; selection-color: #ffffff; }
+
+QSplitter#cardsSplitter::handle:vertical { background: #d6e5de; border-radius: 3px; margin: 2px 16px; }
+QSplitter#cardsSplitter::handle:vertical:hover { background: #7eb69b; }

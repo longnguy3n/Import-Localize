@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QGraphicsDropShadowEffect,
-    QGridLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -30,6 +29,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -58,6 +58,7 @@ from import_localize.services.csv_service import (
 from import_localize.services.google_service import oauth_configuration_status
 from import_localize.services.update_service import UpdateRelease, is_newer_version
 from import_localize.ui.assets import icon, load_logo, set_button_icon
+from import_localize.ui.csv_compare_dialog import CsvCompareDialog
 from import_localize.ui.dialogs import FillDataDialog, HelpDialog, SettingsDialog
 from import_localize.ui.ui_loader import load_ui, require_object
 from import_localize.ui.widgets import BottomAlignedLogView
@@ -70,7 +71,6 @@ from import_localize.workers.update_worker import UpdateCheckWorker
 class MainWindow(QMainWindow):
     """Main Import Localize window using the same visual system as SK Export."""
 
-    WIDE_BREAKPOINT = 1040  # Giữ để tương thích; card đích luôn nằm trên cùng.
     COMPACT_BREAKPOINT = 690
 
     def __init__(self):
@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
         self.update_check_worker: UpdateCheckWorker | None = None
         self.file_infos: dict[str, CsvFileInfo] = {}
         self._close_when_finished = False
-        self._wide_layout: bool | None = None
+        self._card_sizes_restored = False
         self._density_mode: str | None = None
         self._screen_signal_connected = False
 
@@ -107,6 +107,8 @@ class MainWindow(QMainWindow):
 
     def _bind_widgets(self) -> None:
         root = self.root
+        target = self.target_form = load_ui(FORMS_DIR / "target_settings.ui", self)
+        target.hide()
 
         self.top_bar = require_object(root, "topBar", QFrame)
         self.logo_label = require_object(root, "logoLabel", QLabel)
@@ -117,38 +119,37 @@ class MainWindow(QMainWindow):
         self.settings_button = require_object(root, "settingsButton", QPushButton)
         self.theme_button = require_object(root, "themeButton", QPushButton)
 
-        self.upper_content = require_object(root, "upperContent", QWidget)
-        self.top_container = require_object(root, "topContainer", QWidget)
-        self.top_grid = require_object(root, "topGrid", QGridLayout)
+        self.cards_splitter = require_object(root, "cardsSplitter", QSplitter)
 
         self.files_card = require_object(root, "filesCard", QFrame)
-        self.target_card = require_object(root, "targetCard", QFrame)
+        self.target_card = require_object(target, "targetCard", QFrame)
         self.action_card = require_object(root, "actionCard", QFrame)
         self.log_card = require_object(root, "logCard", QFrame)
 
         self.files_card_layout = require_object(root, "filesCardLayout", QVBoxLayout)
-        self.target_card_layout = require_object(root, "targetCardLayout", QVBoxLayout)
+        self.target_card_layout = require_object(target, "targetCardLayout", QVBoxLayout)
         self.action_card_layout = require_object(root, "actionCardLayout", QVBoxLayout)
         self.log_card_layout = require_object(root, "logCardLayout", QVBoxLayout)
 
         self.files_icon_label = require_object(root, "filesIconLabel", QLabel)
-        self.target_icon_label = require_object(root, "targetIconLabel", QLabel)
+        self.target_icon_label = require_object(target, "targetIconLabel", QLabel)
         self.action_icon_label = require_object(root, "actionIconLabel", QLabel)
         self.log_icon_label = require_object(root, "logIconLabel", QLabel)
 
         self.files_header_layout = require_object(root, "filesHeaderLayout", QHBoxLayout)
-        self.target_header_layout = require_object(root, "targetHeaderLayout", QHBoxLayout)
+        self.target_header_layout = require_object(target, "targetHeaderLayout", QHBoxLayout)
         self.action_header_layout = require_object(root, "actionHeaderLayout", QHBoxLayout)
         self.log_header_layout = require_object(root, "logHeaderLayout", QHBoxLayout)
         self.files_title_layout = require_object(root, "filesTitleLayout", QVBoxLayout)
-        self.target_title_layout = require_object(root, "targetTitleLayout", QVBoxLayout)
+        self.target_title_layout = require_object(target, "targetTitleLayout", QVBoxLayout)
         self.action_title_layout = require_object(root, "actionTitleLayout", QVBoxLayout)
         self.log_title_layout = require_object(root, "logTitleLayout", QVBoxLayout)
         self.files_subtitle_label = require_object(root, "filesSubtitleLabel", QLabel)
-        self.target_subtitle_label = require_object(root, "targetSubtitleLabel", QLabel)
+        self.target_subtitle_label = require_object(target, "targetSubtitleLabel", QLabel)
         self.action_subtitle_label = require_object(root, "actionSubtitleLabel", QLabel)
         self.log_subtitle_label = require_object(root, "logSubtitleLabel", QLabel)
 
+        self.compare_files_button = require_object(root, "compareFilesButton", QPushButton)
         self.file_table = require_object(root, "fileTable", QTableWidget)
         self.add_files_button = require_object(root, "addFilesButton", QPushButton)
         self.move_up_button = require_object(root, "moveUpButton", QPushButton)
@@ -159,16 +160,16 @@ class MainWindow(QMainWindow):
         self.clear_files_button = require_object(root, "clearFilesButton", QPushButton)
         self.file_summary_label = require_object(root, "fileSummaryLabel", QLabel)
 
-        self.sheet_url_edit = require_object(root, "sheetUrlEdit", QLineEdit)
-        self.open_sheet_button = require_object(root, "openSheetButton", QPushButton)
-        self.target_mode_combo = require_object(root, "targetModeCombo", QComboBox)
+        self.sheet_url_edit = require_object(target, "sheetUrlEdit", QLineEdit)
+        self.open_sheet_button = require_object(target, "openSheetButton", QPushButton)
+        self.target_mode_combo = require_object(target, "targetModeCombo", QComboBox)
         self.single_sheet_name_label = require_object(
-            root, "singleSheetNameLabel", QLabel
+            target, "singleSheetNameLabel", QLabel
         )
         self.single_sheet_name_edit = require_object(
-            root, "singleSheetNameEdit", QLineEdit
+            target, "singleSheetNameEdit", QLineEdit
         )
-        self.value_input_combo = require_object(root, "valueInputCombo", QComboBox)
+        self.value_input_combo = require_object(target, "valueInputCombo", QComboBox)
         self.fill_translate_data_button = require_object(
             root, "fillTranslateDataButton", QPushButton
         )
@@ -251,22 +252,18 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.stop_button.setVisible(False)
 
-        self.files_card.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.target_card.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.action_card.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.log_card.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Expanding,
-        )
+        for card in (self.files_card, self.action_card, self.log_card):
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.file_table.setMinimumHeight(100)
+        self.file_table.setMaximumHeight(16777215)
+        self.files_card_layout.setStretch(1, 1)
+        self.log_card_layout.setStretch(1, 1)
+        self.action_card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.cards_splitter.setChildrenCollapsible(False)
+        self.cards_splitter.setStretchFactor(0, 3)
+        self.cards_splitter.setStretchFactor(1, 1)
+        self.cards_splitter.setStretchFactor(2, 2)
+        self.cards_splitter.splitterMoved.connect(self._save_card_sizes)
 
     def _configure_card_headers(self) -> None:
         """Cho phép phần mô tả dưới tiêu đề card co giãn theo bề ngang cửa sổ."""
@@ -295,6 +292,7 @@ class MainWindow(QMainWindow):
         )
 
     def _connect_signals(self) -> None:
+        self.compare_files_button.clicked.connect(self.compare_selected_files)
         self.add_files_button.clicked.connect(self.choose_csv_files)
         self.move_up_button.clicked.connect(lambda: self.move_selected_files(-1))
         self.move_down_button.clicked.connect(lambda: self.move_selected_files(1))
@@ -374,47 +372,23 @@ class MainWindow(QMainWindow):
         geometry.moveCenter(available.center())
         self.move(geometry.topLeft())
 
-        QTimer.singleShot(0, lambda: self._update_responsive_layout(force=True))
         QTimer.singleShot(0, lambda: self._apply_density(force=True))
         QTimer.singleShot(10, self._refresh_minimum_height)
 
-    def _update_responsive_layout(self, force: bool = False) -> None:
-        """Giữ Google Sheet đích ở trên, danh sách CSV ở ngay bên dưới.
-
-        Bố cục này cố định ở mọi chiều rộng để thứ tự thao tác luôn rõ ràng:
-        chọn bảng tính trước, sau đó chọn các file có tên quyết định tab đích.
-        """
-        compact = self.width() < self.COMPACT_BREAKPOINT
-        if not force and self._wide_layout == compact:
+    def _restore_card_sizes(self) -> None:
+        if self._card_sizes_restored:
             return
-        self._wide_layout = compact
-        self.top_grid.removeWidget(self.target_card)
-        self.top_grid.removeWidget(self.files_card)
+        self._refresh_minimum_height()
+        sizes = self.settings.card_sizes
+        if not (isinstance(sizes, list) and len(sizes) == 3
+                and all(type(value) is int and 0 < value < 100000 for value in sizes)):
+            sizes = [450, 160, 240]
+        self.cards_splitter.setSizes(sizes)
+        self._card_sizes_restored = True
 
-        self.target_card.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.files_card.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.top_grid.addWidget(self.target_card, 0, 0, 1, 2)
-        self.top_grid.addWidget(self.files_card, 1, 0, 1, 2)
-        self.top_grid.setColumnStretch(0, 1)
-        self.top_grid.setColumnStretch(1, 0)
-
-        if compact:
-            self.file_table.setMinimumHeight(145)
-            self.file_table.setMaximumHeight(180)
-        else:
-            self.file_table.setMinimumHeight(165)
-            self.file_table.setMaximumHeight(220)
-
-        self.top_container.updateGeometry()
-        self.upper_content.updateGeometry()
-        self.root.updateGeometry()
-        QTimer.singleShot(0, self._refresh_minimum_height)
+    def _save_card_sizes(self, *_args) -> None:
+        if self._card_sizes_restored:
+            self.save_settings()
 
     def _apply_density(self, force: bool = False) -> None:
         available = self._current_available_geometry()
@@ -501,36 +475,31 @@ class MainWindow(QMainWindow):
         layout = self.root.layout()
         if layout is not None:
             layout.activate()
-        self.upper_content.updateGeometry()
-
-        # Keep all fixed cards visible and reserve a two-line log viewport.
-        body_margins = 20
-        desired = (
-            self.top_bar.height()
-            + self.upper_content.sizeHint().height()
-            + self.log_card.minimumHeight()
-            + body_margins
-            + 20
-        )
-        maximum_safe = max(620, available.height() - 16)
-        self.setMinimumHeight(min(max(MIN_WINDOW_HEIGHT, desired), maximum_safe))
+        cards = (self.files_card, self.action_card, self.log_card)
+        for card, floor in zip(cards, (210, 145, 140)):
+            card.setMinimumHeight(max(
+                floor, card.layout().minimumSize().height(),
+                card.layout().minimumHeightForWidth(card.width()),
+            ))
+        desired = (self.top_bar.height() + sum(card.minimumHeight() for card in cards)
+                   + 2 * self.cards_splitter.handleWidth() + 24)
+        self.setMinimumHeight(max(620, desired))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if hasattr(self, "top_grid"):
-            self._update_responsive_layout()
+        if hasattr(self, "cards_splitter"):
             self._apply_density()
+            QTimer.singleShot(0, self._refresh_minimum_height)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if not self._screen_signal_connected and self.windowHandle() is not None:
             self.windowHandle().screenChanged.connect(self._on_screen_changed)
             self._screen_signal_connected = True
-        QTimer.singleShot(0, self._refresh_minimum_height)
+        QTimer.singleShot(0, self._restore_card_sizes)
 
     def _on_screen_changed(self, _screen) -> None:
         self._apply_density(force=True)
-        self._update_responsive_layout(force=True)
         self._refresh_minimum_height()
 
     def apply_theme(self, name: str) -> None:
@@ -563,12 +532,19 @@ class MainWindow(QMainWindow):
         self,
         _checked: bool = False,
         *,
-        initial_tab: str = "google",
+        initial_tab: str = "target",
     ) -> None:
-        dialog = SettingsDialog(self, initial_tab=initial_tab)
+        self.save_settings()
+        dialog = SettingsDialog(self, initial_tab=initial_tab, target_form=self.target_form)
         dialog.setStyleSheet(self.styleSheet())
-        dialog.exec()
+        try:
+            dialog.exec()
+        finally:
+            self.target_form.hide()
+            self.target_form.setParent(self)
         self.settings = self.settings_repository.load()
+        self.save_settings()
+        dialog.deleteLater()
 
     def _auto_check_updates(self) -> None:
         if not self.settings.auto_check_updates:
@@ -696,7 +672,6 @@ class MainWindow(QMainWindow):
         self._refresh_file_targets()
         self.update_file_summary()
         self.target_card.updateGeometry()
-        self.upper_content.updateGeometry()
         QTimer.singleShot(0, self._refresh_minimum_height)
 
     def _update_target_cell(self, row: int, info: CsvFileInfo) -> None:
@@ -805,6 +780,7 @@ class MainWindow(QMainWindow):
             {index.row() for index in self.file_table.selectionModel().selectedRows()}
         )
         running = bool(self.worker and self.worker.isRunning())
+        self.compare_files_button.setEnabled(len(rows) == 2 and not running)
         self.move_up_button.setEnabled(
             bool(rows) and rows[0] > 0 and not running
         )
@@ -813,6 +789,16 @@ class MainWindow(QMainWindow):
             and rows[-1] < self.file_table.rowCount() - 1
             and not running
         )
+
+    def compare_selected_files(self) -> None:
+        rows = sorted(index.row() for index in self.file_table.selectionModel().selectedRows())
+        if len(rows) != 2 or (self.worker and self.worker.isRunning()):
+            return
+        paths = [str(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)) for row in rows]
+        dialog = CsvCompareDialog(*paths, self)
+        dialog.setStyleSheet(self.styleSheet())
+        dialog.exec()
+        dialog.deleteLater()
 
     def remove_selected_files(self) -> None:
         rows = sorted(
@@ -857,7 +843,7 @@ class MainWindow(QMainWindow):
     def open_sheet(self) -> None:
         url = self.sheet_url_edit.text().strip()
         if not url:
-            QMessageBox.warning(self, "Thiếu link", "Hãy nhập Link Google Sheet.")
+            QMessageBox.warning(self, "Thiếu link", "Hãy nhập Link Google Sheet trong Cài đặt → Google Sheet đích.")
             return
         QDesktopServices.openUrl(QUrl(url))
 
@@ -874,7 +860,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Link không hợp lệ",
-                "Hãy nhập đúng link Google Sheet.",
+                "Hãy nhập đúng link trong Cài đặt → Google Sheet đích.",
             )
             return None
 
@@ -886,7 +872,7 @@ class MainWindow(QMainWindow):
                 )
             except CsvImportError as exc:
                 QMessageBox.warning(self, "Tên Sheet không hợp lệ", str(exc))
-                self.single_sheet_name_edit.setFocus()
+                self.show_settings(initial_tab="target")
                 return None
             ordered_paths = self._ordered_file_paths()
             if not ordered_paths:
@@ -993,9 +979,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Link không hợp lệ",
-                "Hãy nhập đúng link Google Sheet trước khi chạy thao tác.",
+                "Hãy nhập đúng link trong Cài đặt → Google Sheet đích trước khi chạy thao tác.",
             )
-            self.sheet_url_edit.setFocus()
+            self.show_settings(initial_tab="target")
             return None
 
         oauth_status = oauth_configuration_status()
@@ -1115,6 +1101,7 @@ class MainWindow(QMainWindow):
         self.remove_files_button.setEnabled(not running)
         self.clear_files_button.setEnabled(not running)
         if running:
+            self.compare_files_button.setEnabled(False)
             self.move_up_button.setEnabled(False)
             self.move_down_button.setEnabled(False)
         else:
@@ -1183,6 +1170,8 @@ class MainWindow(QMainWindow):
         self.settings.first_row_is_header = True
         self.settings.strict_headers = True
         self.settings.add_source_column = False
+        if self._card_sizes_restored:
+            self.settings.card_sizes = self.cards_splitter.sizes()
         self.settings.window_width = self.width()
         self.settings.window_height = self.height()
         try:

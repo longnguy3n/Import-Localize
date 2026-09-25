@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -47,9 +48,56 @@ class BuildError(RuntimeError):
     pass
 
 
-def run(command: list[str], *, cwd: Path = ROOT_DIR) -> None:
+def run(command: list[str], *, cwd: Path = ROOT_DIR, env: dict[str, str] | None = None) -> None:
     print("\n> " + subprocess.list2cmdline(command))
-    subprocess.run(command, cwd=cwd, check=True)
+    subprocess.run(command, cwd=cwd, check=True, env=env)
+
+
+def isolated_build_environment() -> dict[str, str]:
+    """Keep third-party command-line tools out of Windows DLL resolution.
+
+    For example Poppler's icuuc.dll exports version-suffixed symbols and
+    cannot replace the Windows ICU library required by the Qt wheel.
+    Package-specific DLL paths are supplied by PyInstaller's package hooks.
+    """
+    environment = os.environ.copy()
+    if sys.platform == "win32":
+        windows = Path(environment.get("SystemRoot", r"C:\Windows"))
+        paths = [Path(sys.executable).parent, Path(sys.prefix), Path(sys.base_prefix),
+                 Path(sys.base_prefix) / "DLLs", windows / "System32", windows]
+        environment["PATH"] = os.pathsep.join(dict.fromkeys(str(path) for path in paths))
+    for name in ("PYTHONPATH", "PYTHONHOME", "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH"):
+        environment.pop(name, None)
+    environment["PYTHONIOENCODING"] = "utf-8"
+    return environment
+
+
+def verify_frozen_app(app_dir: Path) -> list[dict]:
+    """Require successful Qt startup/rendering, not merely a living process."""
+    reports = []
+    platforms = ("offscreen", "windows") if sys.platform == "win32" else ("offscreen",)
+    with tempfile.TemporaryDirectory(prefix="import-localize-build-check-") as directory:
+        for platform in platforms:
+            report_path = Path(directory) / f"{platform}.json"
+            environment = isolated_build_environment()
+            environment["QT_QPA_PLATFORM"] = platform
+            try:
+                result = subprocess.run(
+                    [str((app_dir / (APP_NAME + ".exe")).resolve()), "--self-test", str(report_path)],
+                    cwd=directory, env=environment, timeout=30,
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                )
+                report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+            except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                raise BuildError(f"EXE không vượt qua kiểm tra khởi động Qt ({platform}): {exc}") from exc
+            if (result.returncode != 0 or report.get("status") != "ok"
+                    or not report.get("main_window_rendered") or not report.get("csv_comparison")
+                    or report.get("platform") != platform):
+                raise BuildError(f"EXE lỗi khởi động Qt ({platform}): {report or result.stderr!r}")
+            reports.append(report)
+            print(f"Kiểm tra EXE/Qt ({platform}): đạt.")
+    return reports
 
 
 def ensure_dependencies() -> None:
@@ -295,7 +343,12 @@ def write_release_docs(
     2. Chạy {APP_NAME}.exe. Máy sử dụng KHÔNG cần cài Python.
     3. {oauth_note}
     4. Lần đầu trên mỗi máy, nhấn Cài đặt → Đăng nhập Google và cấp quyền một lần.
-    5. Dán link Google Sheet, chọn CSV rồi Import.
+    5. Mở Cài đặt → Google Sheet đích để nhập link Sheet, chọn CSV rồi Import.
+
+    SO SÁNH CSV THEO KEY
+    Giữ Ctrl/Shift chọn đúng hai tệp trong card Tệp CSV → So sánh 2 CSV.
+    File ở trên là bản cũ, ở dưới là bản mới; có thể đổi chiều trong cửa sổ so sánh.
+    Lọc Key mới để xem danh sách key mới và giá trị tương ứng.
 
     Token Google được tạo riêng trên từng máy tại:
       %APPDATA%\\Import Localize\\google_oauth_token.json
@@ -400,12 +453,13 @@ def build(
         "tkinter",
         str(ENTRY_SCRIPT),
     ]
-    run(command)
+    run(command, env=isolated_build_environment())
 
     built = dist_dir / APP_NAME
     if not built.is_dir():
         raise BuildError(f"PyInstaller không tạo thư mục: {built}")
     shutil.copytree(built, final_app_dir)
+    startup_checks = verify_frozen_app(final_app_dir)
 
     oauth_bundled = False
     if oauth_path:
@@ -425,6 +479,7 @@ def build(
         "distribution_type": "PyInstaller onedir",
         "github_update_repository": repository,
         "automatic_updates": bool(repository),
+        "startup_checks": startup_checks,
     }
     (final_app_dir / "build_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
