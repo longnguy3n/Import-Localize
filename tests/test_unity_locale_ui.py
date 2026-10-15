@@ -7,7 +7,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QPushButton
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.services.unity_locale_service import read_asset
@@ -53,7 +55,7 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
     dialog.apply_button.click()
     drain(app, dialog)
     assert read_asset(asset).terms[0]["Languages"] == ["World"]
-    assert dialog.table.item(0, 2).text() == "Đã ghi"
+    assert dialog.table.item(0, 9).text() == "Đã ghi"
     assert dialog.backup_path.is_dir()
     assert not dialog.apply_button.isEnabled()
     dialog.mode_combo.setCurrentIndex(1)
@@ -80,6 +82,66 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
     repository = SettingsRepository(tmp_path / "settings.json")
     repository.save(settings)
     assert repository.load().unity_export_dir == str(tmp_path)
+
+
+def test_shared_toolbar_multi_selection_and_compact_rows(app, tmp_path):
+    csvs = [tmp_path / f"source_{i}.csv" for i in range(6)]
+    assets = [tmp_path / f"locale_{i}.asset" for i in range(6)]
+    dialog = UnityLocaleDialog(AppSettings(), csvs)
+    dialog.set_assets(assets)
+    dialog.show()
+    app.processEvents()
+    left, right = dialog.source_list, dialog.target_list
+    def click(view, row, modifier=Qt.KeyboardModifier.NoModifier):
+        point = view.visualItemRect(view.item(row)).center()
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, modifier, point)
+        app.processEvents()
+    click(left, 1)
+    click(left, 3, Qt.KeyboardModifier.ControlModifier)
+    assert sorted(left.row(i) for i in left.selectedItems()) == [1, 3]
+    dialog.up_button.click()
+    assert dialog.csv_paths == [csvs[1], csvs[0], csvs[3], csvs[2], csvs[4], csvs[5]]
+    assert sorted(left.row(i) for i in left.selectedItems()) == [0, 2]
+    assert not dialog.up_button.isEnabled()
+    dialog.down_button.click()
+    assert dialog.csv_paths == csvs
+    click(right, 1)
+    click(right, 2, Qt.KeyboardModifier.ShiftModifier)
+    assert sorted(right.row(i) for i in right.selectedItems()) == [1, 2]
+    assert not left.selectedItems()
+    assert "Nhận vào" in dialog.selection_label.text()
+    dialog.remove_button.click()
+    assert dialog.asset_paths == [assets[0], *assets[3:]]
+    assert dialog.csv_paths == csvs
+    dialog.clear_button.click()
+    assert dialog.asset_paths == [] and dialog.csv_paths == csvs
+    assert not dialog.clear_button.isEnabled()
+    assert all("\n" not in left.item(i).text() for i in range(left.count()))
+    assert left.visualItemRect(left.item(0)).height() == 32
+    assert dialog.pair_scroll.height() <= 200
+    buttons = [b.text() for b in dialog.findChildren(QPushButton)]
+    for label in ("↑ Lên", "↓ Xuống", "Bỏ chọn", "Xóa hết"):
+        assert buttons.count(label) == 1
+    dialog.reject()
+
+
+def test_preview_shows_source_destination_and_real_change_counts(app, tmp_path):
+    asset = tmp_path / "locale_en.asset"
+    asset.write_text(ASSET)
+    source = tmp_path / "translated.csv"
+    source.write_text("Key,Type,Desc,English\n001,Text,old description,yes\nnew,Text,,new value\n")
+    dialog = UnityLocaleDialog(AppSettings(), [source])
+    dialog.set_assets([asset])
+    dialog.preview()
+    drain(app, dialog)
+    assert dialog.table.columnCount() == 10
+    assert source.name in dialog.table.item(0, 0).text()
+    assert asset.name == dialog.table.item(0, 1).text()
+    assert [dialog.table.item(0, col).text() for col in range(2, 9)] == ["2", "2", "2", "1", "1", "0", "1"]
+    assert "dòng CSV" in dialog.source_metric.text()
+    assert "term" in dialog.after_metric.text()
+    assert dialog.table.item(0, 5).background().color() != dialog.table.item(0, 6).background().color()
+    dialog.reject()
 
 
 def test_error_and_close_during_work(app, tmp_path):

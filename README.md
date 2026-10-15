@@ -143,9 +143,11 @@ Tính năng chạy trực tiếp trên file của máy, không cần đăng nh�
 5. Bấm **Thực hiện Replace Import**. Quay lại Unity, dùng **Assets → Refresh / Ctrl+R** nếu chưa thấy dữ liệu mới.
 
 Hai danh sách hiển thị tên file, đường dẫn và số hàng: **Nguồn** bên trái → **Nhận vào** bên phải. Hai file cùng hàng là một cặp chuyển dữ liệu.
-Kéo thả trong từng bên hoặc dùng nút **Lên/Xuống** để đổi thứ tự; **Bỏ chọn** loại file khỏi danh sách. Hai bên cuộn cùng nhau để giữ các hàng thẳng nhau.
+Mỗi file chiếm một dòng: tên bên trái, vị trí bên phải (di chuột để xem đường dẫn đầy đủ). Ctrl/Shift để chọn nhiều file, Ctrl+A để chọn toàn bộ bên đang thao tác.
+Kéo thả trong từng bên hoặc dùng thanh nút chung **Lên/Xuống/Bỏ chọn/Xóa hết**. Thanh này tác động lên bên đang chọn, có nhãn chỉ rõ Nguồn hoặc Nhận vào; khi chuyển bên, lựa chọn bên cũ được bỏ. **Xóa hết** chỉ dọn danh sách của bên đó, không xóa file trên máy. Hai bên cuộn cùng nhau để giữ các hàng thẳng nhau.
 Mỗi CSV phải chứa đúng bộ ngôn ngữ của asset cùng hàng (`English`, `Vietnamese`, `Portuguese (Brazil) [pt-BR]`…). App báo lỗi đúng hàng nếu không khớp, không tự ghép sang asset khác.
 Có thể chọn nhiều asset cùng ngôn ngữ và tự xếp CSV tương ứng. Số file hai bên phải bằng nhau, file đích không được trùng. Đổi thứ tự sẽ hủy kết quả xem trước cũ.
+Phần xem trước hiển thị riêng nguồn → file nhận, lượng dữ liệu nguồn, đích trước/sau, và các cột màu **Thêm (xanh), Xóa (đỏ), Sửa (vàng), Giữ (xám)**. Khi nhập, nguồn tính theo dòng CSV và đích tính theo term; khi xuất thì ngược lại. Sửa chỉ tính key có nội dung dịch, loại hoặc mô tả khác trước, không tính mọi key đã tồn tại. Key trùng trong đích được báo riêng; dấu `—` cho biết không thể so sánh nội dung CSV cũ.
 CSV chỉ có header, sai ngôn ngữ, trùng cột ngôn ngữ hoặc sai số cột sẽ bị chặn trước khi ghi.
 
 ### Unity → CSV

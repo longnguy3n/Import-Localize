@@ -47,12 +47,28 @@ class LocaleAsset:
 
 
 @dataclass
+class ChangeStats:
+    source_count: int
+    before_count: int | None
+    after_count: int
+    added: int | None
+    removed: int | None
+    updated: int | None
+    unchanged: int | None
+    source_unit: str
+    target_unit: str
+    duplicate_before: int = 0
+
+
+@dataclass
 class FileChange:
     path: Path
     before: bytes | None
     after: bytes
     summary: str
     warnings: tuple[str, ...] = ()
+    source_path: Path | None = None
+    stats: ChangeStats | None = None
 
 
 @dataclass
@@ -264,8 +280,20 @@ def import_change(asset: LocaleAsset, rows: list[list[str]]) -> FileChange:
         warnings.append(f"{normalized} key được chuẩn hóa theo I2.")
     if len(asset.terms) != len(old_keys):
         warnings.append(f"Asset hiện có {len(asset.terms) - len(old_keys)} term trùng; Replace sẽ tạo danh sách key duy nhất.")
-    summary = f"{len(asset.terms)} → {len(terms)} term; thêm {len(new_keys-old_keys)}, xóa {len(old_keys-new_keys)}, thay thế {len(old_keys & new_keys)}"
-    return FileChange(asset.path, asset.original, after, summary, tuple(warnings))
+    def content(term, languages):
+        translations = tuple(sorted((language["Code"].casefold(), value)
+                                    for language, value in zip(languages, term["Languages"])))
+        return int(term["TermType"]), term.get("Description") or "", translations
+    new_languages = [column[1] for column in columns]
+    changed_keys = {old["Term"] for old in asset.terms if old["Term"] in new_keys
+                    and content(old, asset.languages) != content(terms[old["Term"]], new_languages)}
+    stats = ChangeStats(len(rows) - 1, len(asset.terms), len(terms), len(new_keys - old_keys),
+                        len(old_keys - new_keys), len(changed_keys), len(old_keys & new_keys) - len(changed_keys),
+                        "dòng CSV", "term")
+    stats.duplicate_before = len(asset.terms) - len(old_keys)
+    summary = (f"{stats.source_count} dòng CSV → {stats.after_count} term; đích trước {stats.before_count}; "
+               f"thêm {stats.added}, xóa {stats.removed}, sửa {stats.updated}, giữ {stats.unchanged}")
+    return FileChange(asset.path, asset.original, after, summary, tuple(warnings), stats=stats)
 
 
 def prepare_import(asset_paths: list[Path], csv_paths: list[Path], delimiter: str = "auto") -> LocalePlan:
@@ -291,6 +319,7 @@ def prepare_import(asset_paths: list[Path], csv_paths: list[Path], delimiter: st
         used.add(asset.path)
         sources[path] = raw
         change = import_change(asset, rows)
+        change.source_path = path
         change.summary = f"{path.name} → {change.summary}"
         changes.append(change)
     if used != {a.path for a in assets}:
@@ -323,6 +352,7 @@ def prepare_import_pairs(csv_paths: list[Path], asset_paths: list[Path], delimit
         except (OSError, ValueError) as exc:
             raise UnityLocaleError(f"Hàng {index}: {path.name} → {Path(asset_path).name}: {exc}") from exc
         sources[path] = raw
+        change.source_path = path
         change.summary = f"{path.name} → {change.summary}"
         changes.append(change)
     return LocalePlan(changes, sources)
@@ -369,8 +399,40 @@ def export_csv(asset: LocaleAsset, delimiter: str = ",") -> bytes:
 def _export_change(asset: LocaleAsset, target: Path, delimiter: str) -> FileChange:
     duplicates = len(asset.terms) - len({t["Term"] for t in asset.terms})
     warnings = (f"Asset có {duplicates} term trùng; Export giữ lại như I2.",) if duplicates else ()
-    return FileChange(target, target.read_bytes() if target.exists() else None,
-                      export_csv(asset, delimiter), f"{asset.path.name} → {len(asset.terms)} term", warnings)
+    before = target.read_bytes() if target.exists() else None
+    after = export_csv(asset, delimiter)
+    new_rows = list(csv.reader(io.StringIO(after.decode("utf-8-sig")), delimiter=delimiter))
+    def records(rows):
+        # Compare by column name, so column order alone does not imply a change.
+        values = {}
+        for row in rows[1:]:
+            if len(row) != len(rows[0]):
+                raise UnityLocaleError("Số cột không hợp lệ")
+            values.setdefault(row[0], []).append(dict(zip(rows[0][1:], row[1:])))
+        return values
+    current, old_rows = records(new_rows), None
+    if before is None:
+        old_rows = [new_rows[0]]
+    else:
+        try:
+            _, old_rows = _read_csv(target, "auto")
+            records(old_rows)
+        except (ValueError, OSError):
+            old_rows = None
+            warnings += ("CSV đích không đọc được theo mẫu Key: chưa xác định số liệu cũ; Replace vẫn ghi đè toàn bộ.",)
+    stats = ChangeStats(len(asset.terms), None, len(new_rows) - 1, None, None, None, None, "term", "dòng CSV")
+    if old_rows is not None:
+        previous = records(old_rows)
+        shared = current.keys() & previous.keys()
+        changed = sum(current[key] != previous[key] for key in shared)
+        stats.before_count = len(old_rows) - 1
+        stats.duplicate_before = stats.before_count - len(previous)
+        stats.added = len(current.keys() - previous.keys())
+        stats.removed = len(previous.keys() - current.keys())
+        stats.updated = changed
+        stats.unchanged = len(shared) - changed
+    return FileChange(target, before, after,
+                      f"{len(asset.terms)} term → {stats.after_count} dòng CSV", warnings, asset.path, stats)
 
 
 def prepare_export(asset_paths: list[Path], output_dir: Path, prefix: str = "DG_Localization", delimiter: str = ",") -> LocalePlan:

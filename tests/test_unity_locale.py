@@ -272,3 +272,30 @@ def test_explicit_export_overwrites_chosen_csv_and_preserves_source(asset, tmp_p
     assert target.read_bytes() == export_csv(read_asset(asset))
     assert asset.read_bytes() == original
     assert next(backup.glob("*.bak")).read_bytes() == b"old content"
+
+
+def test_import_stats_distinguish_modified_unchanged_and_duplicates(asset, tmp_path):
+    raw = asset.read_text(encoding="utf-8-sig")
+    duplicate = raw[raw.index("    - Term: 001"):raw.index("    - Term: obsolete")]
+    asset.write_text(raw.replace("    - Term: obsolete", duplicate + "    - Term: obsolete"))
+    source = write_csv(tmp_path / "translated.csv", [
+        ["Key", "Type", "Desc", "English"],
+        ["001", "Text", "old description", "yes"],
+        ["obsolete", "Text", "", "Updated"],
+        ["new", "Text", "", "Added"],
+    ])
+    stats = service.prepare_import_pairs([source], [asset]).changes[0].stats
+    assert (stats.source_count, stats.before_count, stats.after_count) == (3, 3, 3)
+    assert (stats.added, stats.removed, stats.updated, stats.unchanged, stats.duplicate_before) == (1, 0, 1, 1, 1)
+
+
+def test_export_stats_compare_existing_rows_and_report_unknown_csv(asset, tmp_path):
+    target = tmp_path / "output.csv"
+    stats = service.prepare_export_pairs([asset], [target]).changes[0].stats
+    assert (stats.source_count, stats.before_count, stats.after_count, stats.added) == (2, 0, 2, 2)
+    target.write_bytes(export_csv(read_asset(asset)))
+    stats = service.prepare_export_pairs([asset], [target]).changes[0].stats
+    assert (stats.added, stats.removed, stats.updated, stats.unchanged) == (0, 0, 0, 2)
+    target.write_text("Invalid CSV")
+    stats = service.prepare_export_pairs([asset], [target]).changes[0].stats
+    assert stats.before_count is None and stats.updated is None
