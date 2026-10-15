@@ -517,10 +517,11 @@ class SettingsDialog(_DesignerDialog):
     def _set_close_enabled(self, enabled: bool) -> None:
         self.close_button.setEnabled(enabled)
         self.close_icon_button.setEnabled(enabled)
-        self.settings_tabs.setTabEnabled(0, enabled or self.oauth_worker is not None)
-        self.settings_tabs.setTabEnabled(1, enabled or self.update_check_worker is not None or self.update_download_worker is not None)
-        if self.target_tab_index is not None:
-            self.settings_tabs.setTabEnabled(self.target_tab_index, enabled)
+        # Workers are assigned after this method is called. Keep the active tab
+        # enabled so Qt cannot navigate away while controls are being locked.
+        active_index = self.settings_tabs.currentIndex()
+        for index in range(self.settings_tabs.count()):
+            self.settings_tabs.setTabEnabled(index, enabled or index == active_index)
 
     def _has_running_worker(self) -> bool:
         return any(
