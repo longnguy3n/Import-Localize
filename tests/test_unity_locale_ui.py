@@ -59,11 +59,15 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
     dialog.mode_combo.setCurrentIndex(1)
     dialog.output_edit.setText(str(tmp_path))
     dialog.prefix_edit.setText("My Sheet")
+    dialog.generate_destinations()
+    drain(app, dialog)
     dialog.preview_button.click()
     drain(app, dialog)
     assert dialog.apply_button.isEnabled()
     dialog.prefix_edit.setText("Other Sheet")
     assert not dialog.apply_button.isEnabled()
+    dialog.generate_destinations()
+    drain(app, dialog)
     dialog.preview()
     drain(app, dialog)
     dialog.apply()
@@ -107,3 +111,72 @@ def test_main_entry_and_busy_state(app, tmp_path, monkeypatch):
     window.set_running(False)
     assert window.unity_locale_button.isEnabled()
     window.close()
+
+
+def test_row_order_controls_import_destination_and_invalidates_preview(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(unity_locale_dialog, "USER_CONFIG_DIR", tmp_path / "config")
+    assets = [tmp_path / f"locale_en_{i}.asset" for i in range(2)]
+    csvs = [tmp_path / f"translated_{i}.csv" for i in range(2)]
+    for i, (asset, csv) in enumerate(zip(assets, csvs)):
+        asset.write_text(ASSET)
+        csv.write_text(f"Key,English\nkey,translation {i}\n")
+    dialog = UnityLocaleDialog(AppSettings(), csvs)
+    dialog.set_assets(assets)
+    dialog.show()
+    assert csvs[0].name in dialog.source_list.item(0).text()
+    assert str(assets[0]) == dialog.target_list.item(0).toolTip()
+    dialog.preview()
+    drain(app, dialog)
+    assert dialog.plan and dialog.apply_button.isEnabled()
+    # Qt's internal drag-and-drop moves rows through this same model operation.
+    view = dialog.target_list
+    assert view.model().moveRow(view.rootIndex(), 1, view.rootIndex(), 0)
+    assert dialog.asset_paths == assets[::-1]
+    assert dialog.source_list.paths() == csvs
+    assert dialog.plan is None and not dialog.apply_button.isEnabled()
+    assert view.item(0).text().startswith("01.")
+    dialog.preview()
+    drain(app, dialog)
+    assert [c.path for c in dialog.plan.changes] == assets[::-1]
+    dialog.apply()
+    drain(app, dialog)
+    assert read_asset(assets[1]).terms[0]["Languages"] == ["translation 0"]
+    assert read_asset(assets[0]).terms[0]["Languages"] == ["translation 1"]
+    dialog.reject()
+
+
+def test_export_order_and_destinations_survive_source_moves_and_mode_switch(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(unity_locale_dialog, "USER_CONFIG_DIR", tmp_path / "config")
+    assets = [tmp_path / "locale_en.asset", tmp_path / "locale_vi.asset"]
+    assets[0].write_text(ASSET)
+    assets[1].write_text(ASSET.replace("English", "Vietnamese").replace("Code: en", "Code: vi"))
+    dialog = UnityLocaleDialog(AppSettings())
+    dialog.set_assets(assets)
+    dialog.mode_combo.setCurrentIndex(1)
+    dialog.output_edit.setText(str(tmp_path))
+    dialog.generate_destinations()
+    drain(app, dialog)
+    targets = dialog.target_list.paths()
+    assert len(targets) == 2 and not any(p.exists() for p in targets)
+    dialog.source_list.setCurrentRow(1)
+    dialog.source_list.move_selected(-1)
+    assert dialog.source_list.paths() == assets[::-1]
+    assert dialog.target_list.paths() == targets  # no automatic rematching
+    dialog.mode_combo.setCurrentIndex(0)
+    dialog.mode_combo.setCurrentIndex(1)
+    assert dialog.target_list.paths() == targets
+    assert dialog.source_list.paths() == assets[::-1]
+    dialog.preview()
+    drain(app, dialog)
+    dialog.apply()
+    drain(app, dialog)
+    assert "Vietnamese" in targets[0].read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "English" in targets[1].read_text(encoding="utf-8-sig").splitlines()[0]
+    dialog.target_list.setCurrentRow(0)
+    dialog.target_list.remove_selected()
+    assert len(dialog.export_paths) == 1
+    assert dialog.source_list.height() == dialog.target_list.height()
+    dialog.preview()
+    drain(app, dialog)
+    assert dialog.plan is None and "cùng số file" in dialog.details.toPlainText()
+    dialog.reject()

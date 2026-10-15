@@ -142,15 +142,18 @@ Tính năng chạy trực tiếp trên file của máy, không cần đăng nh�
 4. Bấm **Xem trước** để kiểm tra file đích, số term thêm/xóa/thay thế và cảnh báo key trùng.
 5. Bấm **Thực hiện Replace Import**. Quay lại Unity, dùng **Assets → Refresh / Ctrl+R** nếu chưa thấy dữ liệu mới.
 
-Ghép CSV với asset bằng cột ngôn ngữ (`English`, `Vietnamese`, `Portuguese (Brazil) [pt-BR]`…), không phụ thuộc tên CSV.
-Mỗi CSV phải chứa đúng bộ ngôn ngữ của một asset đã chọn. Nếu có hai asset cùng ngôn ngữ, chọn riêng asset cần nhập.
+Hai danh sách hiển thị tên file, đường dẫn và số hàng: **Nguồn** bên trái → **Nhận vào** bên phải. Hai file cùng hàng là một cặp chuyển dữ liệu.
+Kéo thả trong từng bên hoặc dùng nút **Lên/Xuống** để đổi thứ tự; **Bỏ chọn** loại file khỏi danh sách. Hai bên cuộn cùng nhau để giữ các hàng thẳng nhau.
+Mỗi CSV phải chứa đúng bộ ngôn ngữ của asset cùng hàng (`English`, `Vietnamese`, `Portuguese (Brazil) [pt-BR]`…). App báo lỗi đúng hàng nếu không khớp, không tự ghép sang asset khác.
+Có thể chọn nhiều asset cùng ngôn ngữ và tự xếp CSV tương ứng. Số file hai bên phải bằng nhau, file đích không được trùng. Đổi thứ tự sẽ hủy kết quả xem trước cũ.
 CSV chỉ có header, sai ngôn ngữ, trùng cột ngôn ngữ hoặc sai số cột sẽ bị chặn trước khi ghi.
 
 ### Unity → CSV
 
 1. Chọn **Replace Export** và các asset cần xuất.
-2. Chọn thư mục đầu ra, nhập tên bảng tính (mặc định `DG_Localization`).
-3. Bấm **Xem trước**, sau đó **Thực hiện Replace Export**.
+2. Bên nhận: **Chọn CSV nhận** để chọn file có sẵn hoặc **Thêm CSV mới** để đặt tên file mới. Có thể chọn thư mục, nhập tên bảng tính (mặc định `DG_Localization`) rồi bấm **Tạo danh sách CSV đích** để tạo nhanh các đường dẫn.
+3. Kéo thả đổi thứ tự độc lập ở mỗi bên để ghép asset và CSV theo hàng. Đường dẫn đích đã tạo không tự thay đổi khi di chuyển nguồn; đổi thư mục/tên bảng tính cần bấm **Tạo danh sách CSV đích** lại.
+4. Bấm **Xem trước**, sau đó **Thực hiện Replace Export**. Chọn/thêm/tạo danh sách chỉ chuẩn bị đường dẫn; file được ghi khi thực hiện Replace.
 
 Ví dụ file đầu ra: `DG_Localization - upload_en.csv`. Có thể thêm các file này vào luồng upload nhiều sheet sẵn có của ứng dụng.
 CSV được ghi UTF-8 có BOM với các cột `Key,Type,Desc,<ngôn ngữ>`. Hỗ trợ dấu phẩy, chấm phẩy và tab;

@@ -21,7 +21,7 @@ def run_self_test(report_path: str) -> int:
             from import_localize.services.csv_compare_service import compare_csv_files
             from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
             from import_localize.services.unity_locale_service import (
-                prepare_export, prepare_import, apply_plan, read_asset,
+                prepare_export, prepare_import_pairs, apply_plan, read_asset,
             )
 
             app = create_application(["Import_Localize self-test"])
@@ -52,10 +52,13 @@ def run_self_test(report_path: str) -> int:
             exports = prepare_export([locale], Path(directory))
             backup_root = Path(directory) / "backups"
             apply_plan(exports, backup_root)
-            imports = prepare_import([locale], [exports.changes[0].path])
+            imports = prepare_import_pairs([exports.changes[0].path], [locale])
             apply_plan(imports, backup_root)
             assert read_asset(locale).terms[0]["Languages"] == ["Hello"]
-            unity_dialog = UnityLocaleDialog(window.settings, parent=window)
+            unity_dialog = UnityLocaleDialog(window.settings, [exports.changes[0].path], parent=window)
+            unity_dialog.set_assets([locale])
+            assert unity_dialog.source_list.paths() == [exports.changes[0].path]
+            assert unity_dialog.target_list.paths() == [locale]
             unity_dialog.ensurePolished()
             assert not unity_dialog.grab().isNull(), "Unity Locale could not render"
             unity_dialog.close()

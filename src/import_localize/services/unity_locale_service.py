@@ -298,6 +298,52 @@ def prepare_import(asset_paths: list[Path], csv_paths: list[Path], delimiter: st
     return LocalePlan(changes, sources)
 
 
+def _validate_pairs(source_paths: list[Path], target_paths: list[Path], target_suffix: str) -> None:
+    if not source_paths or len(source_paths) != len(target_paths):
+        raise UnityLocaleError("Hai bên phải có cùng số file và ít nhất một cặp. Mỗi hàng là một cặp nguồn → đích.")
+    targets = [Path(p).resolve() for p in target_paths]
+    if len(set(targets)) != len(targets):
+        raise UnityLocaleError("File nhận bị trùng ở nhiều hàng. Mỗi file đích chỉ được ghi một lần.")
+    for index, path in enumerate(targets, 1):
+        if path.suffix.casefold() != target_suffix:
+            raise UnityLocaleError(f"Hàng {index}: file đích phải có đuôi {target_suffix}.")
+        if not path.parent.is_dir():
+            raise UnityLocaleError(f"Hàng {index}: thư mục đích không tồn tại: {path.parent}")
+
+
+def prepare_import_pairs(csv_paths: list[Path], asset_paths: list[Path], delimiter: str = "auto") -> LocalePlan:
+    """Use exactly the displayed row pairs; never silently rematch languages."""
+    _validate_pairs(csv_paths, asset_paths, ".asset")
+    changes, sources = [], {}
+    for index, (csv_path, asset_path) in enumerate(zip(csv_paths, asset_paths), 1):
+        path = Path(csv_path).resolve()
+        try:
+            raw, rows = _read_csv(path, delimiter)
+            change = import_change(read_asset(asset_path), rows)
+        except (OSError, ValueError) as exc:
+            raise UnityLocaleError(f"Hàng {index}: {path.name} → {Path(asset_path).name}: {exc}") from exc
+        sources[path] = raw
+        change.summary = f"{path.name} → {change.summary}"
+        changes.append(change)
+    return LocalePlan(changes, sources)
+
+
+def prepare_export_pairs(asset_paths: list[Path], csv_paths: list[Path], delimiter: str = ",") -> LocalePlan:
+    """Export each asset into the explicit CSV destination on the same row."""
+    _validate_pairs(asset_paths, csv_paths, ".csv")
+    changes, sources = [], {}
+    for index, (asset_path, csv_path) in enumerate(zip(asset_paths, csv_paths), 1):
+        target = Path(csv_path).resolve()
+        try:
+            asset = read_asset(asset_path)
+            change = _export_change(asset, target, delimiter)
+        except (OSError, ValueError) as exc:
+            raise UnityLocaleError(f"Hàng {index}: {Path(asset_path).name} → {target.name}: {exc}") from exc
+        sources[asset.path] = asset.original
+        changes.append(change)
+    return LocalePlan(changes, sources)
+
+
 def export_csv(asset: LocaleAsset, delimiter: str = ",") -> bytes:
     if delimiter not in (",", ";", "\t"):
         raise UnityLocaleError("Dấu phân cách CSV không hợp lệ.")
@@ -320,6 +366,13 @@ def export_csv(asset: LocaleAsset, delimiter: str = ",") -> bytes:
     return stream.getvalue().encode("utf-8-sig")
 
 
+def _export_change(asset: LocaleAsset, target: Path, delimiter: str) -> FileChange:
+    duplicates = len(asset.terms) - len({t["Term"] for t in asset.terms})
+    warnings = (f"Asset có {duplicates} term trùng; Export giữ lại như I2.",) if duplicates else ()
+    return FileChange(target, target.read_bytes() if target.exists() else None,
+                      export_csv(asset, delimiter), f"{asset.path.name} → {len(asset.terms)} term", warnings)
+
+
 def prepare_export(asset_paths: list[Path], output_dir: Path, prefix: str = "DG_Localization", delimiter: str = ",") -> LocalePlan:
     if not asset_paths:
         raise UnityLocaleError("Chọn ít nhất một asset để xuất.")
@@ -337,10 +390,7 @@ def prepare_export(asset_paths: list[Path], output_dir: Path, prefix: str = "DG_
         if target in targets:
             raise UnityLocaleError(f"Nhiều asset tạo cùng file {target.name}.")
         targets.add(target)
-        duplicates = len(asset.terms) - len({t["Term"] for t in asset.terms})
-        warnings = (f"Asset có {duplicates} term trùng; Export giữ lại như I2.",) if duplicates else ()
-        changes.append(FileChange(target, target.read_bytes() if target.exists() else None,
-                                  export_csv(asset, delimiter), f"{asset.path.name} → {len(asset.terms)} term", warnings))
+        changes.append(_export_change(asset, target, delimiter))
         sources[asset.path] = asset.original
     return LocalePlan(changes, sources)
 

@@ -232,3 +232,43 @@ def test_key_normalization(asset, tmp_path):
     plan = prepare_import([asset], [source])
     apply_plan(plan, tmp_path / "backups")
     assert read_asset(asset).terms[0]["Term"] == "folder/Name"
+
+
+def test_explicit_import_pairs_do_not_rematch_languages(asset, tmp_path):
+    vi = tmp_path / "locale_vi.asset"
+    vi.write_text(ASSET.replace("English", "Vietnamese").replace("Code: en", "Code: vi"))
+    en_csv = write_csv(tmp_path / "en.csv", [["Key", "English"], ["key", "en"]])
+    vi_csv = write_csv(tmp_path / "vi.csv", [["Key", "Vietnamese"], ["key", "vi"]])
+    before = {p: p.read_bytes() for p in (asset, vi)}
+    with pytest.raises(UnityLocaleError, match="Hàng 1"):
+        service.prepare_import_pairs([en_csv, vi_csv], [vi, asset])
+    assert all(p.read_bytes() == raw for p, raw in before.items())
+    plan = service.prepare_import_pairs([vi_csv, en_csv], [vi, asset])
+    assert [c.path for c in plan.changes] == [vi, asset]
+
+
+def test_explicit_pairs_require_complete_unique_targets(asset, tmp_path):
+    source = write_csv(tmp_path / "en.csv", [["Key", "English"], ["key", "value"]])
+    with pytest.raises(UnityLocaleError, match="cùng số file"):
+        service.prepare_import_pairs([source], [])
+    with pytest.raises(UnityLocaleError, match="trùng"):
+        service.prepare_import_pairs([source, source], [asset, asset])
+    with pytest.raises(UnityLocaleError, match="trùng"):
+        service.prepare_export_pairs([asset, asset], [source, source])
+    with pytest.raises(UnityLocaleError, match="đuôi"):
+        service.prepare_export_pairs([asset], [tmp_path / "wrong.asset"])
+    with pytest.raises(UnityLocaleError, match="không tồn tại"):
+        service.prepare_export_pairs([asset], [tmp_path / "missing" / "out.csv"])
+
+
+def test_explicit_export_overwrites_chosen_csv_and_preserves_source(asset, tmp_path):
+    original = asset.read_bytes()
+    target = tmp_path / "custom.csv"
+    target.write_bytes(b"old content")
+    plan = service.prepare_export_pairs([asset], [target])
+    assert target.read_bytes() == b"old content"
+    assert plan.changes[0].path == target
+    backup = apply_plan(plan, tmp_path / "backups")
+    assert target.read_bytes() == export_csv(read_asset(asset))
+    assert asset.read_bytes() == original
+    assert next(backup.glob("*.bak")).read_bytes() == b"old content"
