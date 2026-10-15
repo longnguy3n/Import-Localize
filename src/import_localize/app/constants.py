@@ -3,7 +3,7 @@ from __future__ import annotations
 APP_NAME = "Import Localize"
 APP_ID = "import-localize"
 ORGANIZATION_NAME = "Import Localize"
-APP_VERSION = "1.9.2"
+APP_VERSION = "1.10.0"
 
 DEFAULT_WINDOW_WIDTH = 760
 DEFAULT_WINDOW_HEIGHT = 950
@@ -44,7 +44,7 @@ MAX_PARALLEL_EXPORT_DOWNLOADS = 4
 
 # Auto-update uses the latest GitHub Release of this repository. During build,
 # build_app.py can replace this value through --github-repo owner/repository.
-DEFAULT_GITHUB_REPOSITORY = ""
+DEFAULT_GITHUB_REPOSITORY = "longnguy3n/Import-Localize"
 UPDATE_REQUEST_TIMEOUT_SECONDS = 30
 UPDATE_DOWNLOAD_CHUNK_BYTES = 1024 * 256
 UPDATE_ASSET_PREFIX = "Import_Localize_v"

@@ -59,6 +59,7 @@ from import_localize.services.google_service import oauth_configuration_status
 from import_localize.services.update_service import UpdateRelease, is_newer_version
 from import_localize.ui.assets import icon, load_logo, set_button_icon
 from import_localize.ui.csv_compare_dialog import CsvCompareDialog
+from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 from import_localize.ui.dialogs import FillDataDialog, HelpDialog, SettingsDialog
 from import_localize.ui.ui_loader import load_ui, require_object
 from import_localize.ui.widgets import BottomAlignedLogView
@@ -176,6 +177,7 @@ class MainWindow(QMainWindow):
         self.download_export_tabs_button = require_object(
             root, "downloadExportTabsButton", QPushButton
         )
+        self.unity_locale_button = require_object(root, "unityLocaleButton", QPushButton)
 
         self.start_button = require_object(root, "startButton", QPushButton)
         self.stop_button = require_object(root, "stopButton", QPushButton)
@@ -293,6 +295,7 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self.compare_files_button.clicked.connect(self.compare_selected_files)
+        self.unity_locale_button.clicked.connect(self.show_unity_locale)
         self.add_files_button.clicked.connect(self.choose_csv_files)
         self.move_up_button.clicked.connect(lambda: self.move_selected_files(-1))
         self.move_down_button.clicked.connect(lambda: self.move_selected_files(1))
@@ -543,6 +546,13 @@ class MainWindow(QMainWindow):
             self.target_form.hide()
             self.target_form.setParent(self)
         self.settings = self.settings_repository.load()
+        self.save_settings()
+        dialog.deleteLater()
+
+    def show_unity_locale(self) -> None:
+        dialog = UnityLocaleDialog(self.settings, [Path(p) for p in self.file_infos], self)
+        dialog.setStyleSheet(self.styleSheet())
+        dialog.exec()
         self.save_settings()
         dialog.deleteLater()
 
@@ -1097,6 +1107,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(running)
         self.settings_button.setEnabled(not running)
+        self.unity_locale_button.setEnabled(not running)
         self.add_files_button.setEnabled(not running)
         self.remove_files_button.setEnabled(not running)
         self.clear_files_button.setEnabled(not running)

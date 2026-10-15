@@ -129,3 +129,47 @@ Các file trùng tên trong thư mục đích sẽ được thay thế. Những 
 ## So sánh CSV theo key
 
 Chọn hai tệp trong card Tệp CSV → **So sánh 2 CSV** để xem key mới, đã xóa và thay đổi. Link Google Sheet và kiểu nhập nằm trong **Cài đặt → Google Sheet đích**. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
+## Unity Locale: Replace Import / Replace Export
+
+Mở **Unity Locale — Replace Import / Export…** trong phần thao tác của ứng dụng.
+Tính năng chạy trực tiếp trên file của máy, không cần đăng nhập Google hoặc thêm script vào Unity.
+
+### CSV → Unity
+
+1. Lưu asset trong Unity, thoát Play Mode, chọn **Replace Import** trong Import Localize.
+2. Chọn các `locale_*.asset` cần cập nhật, hoặc chọn thư mục `Assets/AssetBundle/Localization`.
+3. Chọn các CSV tương ứng, ví dụ `DG_Localization - export_en.csv`, `export_vi.csv`, `export_pt-BR.csv` đã tải từ Google Sheets.
+4. Bấm **Xem trước** để kiểm tra file đích, số term thêm/xóa/thay thế và cảnh báo key trùng.
+5. Bấm **Thực hiện Replace Import**. Quay lại Unity, dùng **Assets → Refresh / Ctrl+R** nếu chưa thấy dữ liệu mới.
+
+Ghép CSV với asset bằng cột ngôn ngữ (`English`, `Vietnamese`, `Portuguese (Brazil) [pt-BR]`…), không phụ thuộc tên CSV.
+Mỗi CSV phải chứa đúng bộ ngôn ngữ của một asset đã chọn. Nếu có hai asset cùng ngôn ngữ, chọn riêng asset cần nhập.
+CSV chỉ có header, sai ngôn ngữ, trùng cột ngôn ngữ hoặc sai số cột sẽ bị chặn trước khi ghi.
+
+### Unity → CSV
+
+1. Chọn **Replace Export** và các asset cần xuất.
+2. Chọn thư mục đầu ra, nhập tên bảng tính (mặc định `DG_Localization`).
+3. Bấm **Xem trước**, sau đó **Thực hiện Replace Export**.
+
+Ví dụ file đầu ra: `DG_Localization - upload_en.csv`. Có thể thêm các file này vào luồng upload nhiều sheet sẵn có của ứng dụng.
+CSV được ghi UTF-8 có BOM với các cột `Key,Type,Desc,<ngôn ngữ>`. Hỗ trợ dấu phẩy, chấm phẩy và tab;
+Import có chế độ tự nhận diện, Export mặc định dùng dấu phẩy. Export ghi đè toàn bộ file đích.
+
+### Quy tắc I2 và sao lưu
+
+- Replace Import tạo lại `mTerms` và `mLanguages`: term không có trong CSV sẽ bị xóa. Các cờ dịch được tạo lại giống I2 Replace.
+- Key trùng được gộp; ô dịch không rỗng ở dòng sau thắng. Ô rỗng không ghi đè; `-` xóa bản dịch.
+- Hỗ trợ các dòng specialization như `[Touch]`, `[Controller]`, tag `[i2s_…]`, rich text, placeholder, dấu ngoặc kép và xuống dòng. Không trim nội dung bản dịch.
+- Export theo `Spreadsheet_SortRows` và `Spreadsheet_SpecializationAsRows` trong asset. Giữ key trùng như I2; chuyển ký tự `\n` thành xuống dòng như exporter của Dicegeon.
+- Chỉ thay hai trường dữ liệu locale; giữ nguyên phần còn lại của asset, GUID, file `.meta`, tham chiếu và cấu hình Google/BGM.
+- Trước khi ghi, kiểm tra lại nội dung file so với lúc xem trước. File đã thay đổi phải được xem trước lại.
+- File cũ được lưu ở `%APPDATA%/Import Localize/unity_backups/<thời điểm-id>/`. Nút **Mở bản sao lưu** mở thư mục này. `manifest.json` ghi đường dẫn gốc và file `.bak` tương ứng; để khôi phục, đóng tác vụ đang chỉnh asset rồi chép nội dung `.bak` đè vào đúng đường dẫn gốc. `backup: null` nghĩa là file được tạo mới.
+- Nếu ghi hàng loạt thất bại, ứng dụng cố khôi phục các file đã ghi và báo đường dẫn sao lưu. File bị ứng dụng khác sửa tiếp sẽ không bị tự động ghi đè khi khôi phục.
+
+Phạm vi hỗ trợ: `LanguageSourceAsset` dạng Unity YAML text, cấu hình enum I2 của Dicegeon có TextMeshPro.
+Không áp dụng cho Unity Localization Package, asset nhị phân hoặc các bảng mã term như `runtime_locale_term.asset`.
+Không chạy đồng thời import với thao tác lưu locale trong Unity. Sau khi import vẫn cần quy trình build AssetBundle của dự án để đưa bản dịch vào bản game phát hành.
+
+Mã xử lý: `src/import_localize/services/unity_locale_service.py`; giao diện: `src/import_localize/ui/unity_locale_dialog.py`.
+Thư viện bổ sung: `PyYAML` trong `requirements.txt` (được đóng gói tự động khi build bằng `build_app.py`).

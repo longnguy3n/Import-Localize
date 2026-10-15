@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.9.2</string>
+         <string>v1.10.0</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -710,6 +710,17 @@
                 </widget>
                </item>
               </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="unityLocaleButton">
+              <property name="text">
+               <string>Unity Locale — Replace Import / Export…</string>
+              </property>
+              <property name="toolTip">
+               <string>Nhập CSV vào locale.asset hoặc xuất CSV I2 Localization trực tiếp, có xem trước và sao lưu.</string>
+              </property>
+              <property name="minimumHeight"><number>36</number></property>
              </widget>
             </item>
             <item>

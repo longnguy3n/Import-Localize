@@ -19,6 +19,10 @@ def run_self_test(report_path: str) -> int:
             from import_localize.ui.main_window import MainWindow
             from import_localize.ui.csv_compare_dialog import ComparisonModel
             from import_localize.services.csv_compare_service import compare_csv_files
+            from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
+            from import_localize.services.unity_locale_service import (
+                prepare_export, prepare_import, apply_plan, read_asset,
+            )
 
             app = create_application(["Import_Localize self-test"])
             window = MainWindow()
@@ -35,10 +39,31 @@ def run_self_test(report_path: str) -> int:
             model = ComparisonModel()
             model.filter(comparison, "differences", "")
             assert comparison.count("added") == 1 and model.rowCount() == 2
+            locale = Path(directory) / "locale_en.asset"
+            locale.write_text(
+                "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n"
+                "--- !u!114 &11400000\nMonoBehaviour:\n  mSource:\n"
+                "    mTerms:\n    - Term: greeting\n      TermType: 0\n"
+                "      Description: Test\n      Languages:\n      - Hello\n"
+                "      Flags: 00\n      Languages_Touch: []\n"
+                "    mLanguages:\n    - Name: English\n      Code: en\n      Flags: 0\n",
+                encoding="utf-8",
+            )
+            exports = prepare_export([locale], Path(directory))
+            backup_root = Path(directory) / "backups"
+            apply_plan(exports, backup_root)
+            imports = prepare_import([locale], [exports.changes[0].path])
+            apply_plan(imports, backup_root)
+            assert read_asset(locale).terms[0]["Languages"] == ["Hello"]
+            unity_dialog = UnityLocaleDialog(window.settings, parent=window)
+            unity_dialog.ensurePolished()
+            assert not unity_dialog.grab().isNull(), "Unity Locale could not render"
+            unity_dialog.close()
             report = {
                 "status": "ok", "qt_version": qVersion(),
                 "platform": app.platformName(), "main_window_rendered": True,
                 "csv_comparison": True,
+                "unity_locale": True,
             }
             window.close()
             app.processEvents()

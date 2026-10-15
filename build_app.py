@@ -40,6 +40,7 @@ RUNTIME_MODULES = {
     "google-auth": "google.auth",
     "google-auth-oauthlib": "google_auth_oauthlib",
     "requests": "requests",
+    "PyYAML": "yaml",
 }
 BUILD_MODULES = {"PyInstaller": "pyinstaller", "PIL": "pillow"}
 

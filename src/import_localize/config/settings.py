@@ -20,6 +20,10 @@ class AppSettings:
     theme: str = "light"
     last_csv_dir: str = ""
     last_export_dir: str = ""
+    unity_locale_dir: str = ""
+    unity_csv_dir: str = ""
+    unity_export_dir: str = ""
+    unity_export_prefix: str = "DG_Localization"
     fill_sheet_name: str = "Translate_Data"
     fill_source_row: int = 2
     fill_columns: str = "D:I"
