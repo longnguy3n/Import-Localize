@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtWidgets import QTextBrowser
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtTest import QTest
 
@@ -22,10 +22,11 @@ def test_check_choose_then_cleanup(app, tmp_path, monkeypatch):
     assert dialog.groups.rowCount() == 1
     assert not dialog.apply_button.isEnabled()
     assert dialog.keep_combo.currentData() is None
-    texts = [dialog.variants.widget(i).findChild(QPlainTextEdit).toPlainText()
+    texts = [dialog.variants.widget(i).findChild(QTextBrowser).toPlainText()
              for i in range(dialog.variants.count())]
-    assert len(texts) == 2 and '"other"' in texts[1]
-    assert '"Term"' in texts[0] and '"Languages"' in texts[0]
+    assert len(texts) == 2 and "other" in texts[1]
+    assert "English (en)" in texts[0] and "Có khác biệt" in texts[0]
+    assert '"Term"' not in texts[0] and '"Languages"' not in texts[0]
     assert "Flags" not in texts[0] and "Languages_Touch" not in texts[0]
     assert path.read_bytes() == original
     dialog.keep_combo.setCurrentIndex(2)
@@ -105,12 +106,35 @@ def test_all_conflicts_must_be_chosen_before_any_write(app, tmp_path):
     drain(app, dialog)
     dialog.keep_combo.setCurrentIndex(1)
     assert not dialog.apply_button.isEnabled()
-    dialog.next_button.click()
+    # A decision automatically advances to the next unresolved group.
     assert dialog.groups.currentRow() == 1
     dialog.keep_combo.setCurrentIndex(2)
     assert dialog.apply_button.isEnabled()
     dialog.groups.selectRow(0)
     assert dialog.keep_combo.currentData() == 0
+    dialog.reject()
+
+
+def test_click_advances_once_and_can_revisit_previous_choice(app, tmp_path):
+    paths = [tmp_path / "locale_en.asset", tmp_path / "locale_vi.asset"]
+    originals = [duplicate_asset(path, conflict=True)[0] for path in paths]
+    dialog = LocaleDuplicateDialog(paths)
+    dialog.show()
+    dialog.scan()
+    drain(app, dialog)
+    QTest.mouseClick(dialog.variants.widget(1).content.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(20, 20))
+    assert dialog.groups.currentRow() == 1
+    assert dialog.choices == {(paths[0], "001"): 1}
+    assert dialog.keep_combo.currentData() is None
+    assert not dialog.apply_button.isEnabled()
+    QTest.mouseClick(dialog.variants.widget(0).title, Qt.MouseButton.LeftButton)
+    assert dialog.groups.currentRow() == 1  # last conflict stays visible
+    assert dialog.apply_button.isEnabled()
+    assert dialog.choices[(paths[1], "001")] == 0
+    dialog.groups.selectRow(0)
+    assert dialog.keep_combo.currentData() == 1
+    assert dialog.variants.widget(1).property("selected")
+    assert [path.read_bytes() for path in paths] == originals
     dialog.reject()
     assert [path.read_bytes() for path in paths] == originals
 
@@ -132,6 +156,10 @@ def test_click_content_or_heading_selects_and_highlights_variant(app, tmp_path):
     assert first.property("selected") and not second.property("selected")
     dialog.keep_combo.setCurrentIndex(2)
     assert second.property("selected") and not first.property("selected")
+    dialog.show_markup.setChecked(True)
+    assert dialog.keep_combo.currentData() == 1
+    first, second = dialog.variants.widget(0), dialog.variants.widget(1)
+    assert second.property("selected")
     dialog.keep_combo.setCurrentIndex(0)
     assert not first.property("selected") and not second.property("selected")
     assert not dialog.apply_button.isEnabled()

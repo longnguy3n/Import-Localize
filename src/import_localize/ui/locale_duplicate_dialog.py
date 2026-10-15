@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from PySide6.QtCore import QThread, QUrl, Qt, Slot, Signal, QEvent
 from PySide6.QtGui import QDesktopServices, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
-    QLabel, QPlainTextEdit, QProgressBar, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QFrame,
+    QLabel, QTextBrowser, QProgressBar, QPushButton, QSplitter, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget, QFrame, QCheckBox,
 )
 
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.services.locale_duplicate_service import scan_duplicates, prepare_duplicate_cleanup
 from import_localize.services.unity_locale_service import apply_plan
+from .locale_diff import variant_documents
 
 
 class DuplicateWorker(QThread):
@@ -31,7 +31,7 @@ class DuplicateWorker(QThread):
 class VariantPanel(QFrame):
     chosen = Signal(int)
 
-    def __init__(self, index, label, term):
+    def __init__(self, index, label, document):
         super().__init__()
         self.index, self.label = index, label
         self.setObjectName("duplicateVariant")
@@ -42,18 +42,20 @@ class VariantPanel(QFrame):
         self.title.setWordWrap(True)
         self.title.setTextFormat(Qt.TextFormat.PlainText)
         column.addWidget(self.title)
-        self.content = QPlainTextEdit()
+        self.content = QTextBrowser()
         self.content.setReadOnly(True)
-        self.content.setPlainText(json.dumps({"Term": term["Term"], "Languages": term["Languages"]},
-                                            ensure_ascii=False, indent=2))
+        self.content.setOpenLinks(False)
+        self.content.setOpenExternalLinks(False)
+        self.content.setHtml(document)
         column.addWidget(self.content)
         for widget in (self, self.title, self.content.viewport()):
             widget.installEventFilter(self)
         self.set_selected(False)
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+        if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
             self.chosen.emit(self.index)
+            return True
         return super().eventFilter(watched, event)
 
     def keyPressEvent(self, event):
@@ -117,7 +119,16 @@ class LocaleDuplicateDialog(QDialog):
         layout.addWidget(self.groups, 2)
         self.group_label = QLabel("Chọn một key để xem đầy đủ các bản ghi.")
         self.group_label.setWordWrap(True)
+        self.group_label.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.group_label)
+        legend = QLabel('<span style="background-color:#ffe7a3;color:#603e00;"> Đoạn khác nhau </span>'
+                        ' · <span style="background-color:#e2e7ee;color:#526172;"> Không có đoạn tương ứng </span>'
+                        ' · Dấu “·” = khoảng trắng; [xuống dòng] = xuống dòng trong đoạn khác.')
+        legend.setWordWrap(True)
+        layout.addWidget(legend)
+        self.show_markup = QCheckBox("Hiện đầy đủ thẻ định dạng (mặc định ẩn các thẻ giống nhau để dễ đọc)")
+        self.show_markup.toggled.connect(self.show_group)
+        layout.addWidget(self.show_markup)
         choice_row = QHBoxLayout()
         choice_row.addWidget(QLabel("Giữ lại:"))
         self.keep_combo = QComboBox()
@@ -178,7 +189,7 @@ class LocaleDuplicateDialog(QDialog):
         self._writing = writing
         self.worker = DuplicateWorker(task, self)
         for widget in (self.choose_button, self.scan_button, self.groups, self.keep_combo,
-                       self.next_button, self.apply_button, self.close_button, self.variants):
+                       self.next_button, self.apply_button, self.close_button, self.variants, self.show_markup):
             widget.setEnabled(False)
         self.progress.setRange(0, 0)
         self.worker.finished.connect(self._finished)
@@ -211,20 +222,20 @@ class LocaleDuplicateDialog(QDialog):
             return
         group = self.scan_result.groups[row]
         asset = next(asset for asset in self.scan_result.assets if asset.path == group.path)
-        languages = ", ".join(f"{i + 1} = {lang['Name']} ({lang['Code']})" for i, lang in enumerate(asset.languages))
         different = [lang["Name"] for i, lang in enumerate(asset.languages)
                      if len({variant.term["Languages"][i] for variant in group.variants}) > 1]
         self.group_label.setText(f"{group.path.name} · Key: {group.key}"
                                  + (" · Khác: " + ", ".join(different) if different else " · Giống nội dung ngôn ngữ")
-                                 + f"\nThứ tự Languages: {languages}. Bấm vào khung nội dung để chọn bản giữ.")
+                                 + "\nBấm vào khung nội dung để giữ bản đó và chuyển đến key chưa chọn tiếp theo.")
         self.group_label.setToolTip(str(group.path))
         if group.conflict:
             self.keep_combo.addItem("— Chọn bản giữ lại sau khi so sánh nội dung —", None)
+        documents = variant_documents(group.variants, asset.languages, self.show_markup.isChecked())
         for index, variant in enumerate(group.variants):
             positions = ", ".join(str(i + 1) for i in variant.indices)
             label = f"Bản {index + 1} · {len(variant.indices)} bản ghi · vị trí term {positions}"
             self.keep_combo.addItem(label, index)
-            panel = VariantPanel(index, label, variant.term)
+            panel = VariantPanel(index, label, documents[index])
             panel.chosen.connect(self.select_panel)
             self.variants.addWidget(panel)
         selected = self.choices.get((group.path, group.key))
@@ -236,7 +247,11 @@ class LocaleDuplicateDialog(QDialog):
     @Slot(int)
     def select_panel(self, index):
         if self.worker is None and self.scan_result is not None:
-            self.keep_combo.setCurrentIndex(self.keep_combo.findData(index))
+            item_index = self.keep_combo.findData(index)
+            if item_index == self.keep_combo.currentIndex():
+                self.next_conflict()
+            else:
+                self.keep_combo.setCurrentIndex(item_index)
 
     def _highlight_choice(self):
         selected = self.keep_combo.currentData()
@@ -257,6 +272,8 @@ class LocaleDuplicateDialog(QDialog):
             self.choices[(group.path, group.key)] = value
         self._update_choices()
         self._highlight_choice()
+        if value is not None:
+            self.next_conflict()
 
     def _update_choices(self):
         if self.scan_result is None:
@@ -307,7 +324,7 @@ class LocaleDuplicateDialog(QDialog):
         worker = self.worker
         worker.wait()
         self.worker = None
-        for widget in (self.choose_button, self.scan_button, self.groups, self.close_button, self.variants):
+        for widget in (self.choose_button, self.scan_button, self.groups, self.close_button, self.variants, self.show_markup):
             widget.setEnabled(True)
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
