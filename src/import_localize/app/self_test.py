@@ -68,7 +68,7 @@ def run_self_test(report_path: str) -> int:
             loaded = read_asset(locale)
             start, end = loaded.spans["mTerms"]
             section = loaded.text[start:end]
-            record = section[section.index("    - "):]
+            record = section[section.index("    - "):].replace("Flags: 00", "Flags: 01")
             locale.write_bytes((loaded.text[:end] + record + loaded.text[end:]).encode("utf-8"))
             duplicate_dialog = LocaleDuplicateDialog([locale], window)
             def wait_duplicate():

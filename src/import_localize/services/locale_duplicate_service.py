@@ -1,7 +1,6 @@
 """Find duplicate keys per asset and remove only the discarded YAML records."""
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,7 +50,7 @@ def scan_duplicates(paths: list[Path]) -> DuplicateScan:
         section = asset.text[start:end]
         loader = getattr(yaml, "CBaseLoader", yaml.BaseLoader)
         # Reparse raw data: read_asset applies a legacy Touch fallback for CSV.
-        # Deduplication must compare every original field without that conversion.
+        # Compare the original Languages values without that conversion.
         terms = yaml.load(section, Loader=loader)["mTerms"]
         node = yaml.compose(section, Loader=loader).value[0][1]
         offsets = [0]
@@ -68,7 +67,9 @@ def scan_duplicates(paths: list[Path]) -> DuplicateScan:
         spans[path] = list(zip(starts, starts[1:] + [end]))
         by_key = {}
         for index, term in enumerate(terms):
-            signature = json.dumps(term, sort_keys=True, ensure_ascii=False)
+            # Flags (including New), type, description and other metadata do not
+            # make a different translation. Preserve the first full raw record.
+            signature = tuple(term["Languages"])
             variants = by_key.setdefault(term["Term"], {})
             variant = variants.setdefault(signature, DuplicateVariant(term, []))
             variant.indices.append(index)

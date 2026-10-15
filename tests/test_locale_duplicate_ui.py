@@ -1,4 +1,6 @@
 from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtCore import Qt, QPoint
+from PySide6.QtTest import QTest
 
 from import_localize.ui import locale_duplicate_dialog
 from import_localize.ui.locale_duplicate_dialog import LocaleDuplicateDialog
@@ -23,7 +25,8 @@ def test_check_choose_then_cleanup(app, tmp_path, monkeypatch):
     texts = [dialog.variants.widget(i).findChild(QPlainTextEdit).toPlainText()
              for i in range(dialog.variants.count())]
     assert len(texts) == 2 and '"other"' in texts[1]
-    assert "Flags" in texts[0] and "Languages_Touch" in texts[0]
+    assert '"Term"' in texts[0] and '"Languages"' in texts[0]
+    assert "Flags" not in texts[0] and "Languages_Touch" not in texts[0]
     assert path.read_bytes() == original
     dialog.keep_combo.setCurrentIndex(2)
     assert dialog.apply_button.isEnabled()
@@ -110,3 +113,27 @@ def test_all_conflicts_must_be_chosen_before_any_write(app, tmp_path):
     assert dialog.keep_combo.currentData() == 0
     dialog.reject()
     assert [path.read_bytes() for path in paths] == originals
+
+
+def test_click_content_or_heading_selects_and_highlights_variant(app, tmp_path):
+    path = tmp_path / "locale_en.asset"
+    original, _, _ = duplicate_asset(path, conflict=True)
+    dialog = LocaleDuplicateDialog([path])
+    dialog.show()
+    dialog.scan()
+    drain(app, dialog)
+    first, second = dialog.variants.widget(0), dialog.variants.widget(1)
+    assert not first.property("selected") and not second.property("selected")
+    QTest.mouseClick(second.content.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(20, 20))
+    assert dialog.keep_combo.currentData() == 1 and dialog.apply_button.isEnabled()
+    assert second.property("selected") and "GIỮ BẢN NÀY" in second.title.text()
+    QTest.mouseClick(first.title, Qt.MouseButton.LeftButton)
+    assert dialog.keep_combo.currentData() == 0
+    assert first.property("selected") and not second.property("selected")
+    dialog.keep_combo.setCurrentIndex(2)
+    assert second.property("selected") and not first.property("selected")
+    dialog.keep_combo.setCurrentIndex(0)
+    assert not first.property("selected") and not second.property("selected")
+    assert not dialog.apply_button.isEnabled()
+    assert path.read_bytes() == original
+    dialog.reject()

@@ -166,8 +166,9 @@ Import có chế độ tự nhận diện, Export mặc định dùng dấu ph�
 Trong cửa sổ **Unity Locale**, chọn các asset rồi bấm **Kiểm tra duplicate key…**. Có thể chọn lại nhiều file ngay trong cửa sổ kiểm tra; chức năng này không cần CSV hoặc Google Sheets.
 
 - Kiểm tra key giống chính xác, phân biệt hoa/thường, riêng trong từng asset. Key giống nhau ở các file ngôn ngữ khác nhau không bị coi là duplicate.
-- Bảng kết quả chỉ rõ file, key, số bản ghi và số bản dư sẽ xóa. Chọn một key để xem toàn bộ nội dung các phiên bản cạnh nhau, kể cả mô tả, loại, Flags, Languages_Touch và trường bổ sung.
-- Nếu toàn bộ nội dung giống nhau, tự giữ bản đầu và bỏ các bản dư, không hỏi từng key. Nếu khác nội dung, chọn **Giữ lại** một phiên bản cho từng key; nút **Key chưa chọn tiếp theo** giúp chuyển nhanh. Chưa chọn đủ thì chưa thể xóa.
+- Bảng kết quả chỉ rõ file, key, số bản ghi và số bản dư sẽ xóa. Chỉ so sánh **Term (key)** và các chuỗi trong **Languages**; bỏ qua New/Flags, mô tả, loại term, Languages_Touch và các trường phụ. Khung so sánh chỉ hiển thị key và nội dung ngôn ngữ.
+- Nếu key và Languages giống nhau, tự giữ bản đầu (bao gồm metadata nguyên bản của nó), không hỏi từng key dù cờ New khác nhau. Nội dung ngôn ngữ được so sánh chính xác, kể cả khoảng trắng, rich text và xuống dòng; chữ “new” nằm trong bản dịch vẫn là nội dung cần so sánh.
+- Nếu khác nội dung, **bấm trực tiếp khung nội dung hoặc tiêu đề** để chọn bản giữ; khung được chọn có viền xanh và nhãn **ĐANG GIỮ BẢN NÀY**. Menu **Giữ lại** vẫn dùng được và đồng bộ với khung. Nút **Key chưa chọn tiếp theo** giúp chuyển nhanh. Chưa chọn đủ thì chưa thể xóa.
 - Bấm **Xóa duplicate** để sao lưu và thực hiện. Kiểm tra hoặc đóng cửa sổ không làm thay đổi file. Chỉ xóa các đoạn YAML của bản ghi dư, giữ nguyên byte của bản được chọn và phần còn lại, BOM, xuống dòng, `.meta` và GUID.
 - Asset thay đổi sau khi kiểm tra sẽ bị chặn; cần **Kiểm tra lại**. Sao lưu và khôi phục khi ghi lỗi dùng chung cơ chế dưới đây. Quay về Unity và Refresh sau khi hoàn tất.
 

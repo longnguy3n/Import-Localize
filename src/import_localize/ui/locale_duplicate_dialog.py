@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QUrl, Qt, Slot
+from PySide6.QtCore import QThread, QUrl, Qt, Slot, Signal, QEvent
 from PySide6.QtGui import QDesktopServices, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QPlainTextEdit, QProgressBar, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget, QFrame,
 )
 
 from import_localize.app.paths import USER_CONFIG_DIR
@@ -28,6 +28,51 @@ class DuplicateWorker(QThread):
             self.error = str(exc)
 
 
+class VariantPanel(QFrame):
+    chosen = Signal(int)
+
+    def __init__(self, index, label, term):
+        super().__init__()
+        self.index, self.label = index, label
+        self.setObjectName("duplicateVariant")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        column = QVBoxLayout(self)
+        column.setContentsMargins(6, 6, 6, 6)
+        self.title = QLabel()
+        self.title.setWordWrap(True)
+        self.title.setTextFormat(Qt.TextFormat.PlainText)
+        column.addWidget(self.title)
+        self.content = QPlainTextEdit()
+        self.content.setReadOnly(True)
+        self.content.setPlainText(json.dumps({"Term": term["Term"], "Languages": term["Languages"]},
+                                            ensure_ascii=False, indent=2))
+        column.addWidget(self.content)
+        for widget in (self, self.title, self.content.viewport()):
+            widget.installEventFilter(self)
+        self.set_selected(False)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self.chosen.emit(self.index)
+        return super().eventFilter(watched, event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.chosen.emit(self.index)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def set_selected(self, selected):
+        self.setProperty("selected", selected)
+        self.title.setText(("ĐANG GIỮ BẢN NÀY · " if selected else "Bấm để giữ · ") + self.label)
+        border = "#2772d8" if selected else "#b8c9c1"
+        background = "#e7f1ff" if selected else "transparent"
+        self.setStyleSheet(f"QFrame#duplicateVariant {{ border: 2px solid {border}; "
+                           f"border-radius: 6px; background: {background}; }}")
+        self.title.setStyleSheet("QLabel { color: #174b8a; font-weight: bold; }" if selected else "")
+
+
 class LocaleDuplicateDialog(QDialog):
     def __init__(self, paths: list[Path], parent=None):
         super().__init__(parent)
@@ -42,7 +87,8 @@ class LocaleDuplicateDialog(QDialog):
         layout = QVBoxLayout(self)
         intro = QLabel("Kiểm tra key giống chính xác (phân biệt hoa/thường) trong từng file. "
                        "Cùng key ở các file khác nhau không bị xóa.\n"
-                       "Bản ghi giống toàn bộ nội dung: tự giữ bản đầu. Khác nội dung: chọn bản giữ ở phía dưới. "
+                       "Chỉ so sánh key và Languages; bỏ qua cờ New/Flags và các trường phụ. "
+                       "Cùng nội dung ngôn ngữ: tự giữ bản đầu. Khác nội dung: bấm khung bên dưới để chọn bản giữ. "
                        "Chỉ ghi file khi bấm Xóa duplicate. Lưu asset và thoát Play Mode trong Unity trước khi ghi.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -132,7 +178,7 @@ class LocaleDuplicateDialog(QDialog):
         self._writing = writing
         self.worker = DuplicateWorker(task, self)
         for widget in (self.choose_button, self.scan_button, self.groups, self.keep_combo,
-                       self.next_button, self.apply_button, self.close_button):
+                       self.next_button, self.apply_button, self.close_button, self.variants):
             widget.setEnabled(False)
         self.progress.setRange(0, 0)
         self.worker.finished.connect(self._finished)
@@ -166,13 +212,11 @@ class LocaleDuplicateDialog(QDialog):
         group = self.scan_result.groups[row]
         asset = next(asset for asset in self.scan_result.assets if asset.path == group.path)
         languages = ", ".join(f"{i + 1} = {lang['Name']} ({lang['Code']})" for i, lang in enumerate(asset.languages))
-        fields = set().union(*(variant.term.keys() for variant in group.variants))
-        different = sorted(field for field in fields if len({json.dumps(
-            [field in variant.term, variant.term.get(field)], sort_keys=True, ensure_ascii=False)
-            for variant in group.variants}) > 1)
+        different = [lang["Name"] for i, lang in enumerate(asset.languages)
+                     if len({variant.term["Languages"][i] for variant in group.variants}) > 1]
         self.group_label.setText(f"{group.path.name} · Key: {group.key}"
-                                 + (" · Khác: " + ", ".join(different) if different else " · Giống toàn bộ nội dung")
-                                 + f"\nThứ tự Languages / Languages_Touch: {languages}")
+                                 + (" · Khác: " + ", ".join(different) if different else " · Giống nội dung ngôn ngữ")
+                                 + f"\nThứ tự Languages: {languages}. Bấm vào khung nội dung để chọn bản giữ.")
         self.group_label.setToolTip(str(group.path))
         if group.conflict:
             self.keep_combo.addItem("— Chọn bản giữ lại sau khi so sánh nội dung —", None)
@@ -180,21 +224,24 @@ class LocaleDuplicateDialog(QDialog):
             positions = ", ".join(str(i + 1) for i in variant.indices)
             label = f"Bản {index + 1} · {len(variant.indices)} bản ghi · vị trí term {positions}"
             self.keep_combo.addItem(label, index)
-            panel = QWidget()
-            column = QVBoxLayout(panel)
-            column.setContentsMargins(0, 0, 0, 0)
-            title = QLabel(label)
-            title.setWordWrap(True)
-            column.addWidget(title)
-            content = QPlainTextEdit()
-            content.setReadOnly(True)
-            content.setPlainText(json.dumps(variant.term, ensure_ascii=False, indent=2))
-            column.addWidget(content)
+            panel = VariantPanel(index, label, variant.term)
+            panel.chosen.connect(self.select_panel)
             self.variants.addWidget(panel)
         selected = self.choices.get((group.path, group.key))
         self.keep_combo.setCurrentIndex(selected + 1 if group.conflict and selected is not None else 0)
         self.keep_combo.setEnabled(group.conflict and self.worker is None)
         self.keep_combo.blockSignals(False)
+        self._highlight_choice()
+
+    @Slot(int)
+    def select_panel(self, index):
+        if self.worker is None and self.scan_result is not None:
+            self.keep_combo.setCurrentIndex(self.keep_combo.findData(index))
+
+    def _highlight_choice(self):
+        selected = self.keep_combo.currentData()
+        for index in range(self.variants.count()):
+            self.variants.widget(index).set_selected(index == selected)
 
     def choose_variant(self):
         if self.scan_result is None:
@@ -209,6 +256,7 @@ class LocaleDuplicateDialog(QDialog):
         else:
             self.choices[(group.path, group.key)] = value
         self._update_choices()
+        self._highlight_choice()
 
     def _update_choices(self):
         if self.scan_result is None:
@@ -259,7 +307,7 @@ class LocaleDuplicateDialog(QDialog):
         worker = self.worker
         worker.wait()
         self.worker = None
-        for widget in (self.choose_button, self.scan_button, self.groups, self.close_button):
+        for widget in (self.choose_button, self.scan_button, self.groups, self.close_button, self.variants):
             widget.setEnabled(True)
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
@@ -283,7 +331,7 @@ class LocaleDuplicateDialog(QDialog):
             groups = self.scan_result.groups
             conflicts = sum(group.conflict for group in groups)
             self.summary.setText(f"{len(self.scan_result.assets)} file · {len(groups)} key trùng · "
-                                 f"{len(groups) - conflicts} key giống toàn bộ nội dung · {conflicts} key cần chọn · "
+                                 f"{len(groups) - conflicts} key giống nội dung ngôn ngữ · {conflicts} key cần chọn · "
                                  f"{sum(group.count - 1 for group in groups)} bản ghi dư sẽ xóa")
             self.groups.setRowCount(len(groups))
             for row, group in enumerate(groups):

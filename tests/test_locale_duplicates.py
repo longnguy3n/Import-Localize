@@ -55,12 +55,38 @@ def test_conflicts_require_choice_and_keep_exact_chosen_record(tmp_path):
     ("TermType: 0", "TermType: 1"),
     ("Languages_Touch: []", "Languages_Touch: [touch]"),
     ("Flags: 00", "Flags: 00\n      CustomData: {fileID: 42}"),
+    ("Flags: 00", "Flags: 00\n      New: 1"),
 ])
-def test_all_fields_participate_in_equality(tmp_path, old, new):
+def test_metadata_does_not_make_identical_translations_conflict(tmp_path, old, new):
     path = tmp_path / "locale_en.asset"
     _, first, _ = duplicate_asset(path)
     text = path.read_text()
     path.write_text(text.replace(first, first.replace(old, new), 1))
+    original = path.read_bytes()
+    scan = scan_duplicates([path])
+    assert not scan.groups[0].conflict
+    plan = prepare_duplicate_cleanup(scan, {})
+    apply_plan(plan, tmp_path / "backups")
+    assert not scan_duplicates([path]).groups
+    assert first.replace(old, new) in path.read_bytes().decode().replace("\r\n", "\n")
+    assert path.read_bytes() != original
+
+
+@pytest.mark.parametrize("translation", ["new", "yes new", "yes ", "yes<br>", "Yes"])
+def test_actual_language_content_is_never_ignored(tmp_path, translation):
+    path = tmp_path / "locale_en.asset"
+    duplicate_asset(path)
+    path.write_text(path.read_text().replace("      - yes", f'      - "{translation}"', 1))
+    assert scan_duplicates([path]).groups[0].conflict
+
+
+def test_all_language_entries_are_compared(tmp_path):
+    path = tmp_path / "locale_en.asset"
+    duplicate_asset(path)
+    text = path.read_text().replace("      - yes", "      - yes\n      - xin chao").replace(
+        "      - Delete me", "      - Delete me\n      - xoa")
+    text = text.replace("    IgnoreDeviceLanguage:", "    - Name: Vietnamese\n      Code: vi\n      Flags: 0\n    IgnoreDeviceLanguage:")
+    path.write_text(text.replace("      - xin chao", "      - chao ban", 1))
     assert scan_duplicates([path]).groups[0].conflict
 
 
