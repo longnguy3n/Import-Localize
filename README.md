@@ -150,6 +150,8 @@ Có thể chọn nhiều asset cùng ngôn ngữ và tự xếp CSV tương ứn
 Phần xem trước hiển thị riêng nguồn → file nhận, lượng dữ liệu nguồn, đích trước/sau, và các cột màu **Thêm (xanh), Xóa (đỏ), Sửa (vàng), Giữ (xám)**. Khi nhập, nguồn tính theo dòng CSV và đích tính theo term; khi xuất thì ngược lại. Sửa chỉ tính key có nội dung dịch, loại hoặc mô tả khác trước, không tính mọi key đã tồn tại. Key trùng trong đích được báo riêng; dấu `—` cho biết không thể so sánh nội dung CSV cũ.
 CSV chỉ có header, sai ngôn ngữ, trùng cột ngôn ngữ hoặc sai số cột sẽ bị chặn trước khi ghi.
 
+Khi bấm **Thực hiện Replace Import/Export**, popup hiển thị trạng thái và tên file đang kiểm tra, sao lưu, chuẩn bị hoặc ghi. Thanh tiến trình tính theo số bước đã hoàn thành thực tế, không phải thời gian ước lượng; không có trì hoãn hay chạy thanh giả. Nếu tác vụ nhanh, tiến trình hoàn thành ngay. Popup giữ kết quả thành công/lỗi để đọc và có nút mở bản sao lưu. Khi đang ghi, popup không thể đóng; nếu gặp lỗi ghi hàng loạt, trạng thái khôi phục cũng được hiển thị.
+
 ### Unity → CSV
 
 1. Chọn **Replace Export** và các asset cần xuất.

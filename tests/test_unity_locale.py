@@ -191,12 +191,41 @@ def test_batch_rollback_after_second_replace_fails(tmp_path, monkeypatch):
             raise PermissionError("locked")
         return original_replace(src, dst)
     monkeypatch.setattr(service.os, "replace", fail_second)
+    progress = []
     with pytest.raises(UnityLocaleError, match="khôi phục"):
-        apply_plan(plan, tmp_path / "backups")
+        apply_plan(plan, tmp_path / "backups", progress=lambda *event: progress.append(event))
+    assert any("đang khôi phục" in message for _, _, message in progress)
+    assert all(done < total for done, total, _ in progress)
     assert first.read_bytes() == b"old"
     assert not second.exists()
     assert not list(tmp_path.glob(".import-localize-*"))
     assert list((tmp_path / "backups").rglob("manifest.json"))
+
+
+def test_progress_tracks_completed_file_operations(tmp_path):
+    target = tmp_path / "locale.asset"
+    target.write_bytes(b"old")
+    plan = LocalePlan([FileChange(target, b"old", b"new", "")], {})
+    events = []
+    def observe(done, total, message):
+        if message.startswith("Đã ghi:"):
+            assert target.read_bytes() == b"new"
+        events.append((done, total, message))
+    apply_plan(plan, tmp_path / "backups", progress=observe)
+    assert events[0][0] == 0
+    assert events[-1][:2] == (7, 7)
+    assert [done for done, _, _ in events] == sorted(done for done, _, _ in events)
+    assert all(done < total for done, total, _ in events[:-1])
+    assert any("Đã sao lưu:" in message for _, _, message in events)
+    assert not list(tmp_path.glob(".import-localize-*"))
+
+
+def test_progress_observer_failure_does_not_interrupt_writes(tmp_path):
+    target = tmp_path / "out.csv"
+    def broken_observer(*_):
+        raise RuntimeError("UI unavailable")
+    apply_plan(LocalePlan([FileChange(target, None, b"new", "")], {}), tmp_path / "backups", progress=broken_observer)
+    assert target.read_bytes() == b"new"
 
 
 def test_backup_failure_prevents_all_writes(asset, tmp_path, monkeypatch):

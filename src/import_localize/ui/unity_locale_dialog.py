@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.config.settings import AppSettings
+from .locale_progress_dialog import LocaleProgressDialog
 from import_localize.services.unity_locale_service import (
     LocalePlan, apply_plan, prepare_export, prepare_export_pairs, prepare_import_pairs,
 )
@@ -153,15 +154,18 @@ class FileOrderList(QListWidget):
 
 
 class LocaleWorker(QThread):
-    def __init__(self, task: Callable, parent=None):
+    progress_changed = Signal(int, int, str)
+
+    def __init__(self, task: Callable, parent=None, *, reports_progress=False):
         super().__init__(parent)
         self.task = task
         self.result = None
         self.error = ""
+        self.reports_progress = reports_progress
 
     def run(self):
         try:
-            self.result = self.task()
+            self.result = self.task(self.progress_changed.emit) if self.reports_progress else self.task()
         except Exception as exc:
             self.error = str(exc)
 
@@ -177,6 +181,7 @@ class UnityLocaleDialog(QDialog):
         self.export_paths: list[Path] = []
         self.plan: LocalePlan | None = None
         self.worker: LocaleWorker | None = None
+        self.loading_dialog = None
         self._applying = False
         self._generating = False
         self.backup_path: Path | None = None
@@ -542,7 +547,7 @@ class UnityLocaleDialog(QDialog):
         self.details.setPlainText("Đang tạo danh sách đường dẫn CSV đích…")
         self._run(lambda: [c.path for c in prepare_export(assets, folder, prefix).changes], False, generating=True)
 
-    def _run(self, task: Callable, applying: bool, *, generating: bool = False):
+    def _run(self, task: Callable, applying: bool, *, generating: bool = False, reports_progress: bool = False):
         if self.worker:
             return
         self.controls.setEnabled(False)
@@ -551,9 +556,23 @@ class UnityLocaleDialog(QDialog):
         self.close_button.setEnabled(False)
         self.progress.setRange(0, 0)
         self._applying, self._generating = applying, generating
-        self.worker = LocaleWorker(task, self)
+        self.worker = LocaleWorker(task, self, reports_progress=reports_progress)
+        if applying:
+            if self.loading_dialog:
+                self.loading_dialog.deleteLater()
+            operation = "Replace Import" if self.importing() else "Replace Export"
+            self.loading_dialog = LocaleProgressDialog(operation, len(self.plan.changes) if self.plan else 0, self)
+            self.loading_dialog.show()
+            self.worker.progress_changed.connect(self._apply_progress)
         self.worker.finished.connect(self._finished)
         self.worker.start()
+
+    @Slot(int, int, str)
+    def _apply_progress(self, completed, total, message):
+        if self.loading_dialog:
+            self.loading_dialog.update_progress(completed, total, message)
+        self.progress.setRange(0, total)
+        self.progress.setValue(completed)
 
     def preview(self):
         self.invalidate()
@@ -570,7 +589,8 @@ class UnityLocaleDialog(QDialog):
         if self.plan:
             plan = self.plan
             self.details.appendPlainText("Đang sao lưu và ghi các cặp file đã xem trước…")
-            self._run(lambda: apply_plan(plan, USER_CONFIG_DIR / "unity_backups"), True)
+            self._run(lambda report: apply_plan(plan, USER_CONFIG_DIR / "unity_backups", progress=report),
+                      True, reports_progress=True)
 
     @Slot()
     def _finished(self):
@@ -582,6 +602,7 @@ class UnityLocaleDialog(QDialog):
         self.close_button.setEnabled(True)
         self.progress.setRange(0, 1)
         if worker.error:
+            self.progress.setValue(0)
             self.plan = None
             self.details.appendPlainText("LỖI: " + worker.error)
             self.apply_button.setEnabled(False)
@@ -647,6 +668,8 @@ class UnityLocaleDialog(QDialog):
             self.details.setPlainText("\n\n".join(details))
             self.apply_button.setEnabled(True)
             self.progress.setValue(1)
+        if self._applying and self.loading_dialog:
+            self.loading_dialog.finish(worker.error, worker.result if not worker.error else None)
         worker.deleteLater()
 
     def open_backup(self):

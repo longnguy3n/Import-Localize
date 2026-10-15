@@ -64,6 +64,18 @@ def run_self_test(report_path: str) -> int:
             assert unity_dialog.target_list.paths() == [locale]
             unity_dialog.ensurePolished()
             assert not unity_dialog.grab().isNull(), "Unity Locale could not render"
+            unity_dialog.plan = prepare_import_pairs([exports.changes[0].path], [locale])
+            unity_dialog.apply()
+            deadline = time.monotonic() + 10
+            while unity_dialog.worker and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.001)
+            assert unity_dialog.worker is None, "Replace operation timed out"
+            popup = unity_dialog.loading_dialog
+            assert popup.isVisible() and not popup.busy and popup.backup_path
+            assert popup.progress.value() == popup.progress.maximum()
+            assert not popup.grab().isNull(), "Replace progress popup could not render"
+            popup.accept()
             unity_dialog.close()
             loaded = read_asset(locale)
             start, end = loaded.spans["mTerms"]
@@ -91,6 +103,7 @@ def run_self_test(report_path: str) -> int:
                 "csv_comparison": True,
                 "unity_locale": True,
                 "locale_duplicates": True,
+                "replace_progress": True,
             }
             window.close()
             app.processEvents()

@@ -15,6 +15,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import yaml
 
@@ -461,41 +462,66 @@ def _unchanged(path: Path, expected: bytes | None) -> bool:
     return path.read_bytes() == expected if path.exists() else expected is None
 
 
-def apply_plan(plan: LocalePlan, backup_root: Path) -> Path:
+def apply_plan(plan: LocalePlan, backup_root: Path, *, progress: Callable[[int, int, str], None] | None = None) -> Path:
     """Preflight all files, back up, stage, then replace. Roll back our writes on failure."""
     if not plan.changes or len({c.path for c in plan.changes}) != len(plan.changes):
         raise UnityLocaleError("Kế hoạch rỗng hoặc có đường dẫn đích trùng nhau.")
     expected = dict(plan.sources)
     expected.update({c.path: c.before for c in plan.changes})
+    completed, total = 0, 2 * len(expected) + 3 * len(plan.changes) + 2
+    def report(message, *, done=False):
+        nonlocal completed
+        completed += int(done)
+        if progress:
+            try:
+                progress(completed, total, message)
+            except Exception:
+                # A UI observer must never interrupt a file transaction.
+                pass
+    report("Đang kiểm tra các file trước khi ghi…")
     for path, raw in expected.items():
+        report(f"Đang kiểm tra: {path.name}")
         if not _unchanged(path, raw):
             raise UnityLocaleError(f"{path.name} đã thay đổi sau khi xem trước. Hãy xem trước lại.")
+        report(f"Đã kiểm tra: {path.name}", done=True)
     backup = backup_root / (datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8])
     backup.mkdir(parents=True, exist_ok=False)
     staged, written, manifest = [], [], []
     try:
         for index, change in enumerate(plan.changes):
             name = f"{index:03d}_{change.path.name}.bak"
+            report(f"Đang sao lưu: {change.path.name}")
             if change.before is not None:
                 (backup / name).write_bytes(change.before)
+            report(f"Đã sao lưu: {change.path.name}" if change.before is not None else
+                   f"File mới, không có dữ liệu cũ cần sao lưu: {change.path.name}", done=True)
             manifest.append({"path": str(change.path), "backup": name if change.before is not None else None})
+            report(f"Đang chuẩn bị dữ liệu: {change.path.name}")
             with tempfile.NamedTemporaryFile(dir=change.path.parent, prefix=".import-localize-", suffix=".tmp", delete=False) as stream:
                 staged.append(Path(stream.name))
                 stream.write(change.after)
                 stream.flush()
                 os.fsync(stream.fileno())
+            report(f"Đã chuẩn bị dữ liệu: {change.path.name}", done=True)
+        report("Đang lưu thông tin khôi phục…")
         (backup / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        report("Đã lưu thông tin khôi phục.", done=True)
         for path, raw in expected.items():
+            report(f"Đang kiểm tra lại: {path.name}")
             if not _unchanged(path, raw):
                 raise UnityLocaleError(f"{path.name} vừa thay đổi. Hãy xem trước lại.")
+            report(f"Đã kiểm tra lại: {path.name}", done=True)
         for change, temporary in zip(plan.changes, staged):
+            report(f"Đang ghi: {change.path.name}")
             if not _unchanged(change.path, change.before):
                 raise UnityLocaleError(f"{change.path.name} vừa thay đổi trước khi ghi.")
             os.replace(temporary, change.path)
             written.append(change)
+            report(f"Đã ghi: {change.path.name}", done=True)
     except Exception as exc:
         failures = []
         for change in reversed(written):
+            report(f"Gặp lỗi — đang khôi phục: {change.path.name}")
             try:
                 if not _unchanged(change.path, change.after):
                     raise UnityLocaleError("File đã được ứng dụng khác sửa sau khi ghi")
@@ -506,11 +532,14 @@ def apply_plan(plan: LocalePlan, backup_root: Path) -> Path:
                         staged.append(Path(stream.name))
                         stream.write(change.before)
                     os.replace(staged[-1], change.path)
+                report(f"Đã khôi phục: {change.path.name}")
             except Exception as rollback_error:
                 failures.append(f"{change.path}: {rollback_error}")
         detail = "\nKhông tự khôi phục được: " + "; ".join(failures) if failures else "\nCác file đã ghi đã được khôi phục."
         raise UnityLocaleError(f"Ghi thất bại: {exc}{detail}\nBản sao lưu: {backup}") from exc
     finally:
+        report("Đang dọn file tạm…")
         for path in staged:
             path.unlink(missing_ok=True)
+    report("Hoàn tất ghi dữ liệu và dọn file tạm.", done=True)
     return backup
