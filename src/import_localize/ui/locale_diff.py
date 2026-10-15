@@ -5,9 +5,6 @@ from itertools import combinations
 import re
 
 
-FORMAT_TAG = re.compile(r"</?(?:color|size|b|i|u|s|font|align|mark|indent|line-height|cspace|mspace|voffset|link|style|nobr|sup|sub|uppercase|lowercase|smallcaps|pos|width|margin|br)(?=[\s=>/])[^>]*>", re.IGNORECASE)
-
-
 def difference_marks(texts):
     """Union differences against every other version, including missing passages."""
     ranges = [[] for _ in texts]
@@ -36,12 +33,8 @@ def difference_marks(texts):
     return list(zip(ranges, gaps))
 
 
-def highlighted_text(text, ranges, gaps, hide_shared_markup=False):
-    hidden = {match.start(): match for match in FORMAT_TAG.finditer(text)
-              if hide_shared_markup and not any(a < match.end() and b > match.start() for a, b in ranges)
-              and not any(match.start() < gap < match.end() for gap in gaps)}
-    boundaries = sorted({0, len(text), *gaps, *(point for span in ranges for point in span),
-                         *(point for match in hidden.values() for point in (match.start(), match.end()))})
+def highlighted_text(text, ranges, gaps):
+    boundaries = sorted({0, len(text), *gaps, *(point for span in ranges for point in span)})
     parts = []
     for offset, start in enumerate(boundaries):
         if start in gaps:
@@ -49,10 +42,6 @@ def highlighted_text(text, ranges, gaps, hide_shared_markup=False):
         if offset + 1 == len(boundaries):
             break
         end = boundaries[offset + 1]
-        if start in hidden:
-            if re.match(r"<br\s*/?>", hidden[start][0], re.IGNORECASE):
-                parts.append('<br/>')
-            continue
         different = any(a <= start < b for a, b in ranges)
         value = escape(text[start:end])
         if different:
@@ -66,7 +55,7 @@ def highlighted_text(text, ranges, gaps, hide_shared_markup=False):
     return "".join(parts)
 
 
-def variant_documents(variants, languages, show_markup=False):
+def variant_documents(variants, languages):
     documents = [[] for _ in variants]
     for language_index, language in enumerate(languages):
         texts = [variant.term["Languages"][language_index] for variant in variants]
@@ -78,5 +67,5 @@ def variant_documents(variants, languages, show_markup=False):
             documents[index].append(
                 f'<p style="margin-top:16px;margin-bottom:8px;color:#526172;font-size:10pt;"><b>{label}</b> · {state}</p>'
                 '<p style="white-space:pre-wrap;margin-top:0;margin-bottom:20px;font-size:12pt;">'
-                + highlighted_text(text, *marks[index], hide_shared_markup=not show_markup) + '</p>')
+                + highlighted_text(text, *marks[index]) + '</p>')
     return ['<html><body style="color:#24352f;">' + "".join(parts) + '</body></html>' for parts in documents]

@@ -156,7 +156,7 @@ def test_click_content_or_heading_selects_and_highlights_variant(app, tmp_path):
     assert first.property("selected") and not second.property("selected")
     dialog.keep_combo.setCurrentIndex(2)
     assert second.property("selected") and not first.property("selected")
-    dialog.show_markup.setChecked(True)
+    dialog.show_group()
     assert dialog.keep_combo.currentData() == 1
     first, second = dialog.variants.widget(0), dialog.variants.widget(1)
     assert second.property("selected")

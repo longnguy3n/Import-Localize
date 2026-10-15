@@ -7,7 +7,7 @@ from PySide6.QtGui import QDesktopServices, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QTextBrowser, QProgressBar, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QFrame, QCheckBox,
+    QTableWidgetItem, QVBoxLayout, QWidget, QFrame,
 )
 
 from import_localize.app.paths import USER_CONFIG_DIR
@@ -126,9 +126,6 @@ class LocaleDuplicateDialog(QDialog):
                         ' · Dấu “·” = khoảng trắng; [xuống dòng] = xuống dòng trong đoạn khác.')
         legend.setWordWrap(True)
         layout.addWidget(legend)
-        self.show_markup = QCheckBox("Hiện đầy đủ thẻ định dạng (mặc định ẩn các thẻ giống nhau để dễ đọc)")
-        self.show_markup.toggled.connect(self.show_group)
-        layout.addWidget(self.show_markup)
         choice_row = QHBoxLayout()
         choice_row.addWidget(QLabel("Giữ lại:"))
         self.keep_combo = QComboBox()
@@ -189,7 +186,7 @@ class LocaleDuplicateDialog(QDialog):
         self._writing = writing
         self.worker = DuplicateWorker(task, self)
         for widget in (self.choose_button, self.scan_button, self.groups, self.keep_combo,
-                       self.next_button, self.apply_button, self.close_button, self.variants, self.show_markup):
+                       self.next_button, self.apply_button, self.close_button, self.variants):
             widget.setEnabled(False)
         self.progress.setRange(0, 0)
         self.worker.finished.connect(self._finished)
@@ -230,7 +227,7 @@ class LocaleDuplicateDialog(QDialog):
         self.group_label.setToolTip(str(group.path))
         if group.conflict:
             self.keep_combo.addItem("— Chọn bản giữ lại sau khi so sánh nội dung —", None)
-        documents = variant_documents(group.variants, asset.languages, self.show_markup.isChecked())
+        documents = variant_documents(group.variants, asset.languages)
         for index, variant in enumerate(group.variants):
             positions = ", ".join(str(i + 1) for i in variant.indices)
             label = f"Bản {index + 1} · {len(variant.indices)} bản ghi · vị trí term {positions}"
@@ -324,7 +321,7 @@ class LocaleDuplicateDialog(QDialog):
         worker = self.worker
         worker.wait()
         self.worker = None
-        for widget in (self.choose_button, self.scan_button, self.groups, self.close_button, self.variants, self.show_markup):
+        for widget in (self.choose_button, self.scan_button, self.groups, self.close_button, self.variants):
             widget.setEnabled(True)
         self.progress.setRange(0, 1)
         self.progress.setValue(1)

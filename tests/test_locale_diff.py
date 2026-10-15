@@ -39,24 +39,25 @@ def test_language_sections_escape_tags_and_label_unchanged_languages():
     assert "không có" in docs[1]
 
 
-def test_shared_formatting_hidden_but_different_formatting_remains_visible():
+def test_shared_formatting_always_visible_and_only_differences_highlighted():
     variants = [SimpleNamespace(term={"Languages": [value]}) for value in (
         '<color=red><b>Hello</b></color>', '<color=red><b>Hello!</b></color>')]
     languages = [{"Name": "English", "Code": "en"}]
-    compact = variant_documents(variants, languages)
-    full = variant_documents(variants, languages, show_markup=True)
-    assert "&lt;color" not in compact[0] and "Hello" in compact[0]
+    full = variant_documents(variants, languages)
     assert "&lt;color=red&gt;" in full[0]
+    assert "&lt;b&gt;Hello" in full[0] and "&lt;/b&gt;&lt;/color&gt;" in full[0]
+    assert "#ffe7a3" not in full[0]  # unchanged text/tag stays uncolored
+    assert '<span style="background-color:#ffe7a3;color:#603e00;">!</span>' in full[1]
     variants[1].term["Languages"][0] = '<color=blue><b>Hello</b></color>'
     docs = variant_documents(variants, languages)
     assert "&lt;color=" in docs[0] and "#ffe7a3" in docs[0]
-    assert "&lt;b&gt;" not in docs[0]
+    assert "&lt;b&gt;Hello&lt;/b&gt;&lt;/color&gt;" in docs[0]
 
 
 def test_inserted_break_does_not_split_shared_closing_tag():
     variants = [SimpleNamespace(term={"Languages": [value]}) for value in (
         '<color=red>Hello</color>', '<color=red>Hello<br></color>')]
     docs = variant_documents(variants, [{"Name": "English", "Code": "en"}])
-    assert "&lt;/color&gt;" not in docs[0]
-    assert "&lt;/color&gt;" not in docs[1]
+    assert "&lt;/color&gt;" in docs[0]
+    assert "&lt;/color&gt;" in docs[1]
     assert "&lt;br&gt;" in docs[1] and "không có" in docs[0]
