@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from import_localize.app.paths import USER_CONFIG_DIR
+from import_localize.config.settings import AppSettings
 from import_localize.services.locale_duplicate_service import scan_duplicates, prepare_duplicate_cleanup
 from import_localize.services.unity_locale_service import apply_plan
 from .locale_diff import variant_documents
@@ -76,9 +77,22 @@ class VariantPanel(QFrame):
 
 
 class LocaleDuplicateDialog(QDialog):
-    def __init__(self, paths: list[Path], parent=None):
+    def __init__(self, paths: list[Path], parent=None, *, settings: AppSettings | None = None):
         super().__init__(parent)
+        self.settings = settings if settings is not None else AppSettings()
         self.paths = list(paths)
+        self.restore_message = ""
+        if not self.paths and self.settings.unity_locale_dir:
+            folder = Path(self.settings.unity_locale_dir)
+            try:
+                if folder.is_dir():
+                    self.paths = sorted(path for path in folder.glob("locale*.asset") if path.is_file())
+                    if not self.paths:
+                        self.restore_message = "Thư mục đã lưu không có locale*.asset. Chọn thư mục hoặc file khác."
+                else:
+                    self.restore_message = "Thư mục đã lưu không còn tồn tại. Chọn lại thư mục chứa asset."
+            except OSError as exc:
+                self.restore_message = f"Không đọc được thư mục đã lưu: {exc}"
         self.scan_result = None
         self.choices = {}
         self.worker = None
@@ -98,11 +112,17 @@ class LocaleDuplicateDialog(QDialog):
         self.files_label = QLabel()
         self.files_label.setWordWrap(True)
         self.choose_button = QPushButton("Chọn locale*.asset…")
+        self.folder_button = QPushButton("Chọn thư mục…")
         self.scan_button = QPushButton("Kiểm tra lại")
         buttons.addWidget(self.files_label, 1)
         buttons.addWidget(self.choose_button)
+        buttons.addWidget(self.folder_button)
         buttons.addWidget(self.scan_button)
         layout.addLayout(buttons)
+        self.folder_label = QLabel()
+        self.folder_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.folder_label.setWordWrap(True)
+        layout.addWidget(self.folder_label)
         self.summary = QLabel("Chưa kiểm tra.")
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
@@ -139,6 +159,7 @@ class LocaleDuplicateDialog(QDialog):
         self.variants.setMinimumHeight(150)
         layout.addWidget(self.variants, 3)
         self.status = QLabel()
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.progress = QProgressBar()
@@ -158,6 +179,7 @@ class LocaleDuplicateDialog(QDialog):
         actions.addWidget(self.close_button)
         layout.addLayout(actions)
         self.choose_button.clicked.connect(self.choose_files)
+        self.folder_button.clicked.connect(self.choose_folder)
         self.scan_button.clicked.connect(self.scan)
         self.groups.itemSelectionChanged.connect(self.show_group)
         self.keep_combo.currentIndexChanged.connect(self.choose_variant)
@@ -166,17 +188,33 @@ class LocaleDuplicateDialog(QDialog):
         self.close_button.clicked.connect(self.reject)
         self.backup_button.clicked.connect(self.open_backup)
         self._files_label()
+        self.status.setText(self.restore_message)
 
     def _files_label(self):
         names = ", ".join(path.name for path in self.paths)
         self.files_label.setText(f"{len(self.paths)} file · " + (names if len(names) <= 140 else names[:137] + "…"))
         self.files_label.setToolTip("\n".join(str(path) for path in self.paths))
+        folder = str(self.paths[0].parent) if self.paths else self.settings.unity_locale_dir
+        self.folder_label.setText("Thư mục asset: " + (folder or "chưa chọn"))
 
     def choose_files(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Chọn locale*.asset để kiểm tra",
-                                               str(self.paths[0].parent) if self.paths else "", "Unity Locale (*.asset)")
+                                               str(self.paths[0].parent) if self.paths else self.settings.unity_locale_dir,
+                                               "Unity Locale (*.asset)")
         if paths:
             self.paths = [Path(path) for path in paths]
+            self.settings.unity_locale_dir = str(self.paths[0].parent)
+            self._files_label()
+            self.scan()
+
+    def choose_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Thư mục chứa locale*.asset", self.settings.unity_locale_dir)
+        if folder:
+            self.settings.unity_locale_dir = folder
+            try:
+                self.paths = sorted(path for path in Path(folder).glob("locale*.asset") if path.is_file())
+            except OSError:
+                self.paths = []
             self._files_label()
             self.scan()
 
@@ -185,7 +223,7 @@ class LocaleDuplicateDialog(QDialog):
             return
         self._writing = writing
         self.worker = DuplicateWorker(task, self)
-        for widget in (self.choose_button, self.scan_button, self.groups, self.keep_combo,
+        for widget in (self.choose_button, self.folder_button, self.scan_button, self.groups, self.keep_combo,
                        self.next_button, self.apply_button, self.close_button, self.variants):
             widget.setEnabled(False)
         self.progress.setRange(0, 0)
@@ -321,7 +359,7 @@ class LocaleDuplicateDialog(QDialog):
         worker = self.worker
         worker.wait()
         self.worker = None
-        for widget in (self.choose_button, self.scan_button, self.groups, self.close_button, self.variants):
+        for widget in (self.choose_button, self.folder_button, self.scan_button, self.groups, self.close_button, self.variants):
             widget.setEnabled(True)
         self.progress.setRange(0, 1)
         self.progress.setValue(1)

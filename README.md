@@ -167,6 +167,8 @@ Import có chế độ tự nhận diện, Export mặc định dùng dấu ph�
 
 Trong cửa sổ **Unity Locale**, chọn các asset rồi bấm **Kiểm tra duplicate key…**. Có thể chọn lại nhiều file ngay trong cửa sổ kiểm tra; chức năng này không cần CSV hoặc Google Sheets.
 
+Thư mục asset được lưu chung với cài đặt Unity Locale khi chọn file hoặc **Chọn thư mục…**. Lần sau mở kiểm tra duplicate, nếu chưa chọn asset trong danh sách Import/Export, app tự nạp các `locale*.asset` trong thư mục đã lưu và kiểm tra ngay, kể cả sau khi mở lại ứng dụng. Thư mục hiện tại luôn được hiển thị để đối chiếu. Nếu thư mục đã bị chuyển/xóa hoặc không có asset, app thông báo để chọn lại.
+
 - Kiểm tra key giống chính xác, phân biệt hoa/thường, riêng trong từng asset. Key giống nhau ở các file ngôn ngữ khác nhau không bị coi là duplicate.
 - Bảng kết quả chỉ rõ file, key, số bản ghi và số bản dư sẽ xóa. Chỉ so sánh **Term (key)** và các chuỗi trong **Languages**; bỏ qua New/Flags, mô tả, loại term, Languages_Touch và các trường phụ. Key nằm ở tiêu đề; mỗi bản hiển thị nội dung theo tên ngôn ngữ, không dùng JSON.
 - Nếu key và Languages giống nhau, tự giữ bản đầu (bao gồm metadata nguyên bản của nó), không hỏi từng key dù cờ New khác nhau. Nội dung ngôn ngữ được so sánh chính xác, kể cả khoảng trắng, rich text và xuống dòng; chữ “new” nằm trong bản dịch vẫn là nội dung cần so sánh.

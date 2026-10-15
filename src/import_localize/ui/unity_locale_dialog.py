@@ -365,8 +365,8 @@ class UnityLocaleDialog(QDialog):
 
     def check_duplicates(self):
         from .locale_duplicate_dialog import LocaleDuplicateDialog
-        dialog = LocaleDuplicateDialog(self.asset_paths, self)
-        if self.asset_paths:
+        dialog = LocaleDuplicateDialog(self.asset_paths, self, settings=self.settings)
+        if dialog.paths:
             dialog.scan()
         dialog.exec()
         if dialog.wrote_files:

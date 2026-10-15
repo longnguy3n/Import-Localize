@@ -8,6 +8,8 @@ from import_localize.services.locale_duplicate_service import scan_duplicates
 from test_locale_duplicates import duplicate_asset
 from test_unity_locale_ui import app, drain
 from import_localize.config.settings import AppSettings
+from import_localize.config.settings import SettingsRepository
+from import_localize.ui.main_window import MainWindow
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 
 
@@ -165,3 +167,83 @@ def test_click_content_or_heading_selects_and_highlights_variant(app, tmp_path):
     assert not dialog.apply_button.isEnabled()
     assert path.read_bytes() == original
     dialog.reject()
+
+
+def test_duplicate_folder_saved_and_automatically_reused_after_restart(app, tmp_path, monkeypatch):
+    folder = tmp_path / "Localization"
+    folder.mkdir()
+    assets = [folder / "locale_en.asset", folder / "locale_vi.asset"]
+    for asset in assets:
+        duplicate_asset(asset)
+    (folder / "not_locale.asset").write_text("ignore")
+    (folder / "locale_directory.asset").mkdir()
+    repository = SettingsRepository(tmp_path / "settings.json")
+    repository.save(AppSettings(auto_check_updates=False))
+    monkeypatch.setattr("import_localize.ui.main_window.SettingsRepository", lambda: repository)
+    monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getExistingDirectory", lambda *_: str(folder))
+    visits = []
+    def duplicate_exec(dialog):
+        if not visits:
+            dialog.choose_folder()
+        drain(app, dialog)
+        assert dialog.paths == assets
+        assert str(folder) in dialog.folder_label.text()
+        assert dialog.scan_result is not None
+        visits.append(True)
+        dialog.reject()
+        return 0
+    def unity_exec(dialog):
+        assert not dialog.asset_paths
+        dialog.check_duplicates()
+        dialog.reject()
+        return 0
+    monkeypatch.setattr(LocaleDuplicateDialog, "exec", duplicate_exec)
+    monkeypatch.setattr(UnityLocaleDialog, "exec", unity_exec)
+    window = MainWindow()
+    window.show_unity_locale()
+    window.close()
+    assert repository.load().unity_locale_dir == str(folder)
+    def unexpected_picker(*_):
+        raise AssertionError("Should reuse the saved folder without asking")
+    monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getExistingDirectory", unexpected_picker)
+    monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getOpenFileNames", unexpected_picker)
+    reopened = MainWindow()
+    reopened.show_unity_locale()
+    reopened.close()
+    assert len(visits) == 2
+
+
+def test_duplicate_file_picker_remembers_folder_and_cancel_keeps_it(app, tmp_path, monkeypatch):
+    asset = tmp_path / "locale_en.asset"
+    duplicate_asset(asset)
+    settings = AppSettings(unity_locale_dir=str(tmp_path / "old"))
+    dialog = LocaleDuplicateDialog([], settings=settings)
+    directories = []
+    def picker(*args):
+        directories.append(args[2])
+        return ([str(asset)], "") if len(directories) == 1 else ([], "")
+    monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getOpenFileNames", picker)
+    dialog.choose_files()
+    drain(app, dialog)
+    assert settings.unity_locale_dir == str(tmp_path)
+    dialog.choose_files()
+    assert dialog.paths == [asset] and settings.unity_locale_dir == str(tmp_path)
+    assert directories == [str(tmp_path / "old"), str(tmp_path)]
+    dialog.reject()
+
+
+def test_saved_missing_or_empty_folder_and_explicit_selection(app, tmp_path):
+    settings = AppSettings(unity_locale_dir=str(tmp_path / "missing"))
+    missing = LocaleDuplicateDialog([], settings=settings)
+    assert not missing.paths and "không còn tồn tại" in missing.status.text()
+    missing.reject()
+    settings.unity_locale_dir = str(tmp_path)
+    empty = LocaleDuplicateDialog([], settings=settings)
+    assert not empty.paths and "không có locale" in empty.status.text()
+    empty.reject()
+    first, second = tmp_path / "locale_en.asset", tmp_path / "locale_vi.asset"
+    duplicate_asset(first)
+    duplicate_asset(second)
+    explicit = LocaleDuplicateDialog([second], settings=settings)
+    assert explicit.paths == [second]  # explicit selection takes priority over saved folder
+    explicit.reject()
