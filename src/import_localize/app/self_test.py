@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -20,6 +21,8 @@ def run_self_test(report_path: str) -> int:
             from import_localize.ui.csv_compare_dialog import ComparisonModel
             from import_localize.services.csv_compare_service import compare_csv_files
             from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
+            from import_localize.ui.locale_duplicate_dialog import LocaleDuplicateDialog
+            from import_localize.services.locale_duplicate_service import scan_duplicates
             from import_localize.services.unity_locale_service import (
                 prepare_export, prepare_import_pairs, apply_plan, read_asset,
             )
@@ -62,11 +65,32 @@ def run_self_test(report_path: str) -> int:
             unity_dialog.ensurePolished()
             assert not unity_dialog.grab().isNull(), "Unity Locale could not render"
             unity_dialog.close()
+            loaded = read_asset(locale)
+            start, end = loaded.spans["mTerms"]
+            section = loaded.text[start:end]
+            record = section[section.index("    - "):]
+            locale.write_bytes((loaded.text[:end] + record + loaded.text[end:]).encode("utf-8"))
+            duplicate_dialog = LocaleDuplicateDialog([locale], window)
+            def wait_duplicate():
+                deadline = time.monotonic() + 10
+                while duplicate_dialog.worker and time.monotonic() < deadline:
+                    app.processEvents()
+                    time.sleep(0.001)
+                assert duplicate_dialog.worker is None, "Duplicate worker timed out"
+            duplicate_dialog.scan()
+            wait_duplicate()
+            assert duplicate_dialog.groups.rowCount() == 1 and duplicate_dialog.apply_button.isEnabled(), duplicate_dialog.status.text()
+            assert not duplicate_dialog.grab().isNull(), "Duplicate dialog could not render"
+            duplicate_dialog.cleanup()
+            wait_duplicate()
+            assert duplicate_dialog.wrote_files and not scan_duplicates([locale]).groups
+            duplicate_dialog.close()
             report = {
                 "status": "ok", "qt_version": qVersion(),
                 "platform": app.platformName(), "main_window_rendered": True,
                 "csv_comparison": True,
                 "unity_locale": True,
+                "locale_duplicates": True,
             }
             window.close()
             app.processEvents()

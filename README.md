@@ -161,6 +161,16 @@ Ví dụ file đầu ra: `DG_Localization - upload_en.csv`. Có thể thêm các
 CSV được ghi UTF-8 có BOM với các cột `Key,Type,Desc,<ngôn ngữ>`. Hỗ trợ dấu phẩy, chấm phẩy và tab;
 Import có chế độ tự nhận diện, Export mặc định dùng dấu phẩy. Export ghi đè toàn bộ file đích.
 
+### Kiểm tra và xóa duplicate key trong Unity locale
+
+Trong cửa sổ **Unity Locale**, chọn các asset rồi bấm **Kiểm tra duplicate key…**. Có thể chọn lại nhiều file ngay trong cửa sổ kiểm tra; chức năng này không cần CSV hoặc Google Sheets.
+
+- Kiểm tra key giống chính xác, phân biệt hoa/thường, riêng trong từng asset. Key giống nhau ở các file ngôn ngữ khác nhau không bị coi là duplicate.
+- Bảng kết quả chỉ rõ file, key, số bản ghi và số bản dư sẽ xóa. Chọn một key để xem toàn bộ nội dung các phiên bản cạnh nhau, kể cả mô tả, loại, Flags, Languages_Touch và trường bổ sung.
+- Nếu toàn bộ nội dung giống nhau, tự giữ bản đầu và bỏ các bản dư, không hỏi từng key. Nếu khác nội dung, chọn **Giữ lại** một phiên bản cho từng key; nút **Key chưa chọn tiếp theo** giúp chuyển nhanh. Chưa chọn đủ thì chưa thể xóa.
+- Bấm **Xóa duplicate** để sao lưu và thực hiện. Kiểm tra hoặc đóng cửa sổ không làm thay đổi file. Chỉ xóa các đoạn YAML của bản ghi dư, giữ nguyên byte của bản được chọn và phần còn lại, BOM, xuống dòng, `.meta` và GUID.
+- Asset thay đổi sau khi kiểm tra sẽ bị chặn; cần **Kiểm tra lại**. Sao lưu và khôi phục khi ghi lỗi dùng chung cơ chế dưới đây. Quay về Unity và Refresh sau khi hoàn tất.
+
 ### Quy tắc I2 và sao lưu
 
 - Replace Import tạo lại `mTerms` và `mLanguages`: term không có trong CSV sẽ bị xóa. Các cờ dịch được tạo lại giống I2 Replace.

@@ -268,9 +268,12 @@ class UnityLocaleDialog(QDialog):
         self.down_button = QPushButton("↓ Xuống")
         self.remove_button = QPushButton("Bỏ chọn")
         self.clear_button = QPushButton("Xóa hết")
+        self.duplicates_button = QPushButton("Kiểm tra duplicate key…")
+        self.duplicates_button.setToolTip("Kiểm tra các file locale trong danh sách; gộp bản giống nhau và chọn bản giữ khi khác nội dung.")
         self.clear_button.setToolTip("Xóa toàn bộ file khỏi danh sách bên đang thao tác; không xóa file trên máy.")
         for button in (self.up_button, self.down_button, self.remove_button, self.clear_button):
             toolbar.addWidget(button)
+        toolbar.addWidget(self.duplicates_button)
         controls.addLayout(toolbar)
         self.pair_status = QLabel()
         self.pair_status.setWordWrap(True)
@@ -341,6 +344,7 @@ class UnityLocaleDialog(QDialog):
         self.down_button.clicked.connect(lambda: self._active_list.move_selected(1))
         self.remove_button.clicked.connect(lambda: self._active_list.remove_selected())
         self.clear_button.clicked.connect(lambda: self._active_list.clear_files())
+        self.duplicates_button.clicked.connect(self.check_duplicates)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
         self.delimiter_combo.currentIndexChanged.connect(self.invalidate)
         self.output_edit.textChanged.connect(self.invalidate)
@@ -353,6 +357,20 @@ class UnityLocaleDialog(QDialog):
 
     def importing(self):
         return self.mode_combo.currentIndex() == 0
+
+    def check_duplicates(self):
+        from .locale_duplicate_dialog import LocaleDuplicateDialog
+        dialog = LocaleDuplicateDialog(self.asset_paths, self)
+        if self.asset_paths:
+            dialog.scan()
+        dialog.exec()
+        if dialog.wrote_files:
+            self.invalidate()
+            self.backup_path = dialog.backup_path
+            self.backup_button.setEnabled(True)
+            self.details.setPlainText("Đã xử lý duplicate key. Bấm Xem trước lại trước khi import/export.\n"
+                                      f"Bản sao lưu: {self.backup_path}")
+        dialog.deleteLater()
 
     def _mode_changed(self):
         importing = self.importing()
