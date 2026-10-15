@@ -58,3 +58,32 @@ def test_qt_import_failure_returns_report_and_nonzero_exit(tmp_path):
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert payload["status"] == "failed"
     assert "simulated Qt DLL failure" in payload["error"]
+
+
+def test_no_bundle_oauth_does_not_read_or_package_configured_client(monkeypatch, tmp_path):
+    import zipfile
+
+    work = tmp_path / "work"
+    monkeypatch.setattr(build_app, "PYINSTALLER_WORK_DIR", work)
+    monkeypatch.setattr(build_app, "RELEASE_DIR", tmp_path / "release")
+    for name in ("ensure_dependencies", "validate_project", "compile_source"):
+        monkeypatch.setattr(build_app, name, lambda: None)
+    for name in ("update_version", "update_default_repository"):
+        monkeypatch.setattr(build_app, name, lambda value: None)
+    monkeypatch.setattr(build_app, "resolve_github_repository", lambda value: value)
+    monkeypatch.setattr(build_app, "generate_icon", lambda: tmp_path / "icon.ico")
+    def forbidden_client_read(*args, **kwargs):
+        pytest.fail("--no-bundle-oauth must not read configured credentials")
+    monkeypatch.setattr(build_app, "resolve_oauth_client", forbidden_client_read)
+    def fake_packager(*args, **kwargs):
+        output = work / "dist" / build_app.APP_NAME
+        output.mkdir(parents=True)
+        (output / "Import_Localize.exe").write_bytes(b"test executable")
+    monkeypatch.setattr(build_app, "run", fake_packager)
+    monkeypatch.setattr(build_app, "verify_frozen_app", lambda output: [{"status": "ok"}])
+    archive = build_app.build("1.10.0", oauth_client=tmp_path / "private.json",
+                              no_bundle_oauth=True, github_repository="longnguy3n/Import-Localize")
+    with zipfile.ZipFile(archive) as package:
+        assert "oauth_client.json" not in package.namelist()
+        manifest = json.loads(package.read("build_manifest.json"))
+        assert manifest["oauth_client_bundled"] is False

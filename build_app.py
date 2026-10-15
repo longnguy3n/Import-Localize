@@ -384,7 +384,7 @@ def build(
     compile_source()
     icon = generate_icon()
 
-    oauth_path = resolve_oauth_client(
+    oauth_path = None if no_bundle_oauth else resolve_oauth_client(
         oauth_client,
         allow_missing=no_bundle_oauth,
     )
