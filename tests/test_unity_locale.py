@@ -124,6 +124,7 @@ def test_duplicate_empty_dash_and_specializations(asset, tmp_path):
 
 @pytest.mark.parametrize("delimiter", [",", ";", "\t"])
 def test_export_import_cycle_and_scalar_strings(asset, tmp_path, delimiter):
+    original = asset.read_bytes()
     output = prepare_export([asset], tmp_path, "DG_Localization", delimiter)
     assert output.changes[0].path.name == "DG_Localization - upload_en.csv"
     apply_plan(output, tmp_path / "backups")
@@ -131,6 +132,80 @@ def test_export_import_cycle_and_scalar_strings(asset, tmp_path, delimiter):
     apply_plan(incoming, tmp_path / "backups")
     assert read_asset(asset).terms[0]["Languages"] == ["yes"]
     assert read_asset(asset).terms[0]["Term"] == "001"
+    assert asset.read_bytes() == original  # No formatting-only changes.
+
+
+def test_replace_changes_only_requested_fields_and_moves_raw_records(asset, tmp_path):
+    original = asset.read_bytes()
+    loaded = read_asset(asset)
+    section = loaded.text[slice(*loaded.spans["mTerms"])]
+    first, second = section[len("    mTerms:\r\n"):].split("    - Term: obsolete")
+    second = "    - Term: obsolete" + second
+    source = write_csv(tmp_path / "changed.csv", [
+        ["Key", "Type", "Desc", "English"],
+        ["obsolete", "Text", "", "Delete me"],
+        ["001", "Text", "", "yes"],
+    ])
+    change = service.prepare_import_pairs([source], [asset]).changes[0]
+    expected = "    mTerms:\r\n" + second + first.replace("Description: old description", "Description: ")
+    assert change.after == original.replace(section.encode(), expected.encode())
+
+
+def test_replace_resets_flags_and_touch_even_when_translations_match(asset, tmp_path):
+    raw = asset.read_bytes().replace(b"Flags: 00", b"Flags: 02").replace(
+        b"Languages_Touch: []", b"Languages_Touch:\r\n      - legacy")
+    asset.write_bytes(raw)
+    source = tmp_path / "same.csv"
+    source.write_bytes(export_csv(read_asset(asset)))
+    result = service.prepare_import_pairs([source], [asset]).changes[0]
+    expected = raw.replace(b"Flags: 02", b"Flags: 00").replace(
+        b"Languages_Touch:\r\n      - legacy", b"Languages_Touch: []")
+    assert result.after == expected
+
+
+def test_raw_reuse_does_not_hide_legacy_touch_conversion(asset, tmp_path):
+    asset.write_bytes(asset.read_bytes().replace(b"- yes", b"- ").replace(
+        b"Languages_Touch: []", b"Languages_Touch:\r\n      - legacy"))
+    source = tmp_path / "same.csv"
+    source.write_bytes(export_csv(read_asset(asset)))
+    change = service.prepare_import_pairs([source], [asset]).changes[0]
+    asset.write_bytes(change.after)
+    loaded = read_asset(asset)
+    assert loaded.terms[0]["Languages"] == ["legacy"]
+    assert loaded.terms[0]["Languages_Touch"] == []
+
+
+def test_replace_deduplicates_with_last_nonempty_csv_value(asset, tmp_path):
+    loaded = read_asset(asset)
+    section = loaded.text[slice(*loaded.spans["mTerms"])]
+    first = section[len("    mTerms:\r\n"):section.index("    - Term: obsolete")]
+    asset.write_bytes(asset.read_bytes().replace(b"    CaseInsensitiveTerms:",
+        first.replace("- yes", "- newer").encode() + b"    CaseInsensitiveTerms:"))
+    source = tmp_path / "duplicates.csv"
+    source.write_bytes(export_csv(read_asset(asset)))
+    change = service.prepare_import_pairs([source], [asset]).changes[0]
+    asset.write_bytes(change.after)
+    terms = read_asset(asset).terms
+    assert [t["Term"] for t in terms] == ["001", "obsolete"]
+    assert terms[0]["Languages"] == ["newer"]
+
+
+@pytest.mark.parametrize("translation", [
+    "", "0", "001", "yes", "null", "{0}", "[brackets]", "colon: value # tag",
+    "line one\nline two\n\nline four", "\nleading and trailing\n", "  spaces  ",
+    'quotes: \'single\' and "double"', "<color=#fff>Tiếng Việt</color> 😀",
+    "tabs\tand\rcontrol\x00\x85\u2028\u2029", "literal\\n and \\path",
+])
+def test_new_unity_yaml_scalars_roundtrip_without_content_changes(asset, translation):
+    change = service.import_change(read_asset(asset), [["Key", "English"], ["0", translation]])
+    asset.write_bytes(change.after)
+    loaded = read_asset(asset)
+    assert loaded.terms[0]["Term"] == "0"
+    assert loaded.terms[0]["Languages"] == [translation]
+    assert "    - Term: 0\r\n" in loaded.text
+    assert 'Description: ""' not in loaded.text
+    if translation == "{0}":
+        assert "      - '{0}'\r\n" in loaded.text
 
 
 @pytest.mark.parametrize("rows", [

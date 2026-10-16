@@ -180,6 +180,8 @@ Thư mục asset được lưu chung với cài đặt Unity Locale khi chọn f
 ### Quy tắc I2 và sao lưu
 
 - Replace Import tạo lại `mTerms` và `mLanguages`: term không có trong CSV sẽ bị xóa. Các cờ dịch được tạo lại giống I2 Replace.
+- Giữ nguyên YAML của các trường có giá trị không đổi (kể cả dấu nháy, xuống dòng và cách ngắt dòng dài); term chuyển vị trí theo CSV cũng giữ định dạng cũ. Chỉ ghi lại trường thay đổi hoặc term mới bằng YAML dạng Unity, tránh diff toàn bộ asset chỉ vì định dạng. Các cờ và mô tả vẫn được thay thế theo quy tắc I2, không giữ dữ liệu cũ nếu CSV yêu cầu thay đổi.
+- Đối chiếu import tay phải dùng **cùng một CSV**: `export_*.csv` tải từ Sheets để nhập vào Unity; `upload_*.csv` xuất từ Unity có thể vẫn chứa nội dung cũ. Cách ngắt dòng dài của trường mới có thể khác Unity, nhưng giá trị chuỗi sau đọc YAML được giữ nguyên.
 - Key trùng được gộp; ô dịch không rỗng ở dòng sau thắng. Ô rỗng không ghi đè; `-` xóa bản dịch.
 - Hỗ trợ các dòng specialization như `[Touch]`, `[Controller]`, tag `[i2s_…]`, rich text, placeholder, dấu ngoặc kép và xuống dòng. Không trim nội dung bản dịch.
 - Export theo `Spreadsheet_SortRows` và `Spreadsheet_SpecializationAsRows` trong asset. Giữ key trùng như I2; chuyển ký tự `\n` thành xuống dòng như exporter của Dicegeon.

@@ -214,23 +214,90 @@ def _columns(header: list[str], asset: LocaleAsset) -> tuple[dict, list[tuple[in
     return metadata, languages
 
 
+class _UnityDumper(getattr(yaml, "CSafeDumper", yaml.SafeDumper)):
+    # Unity knows each field's C# type. Do not quote strings such as 0, yes or
+    # 001 merely because YAML's implicit type resolver would interpret them.
+    # Keep this local to the dumper; never change PyYAML's global resolvers.
+    yaml_implicit_resolvers = {}
+
+
+def _yaml_values(value):
+    """Compare generated values with BaseLoader's string-only scalar values."""
+    if isinstance(value, dict):
+        return {key: _yaml_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_yaml_values(item) for item in value]
+    return str(value)
+
+
 def _render_section(name: str, items: list[dict], newline: str) -> str:
-    lines = [f"    {name}:"] if items else [f"    {name}: []"]
-    def quote(value):
-        # YAML treats NEL/Unicode line separators as line breaks even inside quotes.
-        encoded = json.dumps(str(value), ensure_ascii=False)
-        return re.sub(r"[\x7f-\x9f\u2028\u2029]", lambda m: f"\\u{ord(m[0]):04x}", encoded)
-    for item in items:
-        for index, (key, value) in enumerate(item.items()):
-            prefix = "    - " if index == 0 else "      "
-            if isinstance(value, list):
-                lines.append(f"{prefix}{key}:" + (" []" if not value else ""))
-                lines.extend(f"      - {quote(v)}" for v in value)
-            elif key in ("TermType", "Flags"):
-                lines.append(f"{prefix}{key}: {value}")
-            else:
-                lines.append(f"{prefix}{key}: {quote(value)}")
+    rendered = yaml.dump({name: _yaml_values(items)}, Dumper=_UnityDumper,
+                         allow_unicode=True, sort_keys=False, width=76)
+    lines = []
+    for line in rendered.split("\n")[:-1]:
+        # Unity uses an empty scalar with a trailing space for empty strings.
+        if re.fullmatch(r"(?:- |  )(?:Term|Description|Name|Code):", line) or line == "  -":
+            line += " "
+        lines.append("    " + line if line else "")
     return newline.join(lines) + newline
+
+
+def _section_records(section: str, name: str):
+    """Split block YAML records/fields using parser locations, not string values.
+
+    Reparse raw terms here: read_asset applies the legacy Touch fallback, which
+    must not make us reuse a raw Languages field whose value is actually empty.
+    """
+    loader = getattr(yaml, "CBaseLoader", yaml.BaseLoader)
+    values = yaml.load(section, Loader=loader)[name]
+    nodes = yaml.compose(section, Loader=loader).value[0][1]
+    if not values:
+        return section, []
+    offsets = [0]
+    for line in section.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    starts = [offsets[node.start_mark.line] for node in nodes.value]
+    if len(set(starts)) != len(values) or any(
+            not section[start:].startswith("    - ") for start in starts):
+        raise UnityLocaleError(f"{name}: cần danh sách YAML theo dòng như Unity.")
+    records = []
+    for value, node, start, end in zip(values, nodes.value, starts, starts[1:] + [len(section)]):
+        fields = [key.value for key, _ in node.value]
+        positions = [offsets[key.start_mark.line] for key, _ in node.value] + [end]
+        if len(set(fields)) != len(fields) or len(set(positions)) != len(positions):
+            raise UnityLocaleError(f"{name}: cấu trúc trường YAML không hợp lệ.")
+        raw_fields = {key: section[left:right] for key, left, right in zip(fields, positions, positions[1:])}
+        records.append((value, section[start:end], raw_fields))
+    return section[:starts[0]], records
+
+
+def _replace_section(asset: LocaleAsset, name: str, items: list[dict], newline: str) -> str:
+    """Use CSV values/order, but retain original formatting of equal fields.
+
+    Replace still resets Description/Flags/Touch and removes absent keys. Raw
+    YAML is reused only when its parsed value equals the new Replace result.
+    """
+    original = asset.text[slice(*asset.spans[name])]
+    header, old_records = _section_records(original, name)
+    generated = _render_section(name, items, newline)
+    new_header, new_records = _section_records(generated, name)
+    identity = "Term" if name == "mTerms" else "Code"
+    by_key = {}
+    for record in old_records:
+        by_key.setdefault(record[0][identity], []).append(record)
+    result = []
+    for value, raw, fields in new_records:
+        candidates = by_key.get(value[identity], [])
+        equal = next((old for old in candidates if old[0] == value), None)
+        if equal is not None:
+            result.append(equal[1])
+        elif candidates and tuple(candidates[0][0]) == tuple(value):
+            old_value, _, old_fields = candidates[0]
+            result.append("".join(old_fields[key] if old_value[key] == value[key] else fields[key]
+                                  for key in value))
+        else:
+            result.append(raw)
+    return (header if old_records else new_header) + "".join(result)
 
 
 def import_change(asset: LocaleAsset, rows: list[list[str]]) -> FileChange:
@@ -271,7 +338,7 @@ def import_change(asset: LocaleAsset, rows: list[list[str]]) -> FileChange:
     sections = {"mTerms": list(terms.values()), "mLanguages": [x[1] for x in columns]}
     for name in sorted(sections, key=lambda n: asset.spans[n][0], reverse=True):
         start, end = asset.spans[name]
-        text = text[:start] + _render_section(name, sections[name], newline) + text[end:]
+        text = text[:start] + _replace_section(asset, name, sections[name], newline) + text[end:]
     after = (b"\xef\xbb\xbf" if asset.original.startswith(b"\xef\xbb\xbf") else b"") + text.encode("utf-8")
     old_keys, new_keys = {t["Term"] for t in asset.terms}, set(terms)
     warnings = []
