@@ -93,7 +93,8 @@ class FileOrderList(QListWidget):
     def paths(self) -> list[Path]:
         return [Path(self.item(i).data(Qt.ItemDataRole.UserRole)) for i in range(self.count())]
 
-    def set_paths(self, paths: list[Path]):
+    def set_paths(self, paths: list[Path], *, allow_new: bool = False):
+        self.allow_new = allow_new
         self.clear()
         for path in paths:
             item = QListWidgetItem()
@@ -107,6 +108,11 @@ class FileOrderList(QListWidget):
             item = self.item(row)
             item.setText(f"{row + 1:02d}.  {path.name}")
             item.setToolTip(str(path))
+            missing = not path.is_file() and not (self.allow_new and not path.exists() and path.parent.is_dir())
+            if missing:
+                item.setText(f"{row + 1:02d}.  [Thiếu file] {path.name}")
+                item.setToolTip(f"Không tìm thấy file: {path}\nChọn lại hoặc bỏ khỏi danh sách; vị trí ghép cặp được giữ nguyên.")
+                item.setForeground(QColor("#b45309"))
 
     def _moved(self, *_):
         self._number_rows()
@@ -176,9 +182,10 @@ class UnityLocaleDialog(QDialog):
     def __init__(self, settings: AppSettings, csv_paths: list[Path] | None = None, parent=None):
         super().__init__(parent)
         self.settings = settings
-        self.asset_paths: list[Path] = []
-        self.csv_paths = list(csv_paths or [])
-        self.export_paths: list[Path] = []
+        self.asset_paths = [Path(p) for p in settings.unity_asset_files]
+        self.csv_paths = ([Path(p) for p in settings.unity_import_csv_files]
+                          if settings.unity_import_csv_files is not None else list(csv_paths or []))
+        self.export_paths = [Path(p) for p in settings.unity_export_csv_files]
         self.plan: LocalePlan | None = None
         self.worker: LocaleWorker | None = None
         self.loading_dialog = None
@@ -198,6 +205,7 @@ class UnityLocaleDialog(QDialog):
         mode_row = QHBoxLayout()
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["Replace Import: CSV → Unity .asset", "Replace Export: Unity .asset → CSV"])
+        self.mode_combo.setCurrentIndex(1 if settings.unity_mode == "export" else 0)
         self.delimiter_combo = QComboBox()
         for label, value in [("Tự nhận diện (export dùng dấu phẩy)", "auto"), ("Dấu phẩy ,", ","), ("Chấm phẩy ;", ";"), ("Tab", "\t")]:
             self.delimiter_combo.addItem(label, value)
@@ -359,6 +367,9 @@ class UnityLocaleDialog(QDialog):
         self.close_button.clicked.connect(self.reject)
         self.backup_button.clicked.connect(self.open_backup)
         self._mode_changed()
+        if self.asset_paths or self.csv_paths or self.export_paths:
+            self.details.setPlainText("Đã nạp danh sách file và thứ tự ghép cặp. File bị thiếu được đánh dấu, không tự dồn hàng.\n"
+                                      "Bấm Xem trước để kiểm tra dữ liệu hiện tại trước khi thực hiện.")
 
     def importing(self):
         return self.mode_combo.currentIndex() == 0
@@ -402,7 +413,8 @@ class UnityLocaleDialog(QDialog):
         self._selection_sync = True
         try:
             self.source_list.set_paths(self.csv_paths if self.importing() else self.asset_paths)
-            self.target_list.set_paths(self.asset_paths if self.importing() else self.export_paths)
+            self.target_list.set_paths(self.asset_paths if self.importing() else self.export_paths,
+                                       allow_new=not self.importing())
         finally:
             self._selection_sync = False
         self._update_labels()
@@ -681,6 +693,10 @@ class UnityLocaleDialog(QDialog):
             return
         self.settings.unity_export_dir = self.output_edit.text()
         self.settings.unity_export_prefix = self.prefix_edit.text()
+        self.settings.unity_asset_files = [str(p) for p in self.asset_paths]
+        self.settings.unity_import_csv_files = [str(p) for p in self.csv_paths]
+        self.settings.unity_export_csv_files = [str(p) for p in self.export_paths]
+        self.settings.unity_mode = "import" if self.importing() else "export"
         super().reject()
 
     def closeEvent(self, event: QCloseEvent):

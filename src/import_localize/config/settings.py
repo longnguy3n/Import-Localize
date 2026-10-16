@@ -20,6 +20,13 @@ class AppSettings:
     theme: str = "light"
     last_csv_dir: str = ""
     last_export_dir: str = ""
+    selected_csv_files: list[str] = field(default_factory=list)
+    unity_asset_files: list[str] = field(default_factory=list)
+    # None means no saved selection yet; [] means the user cleared the list.
+    unity_import_csv_files: list[str] | None = None
+    unity_export_csv_files: list[str] = field(default_factory=list)
+    unity_duplicate_files: list[str] | None = None
+    unity_mode: str = "import"
     unity_locale_dir: str = ""
     unity_csv_dir: str = ""
     unity_export_dir: str = ""
@@ -45,6 +52,15 @@ class SettingsRepository:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
             values = {key: payload[key] for key in allowed if key in payload}
+            for key in ("selected_csv_files", "unity_asset_files", "unity_import_csv_files",
+                        "unity_export_csv_files", "unity_duplicate_files"):
+                if key in values and values[key] is not None:
+                    value = values[key]
+                    paths = value if isinstance(value, list) else []
+                    values[key] = list(dict.fromkeys(path for path in paths
+                        if isinstance(path, str) and path.strip() and "\0" not in path))
+                elif key in values and key not in ("unity_import_csv_files", "unity_duplicate_files"):
+                    values[key] = []
             return AppSettings(**values)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return AppSettings()

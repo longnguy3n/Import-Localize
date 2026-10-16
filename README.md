@@ -143,6 +143,8 @@ Tính năng chạy trực tiếp trên file của máy, không cần đăng nh�
 5. Bấm **Thực hiện Replace Import**. Quay lại Unity, dùng **Assets → Refresh / Ctrl+R** nếu chưa thấy dữ liệu mới.
 
 Hai danh sách hiển thị tên file, đường dẫn và số hàng: **Nguồn** bên trái → **Nhận vào** bên phải. Hai file cùng hàng là một cặp chuyển dữ liệu.
+Ứng dụng nhớ các file trong card CSV, danh sách asset, CSV import, CSV export và chế độ Unity đang dùng khi đóng cửa sổ/app. Lần sau mở lại sẽ khôi phục đúng thứ tự đã sắp xếp; **Bỏ chọn/Xóa hết** cũng được ghi nhớ. Unity Locale ưu tiên danh sách đã lưu, chỉ lấy CSV từ màn hình chính ở lần mở đầu tiên.
+Các đường dẫn bị thiếu trong Unity Locale vẫn giữ nguyên hàng và có nhãn **[Thiếu file]**, tránh làm lệch cặp. CSV đích mới chưa được tạo vẫn được nhớ. CSV không còn đọc được ở màn hình chính được bỏ qua và báo trong nhật ký. Khôi phục danh sách không tự chạy import/export; cần **Xem trước** lại trước khi ghi.
 Mỗi file chiếm một dòng: tên bên trái, vị trí bên phải (di chuột để xem đường dẫn đầy đủ). Ctrl/Shift để chọn nhiều file, Ctrl+A để chọn toàn bộ bên đang thao tác.
 Kéo thả trong từng bên hoặc dùng thanh nút chung **Lên/Xuống/Bỏ chọn/Xóa hết**. Thanh này tác động lên bên đang chọn, có nhãn chỉ rõ Nguồn hoặc Nhận vào; khi chuyển bên, lựa chọn bên cũ được bỏ. **Xóa hết** chỉ dọn danh sách của bên đó, không xóa file trên máy. Hai bên cuộn cùng nhau để giữ các hàng thẳng nhau.
 Mỗi CSV phải chứa đúng bộ ngôn ngữ của asset cùng hàng (`English`, `Vietnamese`, `Portuguese (Brazil) [pt-BR]`…). App báo lỗi đúng hàng nếu không khớp, không tự ghép sang asset khác.
@@ -166,6 +168,7 @@ Import có chế độ tự nhận diện, Export mặc định dùng dấu ph�
 ### Kiểm tra và xóa duplicate key trong Unity locale
 
 Trong cửa sổ **Unity Locale**, chọn các asset rồi bấm **Kiểm tra duplicate key…**. Có thể chọn lại nhiều file ngay trong cửa sổ kiểm tra; chức năng này không cần CSV hoặc Google Sheets.
+Kiểm tra duplicate cũng nhớ chính xác danh sách file lần trước. Khi chưa chọn asset ở cửa sổ Import/Export, app dùng danh sách duplicate đã lưu; chỉ quét lại toàn bộ thư mục đã lưu nếu chưa có danh sách file trước đó.
 
 Thư mục asset được lưu chung với cài đặt Unity Locale khi chọn file hoặc **Chọn thư mục…**. Lần sau mở kiểm tra duplicate, nếu chưa chọn asset trong danh sách Import/Export, app tự nạp các `locale*.asset` trong thư mục đã lưu và kiểm tra ngay, kể cả sau khi mở lại ứng dụng. Thư mục hiện tại luôn được hiển thị để đối chiếu. Nếu thư mục đã bị chuyển/xóa hoặc không có asset, app thông báo để chọn lại.
 

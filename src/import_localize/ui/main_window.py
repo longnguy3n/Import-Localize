@@ -99,6 +99,8 @@ class MainWindow(QMainWindow):
         self._restore_settings()
         self.apply_theme(self.settings.theme)
         self._set_initial_geometry()
+        if self.settings.selected_csv_files:
+            self.add_csv_files(self.settings.selected_csv_files, restoring=True)
 
         self.append_log(
             "INFO",
@@ -550,7 +552,9 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
 
     def show_unity_locale(self) -> None:
-        dialog = UnityLocaleDialog(self.settings, [Path(p) for p in self.file_infos], self)
+        paths = [Path(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
+                 for row in range(self.file_table.rowCount())]
+        dialog = UnityLocaleDialog(self.settings, paths, self)
         dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
         self.save_settings()
@@ -608,7 +612,7 @@ class MainWindow(QMainWindow):
             self.settings.last_csv_dir = str(Path(paths[0]).parent)
             self.add_csv_files(paths)
 
-    def add_csv_files(self, paths: list[str]) -> None:
+    def add_csv_files(self, paths: list[str], *, restoring: bool = False) -> None:
         remaining = MAX_CSV_FILES - len(self.file_infos)
         if remaining <= 0:
             QMessageBox.warning(
@@ -626,7 +630,7 @@ class MainWindow(QMainWindow):
                 continue
             try:
                 info = inspect_csv(path, require_localization_name=False)
-            except CsvImportError as exc:
+            except (CsvImportError, OSError) as exc:
                 errors.append(str(exc))
                 continue
             self.file_infos[path] = info
@@ -638,11 +642,14 @@ class MainWindow(QMainWindow):
         if added:
             self.append_log("INFO", f"Đã thêm {added} file CSV.")
         if errors:
-            QMessageBox.warning(
-                self,
-                "Một số file không hợp lệ",
-                "\n".join(errors[:10]),
-            )
+            if restoring:
+                self.append_log("FAIL", "Không thể khôi phục một số CSV đã chọn:\n" + "\n".join(errors[:10]))
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Một số file không hợp lệ",
+                    "\n".join(errors[:10]),
+                )
 
     def _append_file_row(self, info: CsvFileInfo) -> None:
         row = self.file_table.rowCount()
@@ -1181,6 +1188,9 @@ class MainWindow(QMainWindow):
         self.settings.first_row_is_header = True
         self.settings.strict_headers = True
         self.settings.add_source_column = False
+        self.settings.selected_csv_files = [
+            str(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
+            for row in range(self.file_table.rowCount())]
         if self._card_sizes_restored:
             self.settings.card_sizes = self.cards_splitter.sizes()
         self.settings.window_width = self.width()

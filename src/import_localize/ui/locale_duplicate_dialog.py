@@ -81,8 +81,11 @@ class LocaleDuplicateDialog(QDialog):
         super().__init__(parent)
         self.settings = settings if settings is not None else AppSettings()
         self.paths = list(paths)
+        self._files_chosen = False
         self.restore_message = ""
-        if not self.paths and self.settings.unity_locale_dir:
+        if not self.paths and self.settings.unity_duplicate_files is not None:
+            self.paths = [Path(path) for path in self.settings.unity_duplicate_files]
+        if not self.paths and self.settings.unity_duplicate_files is None and self.settings.unity_locale_dir:
             folder = Path(self.settings.unity_locale_dir)
             try:
                 if folder.is_dir():
@@ -202,6 +205,7 @@ class LocaleDuplicateDialog(QDialog):
                                                str(self.paths[0].parent) if self.paths else self.settings.unity_locale_dir,
                                                "Unity Locale (*.asset)")
         if paths:
+            self._files_chosen = True
             self.paths = [Path(path) for path in paths]
             self.settings.unity_locale_dir = str(self.paths[0].parent)
             self._files_label()
@@ -210,6 +214,7 @@ class LocaleDuplicateDialog(QDialog):
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Thư mục chứa locale*.asset", self.settings.unity_locale_dir)
         if folder:
+            self._files_chosen = True
             self.settings.unity_locale_dir = folder
             try:
                 self.paths = sorted(path for path in Path(folder).glob("locale*.asset") if path.is_file())
@@ -402,6 +407,8 @@ class LocaleDuplicateDialog(QDialog):
 
     def reject(self):
         if self.worker is None:
+            if self.paths or self._files_chosen:
+                self.settings.unity_duplicate_files = [str(path) for path in self.paths]
             super().reject()
 
     def closeEvent(self, event):
