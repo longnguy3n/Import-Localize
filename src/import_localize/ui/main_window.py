@@ -260,6 +260,12 @@ class MainWindow(QMainWindow):
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.file_table.setMinimumHeight(100)
         self.file_table.setMaximumHeight(16777215)
+        language_actions = QHBoxLayout()
+        self.language_check_button = QPushButton("Nhận diện ngôn ngữ CSV…")
+        self.language_check_button.setToolTip("Kiểm tra offline các file được chọn; nếu không chọn hàng, kiểm tra toàn bộ danh sách.")
+        language_actions.addWidget(self.language_check_button)
+        language_actions.addWidget(QLabel("Offline · đối chiếu nội dung với tên cột"), 1)
+        self.files_card_layout.addLayout(language_actions)
         self.files_card_layout.setStretch(1, 1)
         self.log_card_layout.setStretch(1, 1)
         self.action_card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -296,6 +302,7 @@ class MainWindow(QMainWindow):
         )
 
     def _connect_signals(self) -> None:
+        self.language_check_button.clicked.connect(self.check_csv_languages)
         self.compare_files_button.clicked.connect(self.compare_selected_files)
         self.unity_locale_button.clicked.connect(self.show_unity_locale)
         self.add_files_button.clicked.connect(self.choose_csv_files)
@@ -797,6 +804,7 @@ class MainWindow(QMainWindow):
             {index.row() for index in self.file_table.selectionModel().selectedRows()}
         )
         running = bool(self.worker and self.worker.isRunning())
+        self.language_check_button.setEnabled(bool(self.file_infos) and not running)
         self.compare_files_button.setEnabled(len(rows) == 2 and not running)
         self.move_up_button.setEnabled(
             bool(rows) and rows[0] > 0 and not running
@@ -806,6 +814,18 @@ class MainWindow(QMainWindow):
             and rows[-1] < self.file_table.rowCount() - 1
             and not running
         )
+
+    def check_csv_languages(self) -> None:
+        if self.worker and self.worker.isRunning():
+            return
+        from .csv_language_dialog import CsvLanguageDialog
+        rows = sorted(index.row() for index in self.file_table.selectionModel().selectedRows())
+        paths = [self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                 for row in (rows or range(self.file_table.rowCount()))]
+        dialog = CsvLanguageDialog(paths, self)
+        dialog.setStyleSheet(self.styleSheet())
+        dialog.exec()
+        dialog.deleteLater()
 
     def compare_selected_files(self) -> None:
         rows = sorted(index.row() for index in self.file_table.selectionModel().selectedRows())
@@ -1119,6 +1139,7 @@ class MainWindow(QMainWindow):
         self.remove_files_button.setEnabled(not running)
         self.clear_files_button.setEnabled(not running)
         if running:
+            self.language_check_button.setEnabled(False)
             self.compare_files_button.setEnabled(False)
             self.move_up_button.setEnabled(False)
             self.move_down_button.setEnabled(False)

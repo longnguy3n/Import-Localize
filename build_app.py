@@ -41,6 +41,7 @@ RUNTIME_MODULES = {
     "google-auth-oauthlib": "google_auth_oauthlib",
     "requests": "requests",
     "PyYAML": "yaml",
+    "lingua-language-detector==2.2.0": "lingua",
 }
 BUILD_MODULES = {"PyInstaller": "pyinstaller", "PIL": "pillow"}
 
@@ -85,7 +86,7 @@ def verify_frozen_app(app_dir: Path) -> list[dict]:
             try:
                 result = subprocess.run(
                     [str((app_dir / (APP_NAME + ".exe")).resolve()), "--self-test", str(report_path)],
-                    cwd=directory, env=environment, timeout=30,
+                    cwd=directory, env=environment, timeout=60,
                     capture_output=True,
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
                 )
@@ -94,6 +95,7 @@ def verify_frozen_app(app_dir: Path) -> list[dict]:
                 raise BuildError(f"EXE không vượt qua kiểm tra khởi động Qt ({platform}): {exc}") from exc
             if (result.returncode != 0 or report.get("status") != "ok"
                     or not report.get("main_window_rendered") or not report.get("csv_comparison")
+                    or not report.get("offline_language_detection")
                     or report.get("platform") != platform):
                 raise BuildError(f"EXE lỗi khởi động Qt ({platform}): {report or result.stderr!r}")
             reports.append(report)
@@ -438,6 +440,10 @@ def build(
         "google.auth",
         "--collect-data",
         "certifi",
+        "--collect-all",
+        "lingua",
+        "--copy-metadata",
+        "lingua-language-detector",
         "--hidden-import",
         "google.auth.transport.requests",
         "--hidden-import",

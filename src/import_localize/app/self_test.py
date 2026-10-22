@@ -97,6 +97,25 @@ def run_self_test(report_path: str) -> int:
             wait_duplicate()
             assert duplicate_dialog.wrote_files and not scan_duplicates([locale]).groups
             duplicate_dialog.close()
+            # Verify the packaged model without any network access, not just
+            # an import of the Python wrapper around the native extension.
+            from unittest.mock import patch
+            from import_localize.ui.csv_language_dialog import CsvLanguageDialog
+            language_csv = Path(directory) / "language.csv"
+            language_csv.write_text("Key,Vietnamese\nwrong,Increase damage against enemies\n"
+                                    "right,Tăng sát thương lên kẻ địch\n", encoding="utf-8")
+            with patch("socket.socket.connect", side_effect=AssertionError("Language audit must be offline")):
+                language_dialog = CsvLanguageDialog([language_csv], window)
+                deadline = time.monotonic() + 45
+                while language_dialog.worker and time.monotonic() < deadline:
+                    app.processEvents()
+                    time.sleep(.001)
+                assert language_dialog.worker is None, "Language audit timed out"
+                assert language_dialog.report and not language_dialog.report.errors, language_dialog.error_label.text()
+                assert language_dialog.report.columns[0].counts["mismatch"] == 1
+                assert language_dialog.report.columns[0].counts["match"] == 1
+                assert not language_dialog.grab().isNull(), "Language results could not render"
+                language_dialog.close()
             report = {
                 "status": "ok", "qt_version": qVersion(),
                 "platform": app.platformName(), "main_window_rendered": True,
@@ -104,6 +123,7 @@ def run_self_test(report_path: str) -> int:
                 "unity_locale": True,
                 "locale_duplicates": True,
                 "replace_progress": True,
+                "offline_language_detection": True,
             }
             window.close()
             app.processEvents()

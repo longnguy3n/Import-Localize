@@ -3,6 +3,9 @@ from __future__ import annotations
 import sys
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--language-audit":
+        from import_localize.services.language_audit_process import run_audit_process
+        return run_audit_process(sys.argv[2])
     # Handle diagnostics before importing Qt so DLL failures become a report
     # and a nonzero exit code instead of a windowed bootloader error dialog.
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":

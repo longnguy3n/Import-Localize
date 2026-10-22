@@ -37,6 +37,7 @@ def test_zero_exit_without_report_is_not_a_success(monkeypatch, tmp_path):
 def test_frozen_check_requires_rendered_window_and_expected_platform(monkeypatch, tmp_path):
     def fake_run(command, **kwargs):
         report = {"status": "ok", "main_window_rendered": True, "csv_comparison": True,
+                  "offline_language_detection": True,
                   "platform": kwargs["env"]["QT_QPA_PLATFORM"], "qt_version": "test"}
         Path(command[-1]).write_text(json.dumps(report), encoding="utf-8")
         return SimpleNamespace(returncode=0, stderr=b"")

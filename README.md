@@ -129,6 +129,20 @@ Các file trùng tên trong thư mục đích sẽ được thay thế. Những 
 ## So sánh CSV theo key
 
 Chọn hai tệp trong card Tệp CSV → **So sánh 2 CSV** để xem key mới, đã xóa và thay đổi. Link Google Sheet và kiểu nhập nằm trong **Cài đặt → Google Sheet đích**. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
+
+## Nhận diện ngôn ngữ CSV offline
+
+Chọn một hoặc nhiều hàng trong card **Tệp CSV** → **Nhận diện ngôn ngữ CSV…**. Không chọn hàng thì kiểm tra toàn bộ danh sách. Cũng có nút này trong cửa sổ Unity Locale để kiểm tra CSV import hoặc CSV export. Trong cửa sổ kết quả có thể chọn các CSV khác và **Kiểm tra lại**.
+
+- Mô hình **Lingua 2.2.0** được đóng gói cùng app, hỗ trợ 75 ngôn ngữ; không cần mạng, tài khoản Google hoặc tải mô hình khi sử dụng. Chạy trên luồng nền, có tiến độ theo số ô đã xử lý và nút **Dừng**. Lần phân tích đầu cần thêm thời gian nạp mô hình.
+- Nhận diện nội dung độc lập với tên cột, sau đó đối chiếu với `English`, `Vietnamese`, mã `en`, `vi`, dạng `Portuguese (Brazil) [pt-BR]`… Bỏ qua các cột key/type/desc/metadata. Cột không có tên/mã được hỗ trợ vẫn được nhận diện nhưng báo chưa thể đối chiếu; không suy đoán ngôn ngữ khai báo từ tên file.
+- Bảng tổng hợp hiển thị ngôn ngữ nhận diện được, số ô phù hợp, nghi sai và chưa kết luận theo từng file/cột. Bấm một hàng để lọc cột; dùng bộ lọc trạng thái hoặc tìm key/nội dung. Chọn dòng chi tiết để xem nguyên văn, vị trí bản ghi và điểm mô hình. Dòng CSV là dòng vật lý bắt đầu bản ghi; ô nhiều dòng có thể làm số này khác số hàng trong Excel/Sheets.
+- Chỉ cảnh báo **Nghi sai ngôn ngữ** khi có đủ nội dung, điểm dự đoán ít nhất 0,80 và chênh lệch với ngôn ngữ kế tiếp ít nhất 0,30. Điểm này không phải tỷ lệ chính xác đã kiểm chứng. Kết quả yếu hoặc quá ngắn được để **Chưa chắc chắn/Chưa đủ nội dung**; không coi là đã đúng. Tên riêng, từ mượn và câu trộn ngôn ngữ có thể gây nhầm; cần xem lại trước khi sửa.
+- Thẻ định dạng, placeholder, URL và một số chuỗi kỹ thuật được bỏ qua chỉ trong bản dùng để phân tích. Ô dài hơn 4.000 ký tự lấy 2.000 ký tự đầu và cuối, có ghi chú khi xem chi tiết. Nội dung gốc vẫn hiển thị đầy đủ và không bị sửa.
+- Chỉ đối chiếu ngôn ngữ chính, không phân biệt biến thể vùng như `pt-BR`/`pt-PT`, `en-US`/`en-GB`. CSV lỗi được báo riêng, các file hợp lệ khác vẫn có kết quả. Chức năng không tự sửa CSV, thay đổi cặp nguồn–đích hoặc thực hiện import.
+
+Phát triển từ mã nguồn cần **Python 3.12+** và `requirements.txt`; bản EXE đã bao gồm mô hình và thư viện. Lingua dùng giấy phép Apache-2.0; giấy phép được đóng gói trong metadata thư viện. Tham khảo [tài liệu Lingua](https://github.com/pemistahl/lingua-py).
+
 ## Unity Locale: Replace Import / Replace Export
 
 Mở **Unity Locale — Replace Import / Export…** trong phần thao tác của ứng dụng.

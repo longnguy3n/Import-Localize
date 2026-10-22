@@ -212,6 +212,8 @@ class UnityLocaleDialog(QDialog):
         mode_row.addWidget(self.mode_combo, 1)
         mode_row.addWidget(QLabel("Phân cách:"))
         mode_row.addWidget(self.delimiter_combo)
+        self.language_check_button = QPushButton("Nhận diện ngôn ngữ CSV…")
+        mode_row.addWidget(self.language_check_button)
         controls.addLayout(mode_row)
 
         self.export_controls = QWidget()
@@ -358,6 +360,7 @@ class UnityLocaleDialog(QDialog):
         self.remove_button.clicked.connect(lambda: self._active_list.remove_selected())
         self.clear_button.clicked.connect(lambda: self._active_list.clear_files())
         self.duplicates_button.clicked.connect(self.check_duplicates)
+        self.language_check_button.clicked.connect(self.check_csv_languages)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
         self.delimiter_combo.currentIndexChanged.connect(self.invalidate)
         self.output_edit.textChanged.connect(self.invalidate)
@@ -373,6 +376,13 @@ class UnityLocaleDialog(QDialog):
 
     def importing(self):
         return self.mode_combo.currentIndex() == 0
+
+    def check_csv_languages(self):
+        from .csv_language_dialog import CsvLanguageDialog
+        dialog = CsvLanguageDialog(self.csv_paths if self.importing() else self.export_paths, self)
+        dialog.setStyleSheet(self.styleSheet())
+        dialog.exec()
+        dialog.deleteLater()
 
     def check_duplicates(self):
         from .locale_duplicate_dialog import LocaleDuplicateDialog
