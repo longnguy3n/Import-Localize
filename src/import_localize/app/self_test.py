@@ -9,6 +9,43 @@ import traceback
 from pathlib import Path
 
 
+def check_tls_context() -> None:
+    """Exercise the requests/urllib3 TLS path without needing network access."""
+    import ssl
+    import certifi
+    from urllib3.util.ssl_ import create_urllib3_context
+
+    context = create_urllib3_context()
+    context.load_verify_locations(cafile=certifi.where())
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+    assert context.cert_store_stats()["x509_ca"] > 0
+    context.wrap_bio(ssl.MemoryBIO(), ssl.MemoryBIO(), server_hostname="oauth2.googleapis.com")
+
+
+def run_https_self_test(report_path: str) -> int:
+    """Read public Google endpoints; never load credentials or modify Sheets."""
+    report = {"status": "failed", "checks": []}
+    try:
+        import requests
+
+        check_tls_context()
+        report["tls_context"] = True
+        with requests.Session() as session:
+            for url, statuses in (
+                ("https://accounts.google.com/.well-known/openid-configuration", {200}),
+                ("https://oauth2.googleapis.com/token", {404, 405}),
+            ):
+                response = session.get(url, timeout=(10, 20), allow_redirects=False)
+                report["checks"].append({"url": url, "status_code": response.status_code})
+                assert response.status_code in statuses, f"Unexpected HTTP {response.status_code}: {url}"
+        report["status"] = "ok"
+    except Exception:
+        report["error"] = traceback.format_exc()
+    Path(report_path).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    return 0 if report["status"] == "ok" else 1
+
+
 def run_self_test(report_path: str) -> int:
     report = {"status": "failed"}
     try:
@@ -27,6 +64,7 @@ def run_self_test(report_path: str) -> int:
                 prepare_export, prepare_import_pairs, apply_plan, read_asset,
             )
 
+            check_tls_context()
             app = create_application(["Import_Localize self-test"])
             window = MainWindow()
             window.settings.auto_check_updates = False
@@ -124,6 +162,7 @@ def run_self_test(report_path: str) -> int:
                 "locale_duplicates": True,
                 "replace_progress": True,
                 "offline_language_detection": True,
+                "tls_context": True,
             }
             window.close()
             app.processEvents()

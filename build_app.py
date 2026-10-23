@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -75,7 +76,7 @@ def isolated_build_environment() -> dict[str, str]:
 
 
 def verify_frozen_app(app_dir: Path) -> list[dict]:
-    """Require successful Qt startup/rendering, not merely a living process."""
+    """Require Qt rendering and usable TLS, not merely a living process."""
     reports = []
     platforms = ("offscreen", "windows") if sys.platform == "win32" else ("offscreen",)
     with tempfile.TemporaryDirectory(prefix="import-localize-build-check-") as directory:
@@ -96,11 +97,30 @@ def verify_frozen_app(app_dir: Path) -> list[dict]:
             if (result.returncode != 0 or report.get("status") != "ok"
                     or not report.get("main_window_rendered") or not report.get("csv_comparison")
                     or not report.get("offline_language_detection")
+                    or not report.get("tls_context")
                     or report.get("platform") != platform):
                 raise BuildError(f"EXE lỗi khởi động Qt ({platform}): {report or result.stderr!r}")
             reports.append(report)
             print(f"Kiểm tra EXE/Qt ({platform}): đạt.")
     return reports
+
+
+def runtime_ssl_data() -> list[tuple[Path, str]]:
+    """Preserve certificate policy data required by the build's Python runtime.
+
+    Codex's Python loads this public rejection certificate from beside ssl.py
+    on every SSLContext construction. PyInstaller collects ssl.py into its PYZ
+    archive but does not discover this data dependency. In a frozen app that
+    module's __file__ resolves under the bundle content directory.
+    Standard Python distributions do not have or need this extra file.
+    """
+    module = Path(ssl.__file__).resolve()
+    certificate = module.with_name("codex-rejected-cas.pem")
+    requires_certificate = (module.suffix == ".py" and
+                            certificate.name in module.read_text(encoding="utf-8"))
+    if requires_certificate and not certificate.is_file():
+        raise BuildError(f"Python dùng để build thiếu file SSL: {certificate}")
+    return [(certificate, ".")] if certificate.is_file() else []
 
 
 def ensure_dependencies() -> None:
@@ -460,6 +480,8 @@ def build(
         "tkinter",
         str(ENTRY_SCRIPT),
     ]
+    for source, destination in runtime_ssl_data():
+        command[-1:-1] = ["--add-data", f"{source}{sep}{destination}"]
     run(command, env=isolated_build_environment())
 
     built = dist_dir / APP_NAME

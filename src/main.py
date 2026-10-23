@@ -8,6 +8,9 @@ def main() -> int:
         return run_audit_process(sys.argv[2])
     # Handle diagnostics before importing Qt so DLL failures become a report
     # and a nonzero exit code instead of a windowed bootloader error dialog.
+    if len(sys.argv) == 3 and sys.argv[1] == "--https-self-test":
+        from import_localize.app.self_test import run_https_self_test
+        return run_https_self_test(sys.argv[2])
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
         from import_localize.app.self_test import run_self_test
         return run_self_test(sys.argv[2])

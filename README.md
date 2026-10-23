@@ -63,6 +63,14 @@ cd F:\Codes\Import_Localize\src
 py main.py
 ```
 
+## Kiểm tra SSL của bản EXE
+
+Build tự đóng gói `codex-rejected-cas.pem` nếu Python dùng để build cần file chính sách chứng chỉ này. Bản Python tiêu chuẩn không cần file bổ sung. Mỗi bản EXE phải vượt qua kiểm tra tạo TLS context của urllib3, nạp chứng chỉ certifi và bật xác thực chứng chỉ/hostname, cùng các kiểm tra giao diện trước khi tạo ZIP.
+
+Có thể kiểm tra HTTPS thực tế bằng `Import_Localize.exe --https-self-test <đường-dẫn-report.json>`. Lệnh chỉ GET các endpoint Google công khai, không đọc token, không đăng nhập và không ghi dữ liệu Sheets. Report thành công có `status: "ok"`; endpoint token trả HTTP 404/405 cho GET là bình thường. Kiểm tra này cần mạng; kiểm tra TLS trong bước build chạy offline.
+
+Nếu bản cũ báo thiếu file SSL và không thể kiểm tra cập nhật, tải ZIP bản mới từ GitHub Releases rồi giải nén toàn bộ thư mục để chạy. Không chỉ chép riêng EXE; cấu hình và phiên Google vẫn được lưu riêng trong AppData.
+
 ## Google OAuth
 
 Trong **Cài đặt**:
