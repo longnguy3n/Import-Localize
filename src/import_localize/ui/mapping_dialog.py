@@ -155,8 +155,8 @@ class MappingDialog(QDialog):
         layout.addLayout(filters)
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
-        self.issues_table = self._table(["Trạng thái", "Key", "English (en)", "Vietnamese (vi)",
-                                       "Portuguese (pt-BR)", "Mapping chuẩn / Lý do"])
+        self.issues_table = self._table(["Trạng thái", "Key", "Mapping chuẩn / Lý do"])
+        self.issues_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         splitter.addWidget(self.files_table)
         splitter.addWidget(self.issues_table)
         splitter.setSizes([170, 310])
@@ -309,6 +309,11 @@ class MappingDialog(QDialog):
             reference = (issue.path, issue.line, issue.actual)
             if reference not in self.references[issue.key][issue.locale]:
                 self.references[issue.key][issue.locale].append(reference)
+        self.issues_table.setColumnCount(len(report.files) + 3)
+        self.issues_table.setHorizontalHeaderLabels(["Trạng thái", "Key", *[p.name for p in report.files], "Mapping chuẩn / Lý do"])
+        for col, path in enumerate(report.files, start=2):
+            self.issues_table.horizontalHeaderItem(col).setToolTip(str(path))
+        self.issues_table.columns_fitted = False
         self.files_table.setRowCount(0)
         for path in report.files:
             issues = [issue for issue in report.issues if issue.path == path]
@@ -325,7 +330,7 @@ class MappingDialog(QDialog):
         self.status.setText(f"Đã kiểm tra {report.checked_cells} ô / {len(report.files)} file · "
             f"{len(report.wrong_keys)} key sai mapping · {sum(i.status == 'review' for i in report.issues)} cần xem ngữ cảnh · "
             f"{report.unmapped_cells} ô chưa có mapping áp dụng · {len(report.errors)} file lỗi. "
-            "Mỗi key một dòng, tham chiếu đủ các ngôn ngữ đã chọn. "
+            "Mỗi key một dòng, mỗi file một cột tham chiếu; cuộn ngang để xem thêm. "
             "Các bộ lọc chỉ thay đổi hiển thị; nút ghi xử lý toàn bộ key sai xác định.")
         self.filter_rows()
 
@@ -351,28 +356,31 @@ class MappingDialog(QDialog):
             row = self.issues_table.rowCount()
             self.issues_table.insertRow(row)
             values = ["Sai mapping" if wrong else "Cần xem ngữ cảnh", key]
-            for locale in ("en", "vi", "pt-BR"):
-                refs = self.references[key].get(locale, [])
-                unique = list(dict.fromkeys(value for _, _, value in refs))
-                if len(unique) == 1:
-                    values.append(unique[0] or "[Ô trống]")
-                elif unique:
-                    values.append("\n\n".join(f"{p.name} : {line}\n{value or '[Ô trống]'}" for p, line, value in refs))
+            for file_path in self.report.files:
+                refs = [(locale, line, value) for locale, entries in self.references[key].items()
+                        for p, line, value in entries if p == file_path]
+                if len(refs) == 1:
+                    values.append(refs[0][2] or "[Ô trống]")
+                elif refs:
+                    values.append("\n\n".join(f"{locale} · Dòng {line}\n{value or '[Ô trống]'}" for locale, line, value in refs))
                 else:
-                    values.append("[Chưa có dữ liệu]")
+                    values.append("[Không đọc được file]" if str(file_path) in self.report.errors else "[Không có key trong file]")
             values.append("\n".join(dict.fromkeys(f"{i.locale}: {i.expected or '[Cần ngữ cảnh]'} — {i.reason}" for i in issues)))
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(value)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-                affected = issues if col == 0 else [i for i in issues if 2 <= col <= 4 and i.locale == ("en", "vi", "pt-BR")[col - 2]]
+                file_column = 2 <= col < len(self.report.files) + 2
+                affected = issues if col == 0 else [i for i in issues if file_column and i.path == self.report.files[col - 2]]
                 if affected:
                     definite = any(i.status == "wrong" for i in affected)
                     item.setBackground(QColor("#fee2e2" if definite else "#fef3c7"))
                     item.setForeground(QColor("#7f1d1d" if definite else "#78350f"))
-                if 2 <= col <= 4:
-                    refs = self.references[key].get(("en", "vi", "pt-BR")[col - 2], [])
-                    item.setToolTip("\n\n".join(f"{p} : {line}\n{v}" for p, line, v in refs) or value)
+                if file_column:
+                    file_path = self.report.files[col - 2]
+                    refs = [(locale, line, v) for locale, entries in self.references[key].items()
+                            for p, line, v in entries if p == file_path]
+                    item.setToolTip(str(file_path) + "\n\n" + "\n\n".join(f"{locale} · Dòng {line}\n{v}" for locale, line, v in refs))
                 self.issues_table.setItem(row, col, item)
         self.issues_table.fit_content()
 
@@ -383,12 +391,13 @@ class MappingDialog(QDialog):
             return
         key = self.visible_keys[rows[0].row()]
         lines = [f"Key: {key}"]
-        for locale in ("en", "vi", "pt-BR"):
-            lines.append(f"\n{locale} — Tham chiếu")
-            refs = self.references[key].get(locale, [])
-            lines.extend(f"{p} · Dòng {line}\n{value or '[Ô trống]'}" for p, line, value in refs)
+        for file_path in self.report.files:
+            lines.append(f"\n{file_path} — Tham chiếu")
+            refs = [(locale, line, v) for locale, entries in self.references[key].items()
+                    for p, line, v in entries if p == file_path]
+            lines.extend(f"{locale} · Dòng {line}\n{value or '[Ô trống]'}" for locale, line, value in refs)
             if not refs:
-                lines.append("Chưa có dữ liệu ngôn ngữ này trong các CSV đã chọn.")
+                lines.append("Không có key trong file này.")
         for issue in self.key_issues[key]:
             lines.append(f"\n{issue.locale} · {issue.path.name} · Dòng {issue.line}\nLý do: {issue.reason}\n"
                          f"Mapping chuẩn: {issue.expected}\nNguồn: {issue.source}\nHiện tại: {issue.actual}")

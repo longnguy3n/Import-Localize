@@ -163,8 +163,9 @@ def run_self_test(report_path: str) -> int:
             assert mapping_dialog.report and mapping_dialog.report.wrong_keys == {"cf_damage_title"}, mapping_dialog.status.text()
             assert mapping_dialog.mark_button.isEnabled()
             assert mapping_dialog.issues_table.rowCount() == 1
-            assert mapping_dialog.issues_table.item(0, 2).text() == "DMG"
-            assert mapping_dialog.issues_table.item(0, 4).text() == "DNO"
+            assert mapping_dialog.issues_table.columnCount() == 4
+            assert "DMG" in mapping_dialog.issues_table.item(0, 2).text()
+            assert "DNO" in mapping_dialog.issues_table.item(0, 2).text()
             assert not mapping_dialog.grab().isNull(), "Mapping results could not render"
             mapping_dialog.close()
             # Verify the packaged model without any network access, not just

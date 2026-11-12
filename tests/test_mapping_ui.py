@@ -55,6 +55,7 @@ def test_file_summary_filters_and_full_content(app, tmp_path):
         assert dialog.mark_button.isEnabled()
         dialog.files_table.selectRow(1)
         assert dialog.issues_table.rowCount() == 1
+        assert dialog.issues_table.columnCount() == 5
         dialog.issues_table.selectRow(0)
         assert "<b>Frostbite</b>" in dialog.detail.toPlainText()
         dialog.all_files_button.click()
@@ -72,7 +73,7 @@ def test_file_summary_filters_and_full_content(app, tmp_path):
         dialog.reject()
 
 
-def test_one_key_row_keeps_all_languages_and_distinct_file_versions(app, tmp_path):
+def test_one_key_row_has_one_column_per_file_including_same_language(app, tmp_path):
     from import_localize.services.mapping_audit_service import MappingIssue, MappingRecord, MappingReport
     en, vi, pt = [tmp_path / f"export_{code}.csv" for code in ("en", "vi", "pt-BR")]
     other = tmp_path / "upload_vi.csv"
@@ -87,17 +88,27 @@ def test_one_key_row_keeps_all_languages_and_distinct_file_versions(app, tmp_pat
         dialog.report = result
         dialog.render_report()
         assert dialog.issues_table.rowCount() == 1
+        assert dialog.issues_table.columnCount() == 7
         assert dialog.issues_table.item(0, 2).text() == "Damage"
         assert dialog.issues_table.item(0, 4).text() == "DNO"
         text = dialog.issues_table.item(0, 3).text()
-        assert "export_vi.csv" in text and "upload_vi.csv" in text
-        assert "Wrong\ntranslation" in text and "Another version" in text
+        assert dialog.issues_table.horizontalHeaderItem(3).text() == "export_vi.csv"
+        assert dialog.issues_table.horizontalHeaderItem(5).text() == "upload_vi.csv"
+        assert text == "Wrong\ntranslation"
+        assert dialog.issues_table.item(0, 5).text() == "Another version"
         dialog.files_table.selectRow(1)
         assert dialog.issues_table.rowCount() == 1
         assert dialog.issues_table.item(0, 2).text() == "Damage"
         assert dialog.issues_table.item(0, 4).text() == "DNO"
         dialog.issues_table.selectRow(0)
         assert str(pt) in dialog.detail.toPlainText()
+        dialog.show()
+        for column in range(dialog.issues_table.columnCount()):
+            dialog.issues_table.setColumnWidth(column, 300)
+        app.processEvents()
+        assert dialog.issues_table.horizontalScrollBar().maximum() > 0
+        dialog.search.setText("same_key")
+        assert dialog.issues_table.columnWidth(3) == 300
     finally:
         dialog.reject()
 
