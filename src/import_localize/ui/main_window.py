@@ -266,6 +266,9 @@ class MainWindow(QMainWindow):
         language_actions.addWidget(self.language_check_button)
         language_actions.addWidget(QLabel("Offline · đối chiếu nội dung với tên cột"), 1)
         self.files_card_layout.addLayout(language_actions)
+        self.mapping_check_button = QPushButton("Kiểm tra mapping…")
+        self.mapping_check_button.setToolTip("Đối chiếu CSV với mapping.json; xem file sai và đánh dấu Wrong mapping trên Translate_Data.")
+        self.files_card_layout.addWidget(self.mapping_check_button)
         self.files_card_layout.setStretch(1, 1)
         self.log_card_layout.setStretch(1, 1)
         self.action_card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -303,6 +306,7 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self.language_check_button.clicked.connect(self.check_csv_languages)
+        self.mapping_check_button.clicked.connect(self.check_mapping)
         self.compare_files_button.clicked.connect(self.compare_selected_files)
         self.unity_locale_button.clicked.connect(self.show_unity_locale)
         self.add_files_button.clicked.connect(self.choose_csv_files)
@@ -827,6 +831,19 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
+    def check_mapping(self) -> None:
+        if self.worker and self.worker.isRunning():
+            return
+        from .mapping_dialog import MappingDialog
+        self.save_settings()
+        paths = [self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                 for row in range(self.file_table.rowCount())]
+        dialog = MappingDialog(self.settings, paths, self)
+        dialog.setStyleSheet(self.styleSheet())
+        dialog.exec()
+        self.save_settings()
+        dialog.deleteLater()
+
     def compare_selected_files(self) -> None:
         rows = sorted(index.row() for index in self.file_table.selectionModel().selectedRows())
         if len(rows) != 2 or (self.worker and self.worker.isRunning()):
@@ -1135,6 +1152,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(running)
         self.settings_button.setEnabled(not running)
         self.unity_locale_button.setEnabled(not running)
+        self.mapping_check_button.setEnabled(not running)
         self.add_files_button.setEnabled(not running)
         self.remove_files_button.setEnabled(not running)
         self.clear_files_button.setEnabled(not running)

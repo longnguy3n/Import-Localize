@@ -135,6 +135,35 @@ def run_self_test(report_path: str) -> int:
             wait_duplicate()
             assert duplicate_dialog.wrote_files and not scan_duplicates([locale]).groups
             duplicate_dialog.close()
+            # Verify the bundled schema and offline mapping UI on synthetic data.
+            from import_localize.app.paths import ASSETS_DIR
+            from import_localize.ui.mapping_dialog import MappingDialog
+            schema = json.loads((ASSETS_DIR / "mapping.schema.json").read_text(encoding="utf-8"))
+            mapping = Path(directory) / "mapping.json"
+            mapping.write_text(json.dumps({
+                "schema_version": "2.0.0", "project": "DG", "locales": ["en", "vi", "pt-BR"],
+                "provenance_file": "unused.json",
+                "matching": {k: v["const"] for k, v in schema["properties"]["matching"]["properties"].items()},
+                "derivation_rules": [], "key_overrides": [], "abbreviations": [],
+                "entries": [{"id": "dg.damage.1234567890", "groups": ["combat"],
+                    "translations": {"en": "DMG", "vi": "ST", "pt-BR": "DNO"},
+                    "aliases": {"en": [], "vi": [], "pt-BR": []},
+                    "keys": ["cf_damage_title"], "context_required": False, "variants": [], "rejected": []}],
+            }), encoding="utf-8")
+            mapped_csv = Path(directory) / "mapped.csv"
+            mapped_csv.write_text("Key,English,Vietnamese\ncf_damage_title,DMG,Wrong\n", encoding="utf-8")
+            window.settings.mapping_path = str(mapping)
+            mapping_dialog = MappingDialog(window.settings, [mapped_csv], window)
+            mapping_dialog.scan()
+            deadline = time.monotonic() + 10
+            while mapping_dialog.worker and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(.001)
+            assert mapping_dialog.worker is None, "Mapping audit timed out"
+            assert mapping_dialog.report and mapping_dialog.report.wrong_keys == {"cf_damage_title"}, mapping_dialog.status.text()
+            assert mapping_dialog.mark_button.isEnabled()
+            assert not mapping_dialog.grab().isNull(), "Mapping results could not render"
+            mapping_dialog.close()
             # Verify the packaged model without any network access, not just
             # an import of the Python wrapper around the native extension.
             from unittest.mock import patch
@@ -163,6 +192,7 @@ def run_self_test(report_path: str) -> int:
                 "replace_progress": True,
                 "offline_language_detection": True,
                 "tls_context": True,
+                "mapping_audit": True,
             }
             window.close()
             app.processEvents()

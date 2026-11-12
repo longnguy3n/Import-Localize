@@ -1,0 +1,82 @@
+{
+  "schema_version": "2.0.0",
+  "project": "DG",
+  "locales": [
+    "en",
+    "vi",
+    "pt-BR"
+  ],
+  "provenance_file": "../support/mapping.provenance.json",
+  "matching": {
+    "mode": "terms_within_text",
+    "case_sensitive": false,
+    "unicode_normalization": "NFC",
+    "accent_sensitive": true,
+    "collapse_whitespace": true,
+    "apostrophe_equivalence": [
+      "'",
+      "’"
+    ],
+    "word_boundaries": true,
+    "overlap": "longest_first",
+    "include_aliases": true,
+    "include_variants": false,
+    "include_rejected": false,
+    "ambiguity": "return_candidates",
+    "key_scope": "context_hint",
+    "protect": [
+      "rich_text_tags",
+      "placeholders",
+      "technical_keys"
+    ],
+    "inflection": "explicit_aliases_only"
+  },
+  "derivation_rules": [
+    {
+      "id": "skill_plus_title",
+      "key_prefix": "cf_skill_",
+      "key_suffix": "_plus_title",
+      "base_key_suffix": "_title",
+      "output_suffix": " +",
+      "store_derived_entries": false,
+      "copy_description": false
+    },
+    {
+      "id": "skill_plus_desc",
+      "key_prefix": "cf_skill_",
+      "key_suffix": "_plus_desc",
+      "base_key_suffix": "_desc",
+      "output_suffix": "",
+      "store_derived_entries": false,
+      "copy_description": false
+    }
+  ],
+  "key_overrides": [],
+  "abbreviations": [],
+  "entries": [
+    {
+      "id": "dg.damage.1234567890",
+      "groups": [
+        "combat"
+      ],
+      "translations": {
+        "en": "DMG",
+        "vi": "ST",
+        "pt-BR": "DNO"
+      },
+      "aliases": {
+        "en": [
+          "Damage"
+        ],
+        "vi": [],
+        "pt-BR": []
+      },
+      "keys": [
+        "cf_damage_title"
+      ],
+      "context_required": false,
+      "variants": [],
+      "rejected": []
+    }
+  ]
+}

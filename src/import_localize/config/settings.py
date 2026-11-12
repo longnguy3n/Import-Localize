@@ -20,6 +20,8 @@ class AppSettings:
     theme: str = "light"
     last_csv_dir: str = ""
     last_export_dir: str = ""
+    mapping_path: str = ""
+    mapping_csv_files: list[str] = field(default_factory=list)
     selected_csv_files: list[str] = field(default_factory=list)
     unity_asset_files: list[str] = field(default_factory=list)
     # None means no saved selection yet; [] means the user cleared the list.
@@ -52,7 +54,7 @@ class SettingsRepository:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
             values = {key: payload[key] for key in allowed if key in payload}
-            for key in ("selected_csv_files", "unity_asset_files", "unity_import_csv_files",
+            for key in ("selected_csv_files", "mapping_csv_files", "unity_asset_files", "unity_import_csv_files",
                         "unity_export_csv_files", "unity_duplicate_files"):
                 if key in values and values[key] is not None:
                     value = values[key]

@@ -98,6 +98,7 @@ def verify_frozen_app(app_dir: Path) -> list[dict]:
                     or not report.get("main_window_rendered") or not report.get("csv_comparison")
                     or not report.get("offline_language_detection")
                     or not report.get("tls_context")
+                    or not report.get("mapping_audit")
                     or report.get("platform") != platform):
                 raise BuildError(f"EXE lỗi khởi động Qt ({platform}): {report or result.stderr!r}")
             reports.append(report)

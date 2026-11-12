@@ -138,6 +138,20 @@ Các file trùng tên trong thư mục đích sẽ được thay thế. Những 
 
 Chọn hai tệp trong card Tệp CSV → **So sánh 2 CSV** để xem key mới, đã xóa và thay đổi. Link Google Sheet và kiểu nhập nằm trong **Cài đặt → Google Sheet đích**. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
 
+## Kiểm tra mapping DG
+
+Trong card Tệp CSV, bấm **Kiểm tra mapping…** → **Chọn thư mục DG…**. App lấy toàn bộ CSV ngay trong thư mục đó và `data/mapping.json`. Có thể chọn mapping khác hoặc chọn nhiều CSV riêng; đường dẫn và danh sách file được nhớ cho lần sau.
+
+- Nhấn **Kiểm tra mapping** để chạy offline. Hỗ trợ hợp đồng DG v2 (`schema_version: 2.0.0`); schema được đóng gói cùng app. App chỉ đọc mapping hiện hành, không chạy script trong `support`/`code`, không dùng mapping pending hay báo cáo lịch sử làm quy tắc.
+- Bảng file hiển thị số phát hiện sai và số cần xem ngữ cảnh. Bấm file để lọc; bảng dưới chỉ rõ key, ngôn ngữ, mapping chuẩn và nội dung hiện tại. Chọn một dòng để xem đầy đủ nguồn và lý do. Có tìm kiếm, bộ lọc và nút hiện tất cả file.
+- Với CSV một ngôn ngữ, chọn kèm bản English cùng nhóm `export_*` hoặc `upload_*` để đối chiếu theo key. Không ghép export với upload hay nguồn từ thư mục/nhóm khác. CSV `Translate_Data` nhiều cột ngôn ngữ cũng được hỗ trợ. File lỗi được báo riêng; thiếu nguồn, nhiều nghĩa, biến thể có điều kiện hoặc biến đổi ngữ pháp cần người xem lại.
+- Khớp thuật ngữ theo NFC, không phân biệt hoa/thường, giữ dấu, ranh giới từ và ưu tiên cụm dài. Alias chỉ dùng nhận diện nguồn; tag, placeholder và technical key được bảo vệ. Key là ngữ cảnh, không thay cả mô tả bằng tên. Có quy tắc key override và tên kỹ năng nâng cấp ` +`.
+- **Sai mapping** là lỗi có đủ căn cứ. **Cần xem ngữ cảnh** chưa phải kết luận sai; câu không chứa nguyên văn thuật ngữ chuẩn có thể là biến đổi ngữ pháp hợp lệ. Ô chưa có mapping áp dụng không được coi là đã đúng. Đây là kiểm tra thuật ngữ theo dữ liệu mapping, không phải đánh giá toàn bộ chất lượng dịch hay suy luận nghĩa tự động.
+
+Để cập nhật Google Sheets: nhập/kiểm tra **Sheet đích**, bấm **Ghi Wrong mapping vào Translate_Data!C** và xác nhận. App cập nhật **toàn bộ key sai xác định trong kết quả**, không phụ thuộc bộ lọc đang hiển thị; nhóm cần xem ngữ cảnh không được ghi. Trạng thái cũ tại đúng các key sai sẽ được thay bằng chuỗi `Wrong mapping`.
+
+App đọc lại vị trí key trên Sheet, kiểm tra cột C có tiêu đề `Custom(modified)` và chỉ ghi các ô C bằng RAW; không thay bản dịch hoặc các cột khác. Key trùng được đánh dấu trên mọi hàng tương ứng; key không tìm thấy được liệt kê. File mapping/CSV thay đổi thì phải kiểm tra lại. Không sắp xếp/chỉnh sửa tab trong lúc ghi. Nếu dừng hoặc lỗi mạng giữa các lô, app báo số ô đã xác nhận và trường hợp kết quả ghi chưa rõ; kiểm tra tab trước khi chạy lại.
+
 ## Nhận diện ngôn ngữ CSV offline
 
 Chọn một hoặc nhiều hàng trong card **Tệp CSV** → **Nhận diện ngôn ngữ CSV…**. Không chọn hàng thì kiểm tra toàn bộ danh sách. Cũng có nút này trong cửa sổ Unity Locale để kiểm tra CSV import hoặc CSV export. Trong cửa sổ kết quả có thể chọn các CSV khác và **Kiểm tra lại**.
