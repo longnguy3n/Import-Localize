@@ -59,6 +59,7 @@ class MappingReport:
     errors: dict[str, str] = field(default_factory=dict)
     checked_cells: int = 0
     unmapped_cells: int = 0
+    records: list[MappingRecord] = field(default_factory=list)
 
     @property
     def wrong_keys(self) -> set[str]:
@@ -196,7 +197,7 @@ def _family(path):
 
 
 @dataclass
-class _Row:
+class MappingRecord:
     path: Path
     line: int
     key: str
@@ -233,7 +234,7 @@ def _read_csv(path, cancel_callback):
             key = row[keys[0]]
             if not key:
                 raise ValueError(f"Dòng {line}: thiếu key")
-            rows.append(_Row(path, line, key, {locale: row[i] for i, locale in columns}, family))
+            rows.append(MappingRecord(path, line, key, {locale: row[i] for i, locale in columns}, family))
     return rows
 
 
@@ -318,6 +319,7 @@ def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=N
             if isinstance(exc, CancelledError):
                 raise
             report.errors[str(path)] = str(exc)
+    report.records = rows
     sources = defaultdict(set)
     for row in rows:
         for locale, value in row.values.items():

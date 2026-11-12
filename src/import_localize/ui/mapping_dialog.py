@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import hashlib
+from collections import defaultdict
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Signal, Slot
+from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
@@ -63,6 +64,33 @@ class MappingWorker(QThread):
             self.error = str(exc) or type(exc).__name__
 
 
+class MappingTable(QTableWidget):
+    """Content-sized initial columns with user resizing and wrapped row heights."""
+
+    def __init__(self, columns, parent=None):
+        super().__init__(0, columns, parent)
+        self.columns_fitted = False
+        self.setWordWrap(True)
+        self.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.horizontalHeader().setMinimumSectionSize(60)
+        self._row_timer = QTimer(self)
+        self._row_timer.setSingleShot(True)
+        self._row_timer.setInterval(80)
+        self._row_timer.timeout.connect(self.resizeRowsToContents)
+        self.horizontalHeader().sectionResized.connect(lambda *_: self._row_timer.start())
+
+    def fit_content(self, *, reset=False):
+        if self.rowCount() and (reset or not self.columns_fitted):
+            self.resizeColumnsToContents()
+            # Long descriptions wrap instead of creating multi-screen columns.
+            # This limit applies only to the initial fit, never to user drags.
+            for column in range(self.columnCount()):
+                self.setColumnWidth(column, min(480, self.columnWidth(column)))
+            self.columns_fitted = True
+        self._row_timer.start()
+
+
 class MappingDialog(QDialog):
     def __init__(self, settings, paths=(), parent=None):
         super().__init__(parent)
@@ -72,6 +100,9 @@ class MappingDialog(QDialog):
         self.snapshot = None
         self.worker = None
         self.visible_issues = []
+        self.visible_keys = []
+        self.key_issues = {}
+        self.references = {}
         self.setWindowTitle("Kiểm tra mapping — CSV → Translate_Data")
         self.resize(1180, 800)
         layout = QVBoxLayout(self)
@@ -124,7 +155,8 @@ class MappingDialog(QDialog):
         layout.addLayout(filters)
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
-        self.issues_table = self._table(["Trạng thái", "File / Dòng", "Key", "Ngôn ngữ", "Mapping chuẩn", "Hiện tại"])
+        self.issues_table = self._table(["Trạng thái", "Key", "English (en)", "Vietnamese (vi)",
+                                       "Portuguese (pt-BR)", "Mapping chuẩn / Lý do"])
         splitter.addWidget(self.files_table)
         splitter.addWidget(self.issues_table)
         splitter.setSizes([170, 310])
@@ -159,14 +191,12 @@ class MappingDialog(QDialog):
         self.invalidate()
 
     def _table(self, headers):
-        table = QTableWidget(0, len(headers))
+        table = MappingTable(len(headers), self)
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        table.setWordWrap(False)
         table.verticalHeader().hide()
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         return table
 
     def invalidate(self):
@@ -174,6 +204,7 @@ class MappingDialog(QDialog):
         self.snapshot = None
         self.files_table.setRowCount(0)
         self.issues_table.setRowCount(0)
+        self.issues_table.columns_fitted = False
         self.detail.clear()
         self.status.setText(f"Đã chọn {len(self.paths)} file CSV. Bấm Kiểm tra mapping để đọc toàn bộ các file này.")
         for path in self.paths:
@@ -182,6 +213,7 @@ class MappingDialog(QDialog):
             item = QTableWidgetItem(path.name)
             item.setToolTip(str(path))
             self.files_table.setItem(row, 0, item)
+        self.files_table.fit_content(reset=True)
         self.set_busy(False)
 
     def set_busy(self, busy):
@@ -265,6 +297,18 @@ class MappingDialog(QDialog):
 
     def render_report(self):
         report = self.report
+        self.key_issues = defaultdict(list)
+        self.references = defaultdict(lambda: defaultdict(list))
+        for issue in report.issues:
+            self.key_issues[issue.key].append(issue)
+        for record in getattr(report, "records", []):
+            for locale, value in record.values.items():
+                self.references[record.key][locale].append((record.path, record.line, value))
+        # Reports created by older integrations may not carry full records.
+        for issue in report.issues:
+            reference = (issue.path, issue.line, issue.actual)
+            if reference not in self.references[issue.key][issue.locale]:
+                self.references[issue.key][issue.locale].append(reference)
         self.files_table.setRowCount(0)
         for path in report.files:
             issues = [issue for issue in report.issues if issue.path == path]
@@ -277,9 +321,11 @@ class MappingDialog(QDialog):
                 item.setToolTip(str(path) if col == 0 else value)
                 item.setData(Qt.ItemDataRole.UserRole, str(path))
                 self.files_table.setItem(row, col, item)
+        self.files_table.fit_content(reset=True)
         self.status.setText(f"Đã kiểm tra {report.checked_cells} ô / {len(report.files)} file · "
             f"{len(report.wrong_keys)} key sai mapping · {sum(i.status == 'review' for i in report.issues)} cần xem ngữ cảnh · "
             f"{report.unmapped_cells} ô chưa có mapping áp dụng · {len(report.errors)} file lỗi. "
+            "Mỗi key một dòng, tham chiếu đủ các ngôn ngữ đã chọn. "
             "Các bộ lọc chỉ thay đổi hiển thị; nút ghi xử lý toàn bộ key sai xác định.")
         self.filter_rows()
 
@@ -289,31 +335,64 @@ class MappingDialog(QDialog):
         rows = self.files_table.selectionModel().selectedRows()
         path = self.files_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole) if rows else None
         status, query = self.filter_combo.currentData(), self.search.text().casefold()
-        self.visible_issues = [i for i in self.report.issues if (not path or str(i.path) == path)
-            and (not status or i.status == status)
-            and (not query or query in f"{i.key} {i.source} {i.actual} {i.expected} {i.reason}".casefold())]
+        self.visible_keys = []
+        for key, issues in self.key_issues.items():
+            if not any((not path or str(i.path) == path) and (not status or i.status == status) for i in issues):
+                continue
+            search_text = " ".join(f"{i.key} {i.source} {i.actual} {i.expected} {i.reason}" for i in issues)
+            search_text += " ".join(v for refs in self.references[key].values() for _, _, v in refs)
+            if not query or query in search_text.casefold():
+                self.visible_keys.append(key)
+        self.visible_issues = [self.key_issues[key][0] for key in self.visible_keys]
         self.issues_table.setRowCount(0)
-        for issue in self.visible_issues:
+        for key in self.visible_keys:
+            issues = self.key_issues[key]
+            wrong = any(i.status == "wrong" for i in issues)
             row = self.issues_table.rowCount()
             self.issues_table.insertRow(row)
-            values = ["Sai mapping" if issue.status == "wrong" else "Cần xem ngữ cảnh",
-                      f"{issue.path.name} : {issue.line}", issue.key, issue.locale, issue.expected, issue.actual]
+            values = ["Sai mapping" if wrong else "Cần xem ngữ cảnh", key]
+            for locale in ("en", "vi", "pt-BR"):
+                refs = self.references[key].get(locale, [])
+                unique = list(dict.fromkeys(value for _, _, value in refs))
+                if len(unique) == 1:
+                    values.append(unique[0] or "[Ô trống]")
+                elif unique:
+                    values.append("\n\n".join(f"{p.name} : {line}\n{value or '[Ô trống]'}" for p, line, value in refs))
+                else:
+                    values.append("[Chưa có dữ liệu]")
+            values.append("\n".join(dict.fromkeys(f"{i.locale}: {i.expected or '[Cần ngữ cảnh]'} — {i.reason}" for i in issues)))
             for col, value in enumerate(values):
-                item = QTableWidgetItem(value.replace("\n", " ↵ "))
+                item = QTableWidgetItem(value)
                 item.setToolTip(value)
-                if col == 0:
-                    item.setBackground(QColor("#fee2e2" if issue.status == "wrong" else "#fef3c7"))
-                    item.setForeground(QColor("#7f1d1d" if issue.status == "wrong" else "#78350f"))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                affected = issues if col == 0 else [i for i in issues if 2 <= col <= 4 and i.locale == ("en", "vi", "pt-BR")[col - 2]]
+                if affected:
+                    definite = any(i.status == "wrong" for i in affected)
+                    item.setBackground(QColor("#fee2e2" if definite else "#fef3c7"))
+                    item.setForeground(QColor("#7f1d1d" if definite else "#78350f"))
+                if 2 <= col <= 4:
+                    refs = self.references[key].get(("en", "vi", "pt-BR")[col - 2], [])
+                    item.setToolTip("\n\n".join(f"{p} : {line}\n{v}" for p, line, v in refs) or value)
                 self.issues_table.setItem(row, col, item)
+        self.issues_table.fit_content()
 
     def show_detail(self):
         rows = self.issues_table.selectionModel().selectedRows()
-        if not rows or rows[0].row() >= len(self.visible_issues):
+        if not rows or rows[0].row() >= len(self.visible_keys):
             self.detail.clear()
             return
-        issue = self.visible_issues[rows[0].row()]
-        self.detail.setPlainText(f"{issue.path}\nDòng {issue.line} · {issue.key} · {issue.locale}\n"
-            f"Lý do: {issue.reason}\nMapping chuẩn: {issue.expected}\nNguồn: {issue.source}\nHiện tại: {issue.actual}")
+        key = self.visible_keys[rows[0].row()]
+        lines = [f"Key: {key}"]
+        for locale in ("en", "vi", "pt-BR"):
+            lines.append(f"\n{locale} — Tham chiếu")
+            refs = self.references[key].get(locale, [])
+            lines.extend(f"{p} · Dòng {line}\n{value or '[Ô trống]'}" for p, line, value in refs)
+            if not refs:
+                lines.append("Chưa có dữ liệu ngôn ngữ này trong các CSV đã chọn.")
+        for issue in self.key_issues[key]:
+            lines.append(f"\n{issue.locale} · {issue.path.name} · Dòng {issue.line}\nLý do: {issue.reason}\n"
+                         f"Mapping chuẩn: {issue.expected}\nNguồn: {issue.source}\nHiện tại: {issue.actual}")
+        self.detail.setPlainText("\n".join(lines))
 
     def mark(self):
         if self.worker or not self.report or not self.report.wrong_keys:

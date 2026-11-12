@@ -72,6 +72,36 @@ def test_file_summary_filters_and_full_content(app, tmp_path):
         dialog.reject()
 
 
+def test_one_key_row_keeps_all_languages_and_distinct_file_versions(app, tmp_path):
+    from import_localize.services.mapping_audit_service import MappingIssue, MappingRecord, MappingReport
+    en, vi, pt = [tmp_path / f"export_{code}.csv" for code in ("en", "vi", "pt-BR")]
+    other = tmp_path / "upload_vi.csv"
+    result = MappingReport(tmp_path / "mapping.json", files=[en, vi, pt, other],
+        records=[MappingRecord(p, 2, "same_key", {code: value}, ()) for p, code, value in (
+            (en, "en", "Damage"), (vi, "vi", "Wrong\ntranslation"),
+            (pt, "pt-BR", "DNO"), (other, "vi", "Another version"))],
+        issues=[MappingIssue(vi, 2, "same_key", "vi", "Damage", "Wrong\ntranslation", "ST", "Wrong label", "wrong"),
+                MappingIssue(other, 2, "same_key", "vi", "Damage", "Another version", "ST", "Wrong label", "wrong")])
+    dialog = MappingDialog(AppSettings(), [en, vi, pt])
+    try:
+        dialog.report = result
+        dialog.render_report()
+        assert dialog.issues_table.rowCount() == 1
+        assert dialog.issues_table.item(0, 2).text() == "Damage"
+        assert dialog.issues_table.item(0, 4).text() == "DNO"
+        text = dialog.issues_table.item(0, 3).text()
+        assert "export_vi.csv" in text and "upload_vi.csv" in text
+        assert "Wrong\ntranslation" in text and "Another version" in text
+        dialog.files_table.selectRow(1)
+        assert dialog.issues_table.rowCount() == 1
+        assert dialog.issues_table.item(0, 2).text() == "Damage"
+        assert dialog.issues_table.item(0, 4).text() == "DNO"
+        dialog.issues_table.selectRow(0)
+        assert str(pt) in dialog.detail.toPlainText()
+    finally:
+        dialog.reject()
+
+
 def test_mark_uses_all_definite_wrong_keys_not_visible_review_row(app, tmp_path, monkeypatch):
     mapping, csv = inputs(tmp_path)
     settings = AppSettings(mapping_path=str(mapping), sheet_url="https://docs.google.com/spreadsheets/d/example")

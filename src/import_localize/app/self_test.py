@@ -151,7 +151,7 @@ def run_self_test(report_path: str) -> int:
                     "keys": ["cf_damage_title"], "context_required": False, "variants": [], "rejected": []}],
             }), encoding="utf-8")
             mapped_csv = Path(directory) / "mapped.csv"
-            mapped_csv.write_text("Key,English,Vietnamese\ncf_damage_title,DMG,Wrong\n", encoding="utf-8")
+            mapped_csv.write_text("Key,English,Vietnamese,Portuguese (Brazil)\ncf_damage_title,DMG,Wrong,DNO\n", encoding="utf-8")
             window.settings.mapping_path = str(mapping)
             mapping_dialog = MappingDialog(window.settings, [mapped_csv], window)
             mapping_dialog.scan()
@@ -162,6 +162,9 @@ def run_self_test(report_path: str) -> int:
             assert mapping_dialog.worker is None, "Mapping audit timed out"
             assert mapping_dialog.report and mapping_dialog.report.wrong_keys == {"cf_damage_title"}, mapping_dialog.status.text()
             assert mapping_dialog.mark_button.isEnabled()
+            assert mapping_dialog.issues_table.rowCount() == 1
+            assert mapping_dialog.issues_table.item(0, 2).text() == "DMG"
+            assert mapping_dialog.issues_table.item(0, 4).text() == "DNO"
             assert not mapping_dialog.grab().isNull(), "Mapping results could not render"
             mapping_dialog.close()
             # Verify the packaged model without any network access, not just
