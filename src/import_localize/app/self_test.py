@@ -167,6 +167,13 @@ def run_self_test(report_path: str) -> int:
             assert "DMG" in mapping_dialog.issues_table.item(0, 2).text()
             assert "DNO" in mapping_dialog.issues_table.item(0, 2).text()
             assert not mapping_dialog.grab().isNull(), "Mapping results could not render"
+            mapping_dialog.toggle_focus_mode()
+            app.processEvents()
+            assert mapping_dialog.isFullScreen() and mapping_dialog.setup_panel.isHidden()
+            assert not mapping_dialog.grab().isNull(), "Focused mapping table could not render"
+            mapping_dialog.reject()  # Escape restores the normal layout.
+            app.processEvents()
+            assert not mapping_dialog.focus_mode and not mapping_dialog.files_table.isHidden()
             mapping_dialog.close()
             # Verify the packaged model without any network access, not just
             # an import of the Python wrapper around the native extension.

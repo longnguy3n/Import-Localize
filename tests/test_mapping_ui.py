@@ -10,6 +10,54 @@ from import_localize.ui.mapping_dialog import MappingDialog, MappingWorker, snap
 from test_unity_locale_ui import app
 
 
+def test_themed_resize_handles_and_focused_table_restore(app, tmp_path):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    paths = [tmp_path / f"DG_Localization - upload_{code}.csv" for code in ("en", "vi", "pt-BR")]
+    dialog = MappingDialog(AppSettings(), paths)
+    dialog.setStyleSheet((Path(__file__).parents[1] / "src/themes/light.qss").read_text(encoding="utf-8"))
+    try:
+        dialog.report = report(paths)
+        dialog.render_report()
+        dialog.set_busy(False)
+        dialog.resize(740, 720)
+        dialog.show()
+        QTest.qWait(120)
+        for table in (dialog.files_table, dialog.issues_table):
+            header = table.horizontalHeader()
+            before = table.columnWidth(0)
+            edge = header.sectionViewportPosition(0) + before - 1
+            QTest.mousePress(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(edge, 18))
+            QTest.mouseMove(header.viewport(), QPoint(edge + 45, 18))
+            QTest.mouseRelease(header.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(edge + 45, 18))
+            assert table.columnWidth(0) > before
+        dialog.fit_button.click()
+        QTest.qWait(120)
+        for column in range(dialog.files_table.columnCount()):
+            text = dialog.files_table.horizontalHeaderItem(column).text()
+            assert dialog.files_table.columnWidth(column) >= dialog.files_table.horizontalHeader().fontMetrics().horizontalAdvance(text) + 24
+        dialog.issues_table.setColumnWidth(2, 333)
+        dialog.issues_table.selectRow(0)
+        old_size = dialog.size()
+        dialog.focus_button.click()
+        app.processEvents()
+        assert dialog.isFullScreen() and dialog.focus_mode
+        assert dialog.setup_panel.isHidden() and dialog.files_table.isHidden()
+        assert dialog.issues_table.isVisible() and dialog.search.isVisible()
+        assert dialog.focus_button.isVisible()
+        QTest.keyClick(dialog, Qt.Key.Key_Escape)
+        QTest.qWait(120)
+        assert not dialog.isFullScreen() and not dialog.focus_mode
+        assert dialog.setup_panel.isVisible() and dialog.files_table.isVisible()
+        assert dialog.size() == old_size
+        assert dialog.issues_table.columnWidth(2) == 333
+        assert dialog.issues_table.currentRow() == 0
+    finally:
+        if dialog.focus_mode:
+            dialog.toggle_focus_mode()
+        dialog.reject()
+
+
 def inputs(tmp_path):
     mapping = tmp_path / "mapping.json"
     mapping.write_text("{}", encoding="utf-8")

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
     QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QWidget,
 )
 
 
@@ -70,25 +71,55 @@ class MappingTable(QTableWidget):
     def __init__(self, columns, parent=None):
         super().__init__(0, columns, parent)
         self.columns_fitted = False
+        self._shown_once = False
+        self.setObjectName("mappingTable")
+        self.setShowGrid(True)
         self.setWordWrap(True)
         self.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.horizontalHeader().setMinimumSectionSize(60)
+        self.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalHeader().setToolTip("Kéo vạch dọc giữa hai tiêu đề để chỉnh cột. Nhấp đúp để vừa nội dung.")
+        self.setStyleSheet("""
+            QTableWidget#mappingTable { gridline-color: #82998d; border-radius: 0px; }
+            QTableWidget#mappingTable QHeaderView::section {
+                border-right: 2px solid #718b7d;
+                border-bottom: 2px solid #718b7d;
+                padding: 9px 12px;
+            }
+            QTableWidget#mappingTable QHeaderView::section:hover { border-right: 3px solid #18a56f; }
+        """)
         self._row_timer = QTimer(self)
         self._row_timer.setSingleShot(True)
         self._row_timer.setInterval(80)
-        self._row_timer.timeout.connect(self.resizeRowsToContents)
+        self._row_timer.timeout.connect(self.resize_wrapped_rows)
         self.horizontalHeader().sectionResized.connect(lambda *_: self._row_timer.start())
 
     def fit_content(self, *, reset=False):
         if self.rowCount() and (reset or not self.columns_fitted):
+            self.ensurePolished()
+            self.horizontalHeader().ensurePolished()
             self.resizeColumnsToContents()
             # Long descriptions wrap instead of creating multi-screen columns.
             # This limit applies only to the initial fit, never to user drags.
             for column in range(self.columnCount()):
-                self.setColumnWidth(column, min(480, self.columnWidth(column)))
+                heading = self.horizontalHeaderItem(column)
+                header_width = self.horizontalHeader().fontMetrics().horizontalAdvance(heading.text()) + 38 if heading else 100
+                self.setColumnWidth(column, min(480, max(100, header_width, self.columnWidth(column) + 12)))
             self.columns_fitted = True
         self._row_timer.start()
+
+    def resize_wrapped_rows(self):
+        self.resizeRowsToContents()
+        if self.property("summaryTable"):
+            height = self.horizontalHeader().height() + sum(self.rowHeight(row) for row in range(min(4, self.rowCount()))) + 22
+            self.setMinimumHeight(min(260, max(100, height)))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._shown_once:
+            self._shown_once = True
+            self.fit_content(reset=True)
 
 
 class MappingDialog(QDialog):
@@ -103,13 +134,20 @@ class MappingDialog(QDialog):
         self.visible_keys = []
         self.key_issues = {}
         self.references = {}
+        self.focus_mode = False
+        self._normal_geometry = None
         self.setWindowTitle("Kiểm tra mapping — CSV → Translate_Data")
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(1180, 800)
         layout = QVBoxLayout(self)
+        self.setup_panel = QWidget(self)
+        setup_layout = QVBoxLayout(self.setup_panel)
+        setup_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.setup_panel)
         intro = QLabel("Đối chiếu thuật ngữ trong CSV với mapping.json v2. "
                        "Chỉ các key thuộc nhóm Sai mapping được đánh dấu trên Sheet; nhóm Cần xem ngữ cảnh giữ nguyên.")
         intro.setWordWrap(True)
-        layout.addWidget(intro)
+        setup_layout.addWidget(intro)
         form = QFormLayout()
         path_row = QHBoxLayout()
         self.mapping_edit = QLineEdit(settings.mapping_path)
@@ -126,7 +164,7 @@ class MappingDialog(QDialog):
         self.sheet_edit = QLineEdit(settings.sheet_url)
         self.sheet_edit.setPlaceholderText("Link Google Sheet để cập nhật Translate_Data")
         form.addRow("Sheet đích", self.sheet_edit)
-        layout.addLayout(form)
+        setup_layout.addLayout(form)
         actions = QHBoxLayout()
         self.folder_button = QPushButton("Chọn thư mục DG…")
         self.files_button = QPushButton("Chọn nhiều CSV…")
@@ -135,15 +173,15 @@ class MappingDialog(QDialog):
         for button in (self.folder_button, self.files_button, self.scan_button, self.stop_button):
             actions.addWidget(button)
         actions.addStretch()
-        layout.addLayout(actions)
+        setup_layout.addLayout(actions)
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self.status)
+        setup_layout.addWidget(self.status)
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
-        layout.addWidget(self.progress)
+        setup_layout.addWidget(self.progress)
         filters = QHBoxLayout()
         self.filter_combo = QComboBox()
         for label, value in (("Tất cả phát hiện", ""), ("Sai mapping", "wrong"), ("Cần xem ngữ cảnh", "review")):
@@ -152,21 +190,38 @@ class MappingDialog(QDialog):
         self.search.setPlaceholderText("Tìm key, thuật ngữ hoặc nội dung…")
         filters.addWidget(self.filter_combo)
         filters.addWidget(self.search, 1)
+        self.fit_button = QPushButton("Căn lại cột")
+        self.focus_button = QPushButton("Phóng to bảng")
+        self.focus_button.setToolTip("Toàn màn hình riêng vùng đối chiếu; Esc để trở lại.")
+        filters.addWidget(self.fit_button)
+        filters.addWidget(self.focus_button)
         layout.addLayout(filters)
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter = self.tables_splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setObjectName("mappingSplitter")
+        splitter.setHandleWidth(9)
+        splitter.setChildrenCollapsible(False)
+        splitter.setStyleSheet("""
+            QSplitter#mappingSplitter::handle:vertical { background: #82998d; margin: 2px 0; }
+            QSplitter#mappingSplitter::handle:vertical:hover { background: #18a56f; }
+        """)
         self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
+        self.files_table.setProperty("summaryTable", True)
         self.issues_table = self._table(["Trạng thái", "Key", "Mapping chuẩn / Lý do"])
         self.issues_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         splitter.addWidget(self.files_table)
         splitter.addWidget(self.issues_table)
         splitter.setSizes([170, 310])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter, 1)
         self.detail = QPlainTextEdit()
         self.detail.setReadOnly(True)
-        self.detail.setMaximumHeight(150)
+        self.detail.setMaximumHeight(90)
         self.detail.setPlaceholderText("Chọn một phát hiện để xem đầy đủ nguồn, bản dịch và lý do.")
         layout.addWidget(self.detail)
-        bottom = QHBoxLayout()
+        self.bottom_panel = QWidget(self)
+        bottom = QHBoxLayout(self.bottom_panel)
+        bottom.setContentsMargins(0, 0, 0, 0)
         self.all_files_button = QPushButton("Hiện tất cả file")
         self.mark_button = QPushButton("Ghi Wrong mapping vào Translate_Data!C")
         self.close_button = QPushButton("Đóng")
@@ -174,7 +229,9 @@ class MappingDialog(QDialog):
         bottom.addStretch()
         bottom.addWidget(self.mark_button)
         bottom.addWidget(self.close_button)
-        layout.addLayout(bottom)
+        layout.addWidget(self.bottom_panel)
+        self.fit_button.clicked.connect(self.fit_columns)
+        self.focus_button.clicked.connect(self.toggle_focus_mode)
         self.mapping_button.clicked.connect(self.choose_mapping)
         self.folder_button.clicked.connect(self.choose_folder)
         self.files_button.clicked.connect(self.choose_files)
@@ -189,6 +246,35 @@ class MappingDialog(QDialog):
         self.issues_table.itemSelectionChanged.connect(self.show_detail)
         self.all_files_button.clicked.connect(self.files_table.clearSelection)
         self.invalidate()
+
+    def fit_columns(self):
+        for table in (self.files_table, self.issues_table):
+            table.fit_content(reset=True)
+
+    def toggle_focus_mode(self):
+        if not self.focus_mode:
+            self._normal_geometry = self.saveGeometry()
+            self._was_maximized = self.isMaximized()
+            self._splitter_sizes = self.tables_splitter.sizes()
+            self._scroll_position = (self.issues_table.horizontalScrollBar().value(),
+                                     self.issues_table.verticalScrollBar().value())
+            self.focus_mode = True
+            for widget in (self.setup_panel, self.files_table, self.detail, self.bottom_panel):
+                widget.hide()
+            self.focus_button.setText("Thu gọn bảng (Esc)")
+            self.showFullScreen()
+        else:
+            self.focus_mode = False
+            self.showNormal()
+            for widget in (self.setup_panel, self.files_table, self.detail, self.bottom_panel):
+                widget.show()
+            self.restoreGeometry(self._normal_geometry)
+            if self._was_maximized:
+                self.showMaximized()
+            self.tables_splitter.setSizes(self._splitter_sizes)
+            self.focus_button.setText("Phóng to bảng")
+            self.issues_table.horizontalScrollBar().setValue(self._scroll_position[0])
+            self.issues_table.verticalScrollBar().setValue(self._scroll_position[1])
 
     def _table(self, headers):
         table = MappingTable(len(headers), self)
@@ -222,6 +308,7 @@ class MappingDialog(QDialog):
             widget.setEnabled(not busy)
         self.stop_button.setEnabled(busy)
         self.close_button.setEnabled(not busy)
+        self.focus_button.setEnabled(not busy)
         self.mark_button.setEnabled(not busy and bool(self.report and self.report.wrong_keys))
 
     def choose_mapping(self):
@@ -421,6 +508,9 @@ class MappingDialog(QDialog):
             sheet_url=url, snapshot=self.snapshot, parent=self))
 
     def reject(self):
+        if self.focus_mode:
+            self.toggle_focus_mode()
+            return
         if self.worker:
             self.stop()
             return
@@ -429,7 +519,10 @@ class MappingDialog(QDialog):
         super().reject()
 
     def closeEvent(self, event):
-        if self.worker:
+        if self.focus_mode:
+            self.toggle_focus_mode()
+            event.ignore()
+        elif self.worker:
             self.stop()
             event.ignore()
         else:
