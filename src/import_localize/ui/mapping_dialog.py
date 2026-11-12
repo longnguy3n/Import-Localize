@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from collections import defaultdict
 from pathlib import Path
+from import_localize.config.mapping_history import (
+    COMPLETE_STATES, MappingHistoryRepository, result_records, sheet_identity,
+)
 
 from PySide6.QtCore import QItemSelectionModel, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor
@@ -27,6 +31,7 @@ def snapshots(paths):
 
 class MappingWorker(QThread):
     progress = Signal(int, int, str)
+    mark_result = Signal(str, object)
 
     def __init__(self, mapping, paths, *, keys=None, sheet_url="", snapshot=None, parent=None):
         super().__init__(parent)
@@ -66,6 +71,7 @@ class MappingWorker(QThread):
                 self.result = mark_wrong_mapping(connection, self.keys,
                     progress_callback=report_mark_progress,
                     log_callback=lambda text: self.progress.emit(last_progress, 100, text),
+                    result_callback=lambda result: self.mark_result.emit(self.sheet_url, result),
                     cancel_callback=self.isInterruptionRequested)
         except Exception as exc:
             self.error = str(exc) or type(exc).__name__
@@ -158,9 +164,12 @@ class MappingTable(QTableWidget):
 
 
 class MappingDialog(QDialog):
-    def __init__(self, settings, paths=(), parent=None):
+    def __init__(self, settings, paths=(), parent=None, *, history_repository=None):
         super().__init__(parent)
         self.settings = settings
+        self.history_repository = history_repository or MappingHistoryRepository()
+        self.mark_history = self.history_repository.load()
+        self.history_error = ""
         self.paths = list(dict.fromkeys(Path(p) for p in (settings.mapping_csv_files or paths)))
         self.report = None
         self.snapshot = None
@@ -243,8 +252,7 @@ class MappingDialog(QDialog):
         self.focus_stop_button = QPushButton("Dừng ghi")
         self.focus_stop_button.hide()
         for widget in (self.select_visible_button, self.clear_selection_button, self.selection_label):
-            selection_actions.addWidget(widget)
-        selection_actions.addStretch()
+            selection_actions.addWidget(widget, 1 if widget is self.selection_label else 0)
         selection_actions.addWidget(self.focus_stop_button)
         selection_actions.addWidget(self.mark_button)
         layout.addLayout(selection_actions)
@@ -262,7 +270,7 @@ class MappingDialog(QDialog):
         """)
         self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
         self.files_table.setProperty("summaryTable", True)
-        self.issues_table = self._table(["Chọn", "Trạng thái", "Key", "Mapping chuẩn / Lý do"])
+        self.issues_table = self._table(["Chọn", "Trạng thái", "Key", "Ghi trên Sheet", "Mapping chuẩn / Lý do"])
         self.issues_table.setProperty("keyCheckboxes", True)
         self.issues_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.issues_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -299,6 +307,7 @@ class MappingDialog(QDialog):
         self.select_visible_button.clicked.connect(self.select_visible)
         self.clear_selection_button.clicked.connect(self.clear_key_selection)
         self.mapping_edit.textChanged.connect(self.invalidate)
+        self.sheet_edit.textChanged.connect(self.filter_rows)
         self.files_table.itemSelectionChanged.connect(self.filter_rows)
         self.filter_combo.currentIndexChanged.connect(self.filter_rows)
         self.search.textChanged.connect(self.filter_rows)
@@ -351,6 +360,9 @@ class MappingDialog(QDialog):
 
     def invalidate(self):
         self.report = None
+        self.key_issues = {}
+        self.visible_keys = []
+        self.visible_issues = []
         self.focus_status.clear()
         self.focus_status.hide()
         self.selected_keys.clear()
@@ -386,11 +398,69 @@ class MappingDialog(QDialog):
 
     def update_selection_ui(self):
         hidden = len(self.selected_keys - set(self.visible_keys))
-        self.selection_label.setText(f"Đã chọn {len(self.selected_keys)} key" + (f" · {hidden} đang ẩn bởi bộ lọc" if hidden else ""))
+        history = self.current_mark_history()
+        completed = sum(history.get(key, {}).get("status") in COMPLETE_STATES for key in self.key_issues)
+        self.selection_label.setText(f"Đã chọn {len(self.selected_keys)} key" + (f" · {hidden} đang ẩn bởi bộ lọc" if hidden else "")
+                                    + f" · Đã ghi/có sẵn: {completed} key")
         self.mark_button.setText(f"Ghi Wrong mapping ({len(self.selected_keys)})")
         self.mark_button.setEnabled(not self._busy and bool(self.report and self.selected_keys))
         self.select_visible_button.setEnabled(not self._busy and bool(self.report and self.visible_keys))
         self.clear_selection_button.setEnabled(not self._busy and bool(self.selected_keys))
+
+    def current_mark_history(self):
+        return self.mark_history.get(sheet_identity(self.sheet_edit.text()), {})
+
+    def mark_description(self, key):
+        record = self.current_mark_history().get(key)
+        if not record:
+            return "Chưa kiểm tra", "Chưa có kết quả ghi cho key này trên Sheet đích."
+        labels = {"written": "Đã ghi", "already": "Đã có sẵn", "pending": "Chưa ghi",
+                  "partial": "Đã ghi một phần", "uncertain": "Chưa rõ kết quả", "missing": "Không tìm thấy key"}
+        label = labels[record["status"]]
+        total, confirmed = record["total_rows"], record["confirmed_rows"]
+        if total:
+            label += f" · {confirmed}/{total} hàng"
+        try:
+            checked_at = datetime.fromisoformat(record["checked_at"]).astimezone().strftime("%d/%m/%Y %H:%M:%S")
+        except ValueError:
+            checked_at = record["checked_at"]
+        detail = (f"{label}\nGhi nhận: {checked_at}\n"
+                  f"Mới ghi: {record['updated_rows']} hàng; chưa xác nhận: {record['uncertain_rows']} hàng.\n"
+                  "Đây là kết quả lần kiểm tra/ghi gần nhất trên Sheet đích. App đọc lại Sheet khi ghi tiếp.")
+        return label, detail
+
+    @Slot(str, object)
+    def on_mark_result(self, sheet_url, result):
+        identity = sheet_identity(sheet_url)
+        if not identity:
+            return
+        self.mark_history.setdefault(identity, {}).update(result_records(result))
+        try:
+            self.history_repository.save(self.mark_history)
+            self.history_error = ""
+        except OSError:
+            self.history_error = "Không lưu được lịch sử ghi trên máy; kết quả hiện tại vẫn được hiển thị."
+        if identity == sheet_identity(self.sheet_edit.text()):
+            self.selected_keys.difference_update(item.key for item in result.key_results if item.status in COMPLETE_STATES)
+            # Update cells in place: no rebuilding rows or resetting scroll/width.
+            for row, key in enumerate(self.visible_keys):
+                self.set_mark_cell(row, key)
+            self.sync_key_selection()
+            self.issues_table.fit_content()
+
+    def set_mark_cell(self, row, key):
+        text, tooltip = self.mark_description(key)
+        item = QTableWidgetItem(text)
+        item.setToolTip(tooltip)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        state = self.current_mark_history().get(key, {}).get("status")
+        if state in COMPLETE_STATES:
+            item.setBackground(QColor("#dcfce7"))
+            item.setForeground(QColor("#166534"))
+        elif state in {"partial", "uncertain", "missing"}:
+            item.setBackground(QColor("#fef3c7"))
+            item.setForeground(QColor("#92400e"))
+        self.issues_table.setItem(row, 3, item)
 
     def sync_key_selection(self):
         self._selection_sync = True
@@ -461,6 +531,7 @@ class MappingDialog(QDialog):
         self.set_busy(True)
         self.progress.setRange(0, 0)
         worker.progress.connect(self.on_progress)
+        worker.mark_result.connect(self.on_mark_result)
         worker.finished.connect(self.finished_work)
         worker.start()
 
@@ -509,6 +580,8 @@ class MappingDialog(QDialog):
             self.detail.setPlainText("Key không tìm thấy trong Translate_Data:\n" + "\n".join(sorted(result.missing_keys)))
         worker.deleteLater()
         self.set_busy(False)
+        if self.history_error:
+            self.status.setText(self.status.text() + "\n" + self.history_error)
         self.focus_status.setText(self.status.text())
         self.focus_status.setVisible(self.focus_mode)
 
@@ -528,9 +601,9 @@ class MappingDialog(QDialog):
             reference = (issue.path, issue.line, issue.actual)
             if reference not in self.references[issue.key][issue.locale]:
                 self.references[issue.key][issue.locale].append(reference)
-        self.issues_table.setColumnCount(len(report.files) + 4)
-        self.issues_table.setHorizontalHeaderLabels(["Chọn", "Trạng thái", "Key", *[p.name for p in report.files], "Mapping chuẩn / Lý do"])
-        for col, path in enumerate(report.files, start=3):
+        self.issues_table.setColumnCount(len(report.files) + 5)
+        self.issues_table.setHorizontalHeaderLabels(["Chọn", "Trạng thái", "Key", "Ghi trên Sheet", *[p.name for p in report.files], "Mapping chuẩn / Lý do"])
+        for col, path in enumerate(report.files, start=4):
             self.issues_table.horizontalHeaderItem(col).setToolTip(str(path))
         self.issues_table.columns_fitted = False
         self.files_table.setRowCount(0)
@@ -576,7 +649,7 @@ class MappingDialog(QDialog):
             wrong = any(i.status == "wrong" for i in issues)
             row = self.issues_table.rowCount()
             self.issues_table.insertRow(row)
-            values = ["", "Sai mapping" if wrong else "Cần xem ngữ cảnh", key]
+            values = ["", "Sai mapping" if wrong else "Cần xem ngữ cảnh", key, ""]
             for file_path in self.report.files:
                 refs = [(locale, line, value) for locale, entries in self.references[key].items()
                         for p, line, value in entries if p == file_path]
@@ -594,18 +667,19 @@ class MappingDialog(QDialog):
                     item.setCheckState(Qt.CheckState.Checked if key in self.selected_keys else Qt.CheckState.Unchecked)
                 item.setToolTip(value)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-                file_column = 3 <= col < len(self.report.files) + 3
-                affected = issues if col == 1 else [i for i in issues if file_column and i.path == self.report.files[col - 3]]
+                file_column = 4 <= col < len(self.report.files) + 4
+                affected = issues if col == 1 else [i for i in issues if file_column and i.path == self.report.files[col - 4]]
                 if affected:
                     definite = any(i.status == "wrong" for i in affected)
                     item.setBackground(QColor("#fee2e2" if definite else "#fef3c7"))
                     item.setForeground(QColor("#7f1d1d" if definite else "#78350f"))
                 if file_column:
-                    file_path = self.report.files[col - 3]
+                    file_path = self.report.files[col - 4]
                     refs = [(locale, line, v) for locale, entries in self.references[key].items()
                             for p, line, v in entries if p == file_path]
                     item.setToolTip(str(file_path) + "\n\n" + "\n\n".join(f"{locale} · Dòng {line}\n{v}" for locale, line, v in refs))
                 self.issues_table.setItem(row, col, item)
+            self.set_mark_cell(row, key)
         self.issues_table.fit_content()
         self.issues_table.blockSignals(False)
         self.sync_key_selection()
@@ -616,7 +690,7 @@ class MappingDialog(QDialog):
             self.detail.clear()
             return
         key = self.visible_keys[rows[0].row()]
-        lines = [f"Key: {key}"]
+        lines = [f"Key: {key}", self.mark_description(key)[1]]
         for file_path in self.report.files:
             lines.append(f"\n{file_path} — Tham chiếu")
             refs = [(locale, line, v) for locale, entries in self.references[key].items()

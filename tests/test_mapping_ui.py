@@ -10,6 +10,97 @@ from import_localize.ui.mapping_dialog import MappingDialog, MappingWorker, snap
 from test_unity_locale_ui import app
 
 
+def test_mark_history_survives_reopen_is_scoped_to_sheet_and_unchecks_only_completed(app, tmp_path):
+    from import_localize.config.mapping_history import MappingHistoryRepository
+    from import_localize.services.mapping_sheet_service import MappingKeyResult, MappingMarkResult
+    mapping, csv = inputs(tmp_path)
+    repo = MappingHistoryRepository(tmp_path / "history.json")
+    settings = AppSettings(mapping_path=str(mapping), sheet_url="https://docs.google.com/spreadsheets/d/sheet-one/edit")
+    dialog = MappingDialog(settings, [csv], history_repository=repo)
+    try:
+        dialog.report = report([csv])
+        dialog.render_report()
+        dialog.select_visible()
+        dialog.on_mark_result(settings.sheet_url, MappingMarkResult(key_results=(
+            MappingKeyResult("cf_hp_title", "written", 2, 2, 2),
+            MappingKeyResult("cf_story_desc", "uncertain", 0, 1, 0, 1))))
+        assert dialog.selected_keys == {"cf_story_desc"}
+        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
+        assert "2/2 hàng" in dialog.issues_table.item(0, 3).text()
+        assert "Chưa rõ kết quả" in dialog.issues_table.item(1, 3).text()
+        dialog.search.setText("cf_hp_title")
+        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
+        dialog.sheet_edit.setText("https://docs.google.com/spreadsheets/d/sheet-two/edit")
+        assert dialog.issues_table.item(0, 3).text() == "Chưa kiểm tra"
+        dialog.sheet_edit.setText(settings.sheet_url + "#gid=42")
+        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
+    finally:
+        dialog.reject()
+    reopened = MappingDialog(settings, [csv], history_repository=MappingHistoryRepository(repo.path))
+    try:
+        reopened.report = report([csv])
+        reopened.render_report()
+        assert "Đã ghi" in reopened.issues_table.item(0, 3).text()
+        assert "Chưa rõ kết quả" in reopened.issues_table.item(1, 3).text()
+        # Live feedback supersedes an old success if the Sheet was edited.
+        reopened.on_mark_result(settings.sheet_url, MappingMarkResult(key_results=(
+            MappingKeyResult("cf_hp_title", "pending", 0, 2),)))
+        assert "Chưa ghi" in reopened.issues_table.item(0, 3).text()
+    finally:
+        reopened.reject()
+
+
+def test_history_save_error_does_not_lose_live_status(app, tmp_path, monkeypatch):
+    from import_localize.config.mapping_history import MappingHistoryRepository
+    from import_localize.services.mapping_sheet_service import MappingKeyResult, MappingMarkResult
+    _, csv = inputs(tmp_path)
+    repo = MappingHistoryRepository(tmp_path / "history.json")
+    dialog = MappingDialog(AppSettings(sheet_url="https://docs.google.com/spreadsheets/d/sheet-one"), [csv], history_repository=repo)
+    def fail_save(data):
+        raise OSError("disk unavailable")
+    monkeypatch.setattr(repo, "save", fail_save)
+    try:
+        dialog.report = report([csv])
+        dialog.render_report()
+        dialog.on_mark_result(dialog.sheet_edit.text(), MappingMarkResult(key_results=(
+            MappingKeyResult("cf_hp_title", "already", 1, 1),)))
+        assert "Đã có sẵn" in dialog.issues_table.item(0, 3).text()
+        assert "Không lưu được lịch sử" in dialog.history_error
+    finally:
+        dialog.reject()
+
+
+def test_worker_partial_error_keeps_per_key_feedback_on_gui(app, tmp_path, monkeypatch):
+    from import_localize.config.mapping_history import MappingHistoryRepository
+    from import_localize.services import google_service, mapping_sheet_service
+    from import_localize.services.mapping_sheet_service import MappingKeyResult, MappingMarkResult
+    mapping, csv = inputs(tmp_path)
+    settings = AppSettings(mapping_path=str(mapping), sheet_url="https://docs.google.com/spreadsheets/d/test-target")
+    dialog = MappingDialog(settings, [csv], history_repository=MappingHistoryRepository(tmp_path / "history.json"))
+    monkeypatch.setattr(google_service, "connect_to_spreadsheet", lambda *a, **kw: object())
+    def mark(*args, result_callback, **kwargs):
+        result_callback(MappingMarkResult(updated_rows=1, key_results=(
+            MappingKeyResult("cf_hp_title", "written", 1, 1, 1),
+            MappingKeyResult("cf_story_desc", "uncertain", 0, 1, 0, 1))))
+        raise google_service.GoogleServiceError("Mất phản hồi ở lô cuối")
+    monkeypatch.setattr(mapping_sheet_service, "mark_wrong_mapping", mark)
+    try:
+        dialog.report = report([csv])
+        dialog.snapshot = snapshots([mapping, csv])
+        dialog.render_report()
+        dialog.select_visible()
+        dialog.launch(MappingWorker(mapping, [csv], keys=set(dialog.selected_keys),
+                      sheet_url=settings.sheet_url, snapshot=dialog.snapshot, parent=dialog))
+        drain(app, dialog)
+        assert "Mất phản hồi" in dialog.status.text()
+        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
+        assert "Chưa rõ kết quả" in dialog.issues_table.item(1, 3).text()
+        assert dialog.selected_keys == {"cf_story_desc"}
+        assert "written" == dialog.history_repository.load()["test-target"]["cf_hp_title"]["status"]
+    finally:
+        dialog.reject()
+
+
 def test_themed_resize_handles_and_focused_table_restore(app, tmp_path):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
@@ -191,7 +282,7 @@ def test_file_summary_filters_and_full_content(app, tmp_path):
         assert not dialog.mark_button.isEnabled()
         dialog.files_table.selectRow(1)
         assert dialog.issues_table.rowCount() == 1
-        assert dialog.issues_table.columnCount() == 6
+        assert dialog.issues_table.columnCount() == 7
         dialog.issues_table.selectRow(0)
         assert "<b>Frostbite</b>" in dialog.detail.toPlainText()
         dialog.all_files_button.click()
@@ -224,18 +315,18 @@ def test_one_key_row_has_one_column_per_file_including_same_language(app, tmp_pa
         dialog.report = result
         dialog.render_report()
         assert dialog.issues_table.rowCount() == 1
-        assert dialog.issues_table.columnCount() == 8
-        assert dialog.issues_table.item(0, 3).text() == "Damage"
-        assert dialog.issues_table.item(0, 5).text() == "DNO"
-        text = dialog.issues_table.item(0, 4).text()
-        assert dialog.issues_table.horizontalHeaderItem(4).text() == "export_vi.csv"
-        assert dialog.issues_table.horizontalHeaderItem(6).text() == "upload_vi.csv"
+        assert dialog.issues_table.columnCount() == 9
+        assert dialog.issues_table.item(0, 4).text() == "Damage"
+        assert dialog.issues_table.item(0, 6).text() == "DNO"
+        text = dialog.issues_table.item(0, 5).text()
+        assert dialog.issues_table.horizontalHeaderItem(5).text() == "export_vi.csv"
+        assert dialog.issues_table.horizontalHeaderItem(7).text() == "upload_vi.csv"
         assert text == "Wrong\ntranslation"
-        assert dialog.issues_table.item(0, 6).text() == "Another version"
+        assert dialog.issues_table.item(0, 7).text() == "Another version"
         dialog.files_table.selectRow(1)
         assert dialog.issues_table.rowCount() == 1
-        assert dialog.issues_table.item(0, 3).text() == "Damage"
-        assert dialog.issues_table.item(0, 5).text() == "DNO"
+        assert dialog.issues_table.item(0, 4).text() == "Damage"
+        assert dialog.issues_table.item(0, 6).text() == "DNO"
         dialog.issues_table.selectRow(0)
         assert str(pt) in dialog.detail.toPlainText()
         dialog.show()

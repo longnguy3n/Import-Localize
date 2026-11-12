@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from collections import Counter
+from typing import Callable, Iterable
 
 from import_localize.services.google_service import (
     CancelCallback, GoogleServiceError, LogCallback, ProgressCallback, SheetConnection,
@@ -28,12 +29,23 @@ def _key_ranges(column: str, rows: Iterable[int]) -> list[tuple[int, int, str]]:
 
 
 @dataclass(frozen=True)
+class MappingKeyResult:
+    key: str
+    status: str
+    confirmed_rows: int = 0
+    total_rows: int = 0
+    updated_rows: int = 0
+    uncertain_rows: int = 0
+
+
+@dataclass(frozen=True)
 class MappingMarkResult:
     updated_rows: int = 0
     already_marked_rows: int = 0
     matched_keys: tuple[str, ...] = ()
     missing_keys: tuple[str, ...] = ()
     replaced_formula_rows: int = 0
+    key_results: tuple[MappingKeyResult, ...] = ()
 
 
 def _cell(row: list, index: int) -> str:
@@ -66,6 +78,7 @@ def mark_wrong_mapping(
     progress_callback: ProgressCallback = None,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
+    result_callback: Callable[[MappingMarkResult], None] | None = None,
 ) -> MappingMarkResult:
     """Read live row positions and set only matching C cells to a RAW literal.
 
@@ -123,16 +136,42 @@ def mark_wrong_mapping(
     missing = tuple(sorted(requested - found))
     already = sum(value == MARKER for _, _, value in matches)
     pending = [(row, key, value) for row, key, value in matches if value != MARKER]
+    totals = Counter(key for _, key, _ in matches)
+    confirmed = Counter(key for _, key, value in matches if value == MARKER)
+    written = Counter()
+    uncertain = Counter()
+    updated = 0
+    replaced_formulas = 0
+
+    def publish_result() -> MappingMarkResult:
+        details = []
+        for key in sorted(requested):
+            if key not in found:
+                state = "missing"
+            elif uncertain[key]:
+                state = "uncertain"
+            elif confirmed[key] == totals[key]:
+                state = "written" if written[key] else "already"
+            elif confirmed[key]:
+                state = "partial"
+            else:
+                state = "pending"
+            details.append(MappingKeyResult(key, state, confirmed[key], totals[key], written[key], uncertain[key]))
+        result = MappingMarkResult(updated, already, tuple(sorted(found)), missing,
+                                   replaced_formulas, tuple(details))
+        if result_callback:
+            result_callback(result)
+        return result
+
+    current_result = publish_result()
     if missing:
         _log(log_callback, f"{len(missing)} key không có trong Translate_Data; các key này không được ghi.")
     if not pending:
         _progress(progress_callback, 100, "Không có ô cần thay đổi")
-        return MappingMarkResult(0, already, tuple(sorted(found)), missing)
+        return current_result
 
     _check_status_array_formulas(statuses)
 
-    updated = 0
-    replaced_formulas = 0
     submitted = False
     try:
         for offset in range(0, len(pending), WRITE_BATCH_SIZE):
@@ -167,6 +206,8 @@ def mark_wrong_mapping(
                     raise GoogleServiceError(f"Hàng {number} đã thay đổi trong lúc kiểm tra; hãy chạy lại.")
             _check_cancel(cancel_callback)
             submitted = True
+            uncertain.update(key for _, key, _ in chunk)
+            publish_result()
             response = _request_with_retry(
                 connection.authorized_session, "POST", base + "/values:batchUpdate",
                 action="Đánh dấu Wrong mapping", log_callback=log_callback,
@@ -182,10 +223,16 @@ def mark_wrong_mapping(
                 raise GoogleServiceError("Google trả số ô cập nhật không khớp yêu cầu; cần kiểm tra lại tab.")
             updated += count
             replaced_formulas += sum(old_value.startswith("=") for _, _, old_value in chunk)
+            for _, key, _ in chunk:
+                confirmed[key] += 1
+                written[key] += 1
+                uncertain[key] -= 1
             submitted = False
+            current_result = publish_result()
             _progress(progress_callback, 15 + round(85 * updated / len(pending)),
                       f"Đã đánh dấu {updated}/{len(pending)} ô Wrong mapping")
     except Exception as exc:
+        publish_result()
         if updated or submitted:
             uncertainty = " Yêu cầu cuối đã gửi; có thể đã ghi dù chưa nhận được xác nhận." if submitted else ""
             raise GoogleServiceError(
@@ -194,4 +241,4 @@ def mark_wrong_mapping(
             ) from exc
         raise
     _log(log_callback, f"Đã đánh dấu {updated} ô (thay {replaced_formulas} công thức riêng); {already} ô đã là Wrong mapping; {len(missing)} key không tìm thấy.")
-    return MappingMarkResult(updated, already, tuple(sorted(found)), missing, replaced_formulas)
+    return current_result

@@ -317,3 +317,63 @@ def test_formula_changed_to_same_displayed_result_stops_before_write():
     with pytest.raises(GoogleServiceError, match="đã thay đổi"):
         service.mark_wrong_mapping(conn, {"a"})
     assert conn.authorized_session.writes == 0
+
+
+def test_key_results_distinguish_written_existing_missing_and_partial_duplicates(monkeypatch):
+    monkeypatch.setattr(service, "WRITE_BATCH_SIZE", 1)
+    conn = connection([HEADERS, ["", "a", "new"], ["", "a", "new"],
+                       ["", "b", "Wrong mapping"]])
+    events = []
+    result = service.mark_wrong_mapping(conn, {"a", "b", "missing"}, result_callback=events.append)
+    initial = {item.key: item for item in events[0].key_results}
+    assert initial["a"].status == "pending" and initial["a"].total_rows == 2
+    assert initial["b"].status == "already"
+    assert initial["missing"].status == "missing"
+    partials = [i for event in events for i in event.key_results if i.key == "a" and i.status == "partial"]
+    assert partials and partials[0].confirmed_rows == 1 and partials[0].total_rows == 2
+    final = {item.key: item for item in result.key_results}
+    assert final["a"].status == "written" and final["a"].confirmed_rows == 2
+    assert final["a"].updated_rows == 2
+    assert final["b"].status == "already"
+
+
+def test_partial_failure_preserves_finished_keys_and_marks_only_last_batch_uncertain(monkeypatch):
+    from requests.exceptions import ReadTimeout
+    monkeypatch.setattr(service, "WRITE_BATCH_SIZE", 1)
+    conn = connection([HEADERS, ["", "a", ""], ["", "b", ""], ["", "c", ""]])
+    events = []
+    original = conn.authorized_session.request
+    def lose_second_response(method, url, **kwargs):
+        response = original(method, url, **kwargs)
+        if method == "POST" and conn.authorized_session.writes == 2:
+            raise ReadTimeout("accepted but response lost")
+        return response
+    conn.authorized_session.request = lose_second_response
+    with pytest.raises(GoogleServiceError, match="Đã xác nhận cập nhật 1 ô"):
+        service.mark_wrong_mapping(conn, {"a", "b", "c"}, result_callback=events.append)
+    states = {item.key: item for item in events[-1].key_results}
+    assert states["a"].status == "written"
+    assert states["b"].status == "uncertain" and states["b"].confirmed_rows == 0
+    assert states["b"].uncertain_rows == 1
+    assert states["c"].status == "pending"
+    assert conn.authorized_session.writes == 2
+    conn.authorized_session.request = original
+    result = service.mark_wrong_mapping(conn, {"a", "b", "c"})
+    assert result.updated_rows == 1 and result.already_marked_rows == 2
+    assert {i.key: i.status for i in result.key_results} == {"a": "already", "b": "already", "c": "written"}
+
+
+def test_cancel_between_batches_keeps_first_key_confirmed(monkeypatch):
+    monkeypatch.setattr(service, "WRITE_BATCH_SIZE", 1)
+    conn = connection([HEADERS, ["", "a", ""], ["", "b", ""]])
+    events = []
+    cancelled = False
+    def receive(result):
+        nonlocal cancelled
+        events.append(result)
+        cancelled = result.updated_rows == 1
+    with pytest.raises(GoogleServiceError, match="Đã xác nhận cập nhật 1 ô"):
+        service.mark_wrong_mapping(conn, {"a", "b"}, result_callback=receive,
+                                   cancel_callback=lambda: cancelled)
+    assert {i.key: i.status for i in events[-1].key_results} == {"a": "written", "b": "pending"}
+    assert conn.authorized_session.writes == 1

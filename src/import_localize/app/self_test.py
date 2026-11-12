@@ -165,9 +165,9 @@ def run_self_test(report_path: str) -> int:
             mapping_dialog.issues_table.selectRow(0)
             assert mapping_dialog.mark_button.isEnabled()
             assert mapping_dialog.issues_table.rowCount() == 1
-            assert mapping_dialog.issues_table.columnCount() == 5
-            assert "DMG" in mapping_dialog.issues_table.item(0, 3).text()
-            assert "DNO" in mapping_dialog.issues_table.item(0, 3).text()
+            assert mapping_dialog.issues_table.columnCount() == 6
+            assert "DMG" in mapping_dialog.issues_table.item(0, 4).text()
+            assert "DNO" in mapping_dialog.issues_table.item(0, 4).text()
             assert not mapping_dialog.grab().isNull(), "Mapping results could not render"
             mapping_dialog.toggle_focus_mode()
             app.processEvents()
