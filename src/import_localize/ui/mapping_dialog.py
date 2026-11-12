@@ -10,11 +10,11 @@ from import_localize.config.mapping_history import (
 )
 
 from PySide6.QtCore import QItemSelectionModel, QThread, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
-    QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
     QWidget,
 )
 
@@ -94,15 +94,7 @@ class MappingTable(QTableWidget):
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.horizontalHeader().setToolTip("Kéo vạch dọc giữa hai tiêu đề để chỉnh cột. Nhấp đúp để vừa nội dung.")
-        self.setStyleSheet("""
-            QTableWidget#mappingTable { gridline-color: #82998d; border-radius: 0px; }
-            QTableWidget#mappingTable QHeaderView::section {
-                border-right: 2px solid #718b7d;
-                border-bottom: 2px solid #718b7d;
-                padding: 9px 12px;
-            }
-            QTableWidget#mappingTable QHeaderView::section:hover { border-right: 3px solid #18a56f; }
-        """)
+        self.setStyleSheet("QTableWidget#mappingTable { border-radius: 0px; }")
         self._row_timer = QTimer(self)
         self._row_timer.setSingleShot(True)
         self._row_timer.setInterval(80)
@@ -191,10 +183,32 @@ class MappingDialog(QDialog):
         setup_layout = QVBoxLayout(self.setup_panel)
         setup_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.setup_panel)
-        intro = QLabel("Đối chiếu thuật ngữ trong CSV với mapping.json v2. "
-                       "Tick hoặc giữ Ctrl/Shift để chọn nhiều dòng key rồi ghi Wrong mapping theo lựa chọn.")
+        intro = QLabel("Đối chiếu thuật ngữ trong CSV, sau đó chọn key để ghi Wrong mapping lên Sheet.")
         intro.setWordWrap(True)
+        intro.setProperty("muted", True)
         setup_layout.addWidget(intro)
+        source_bar = QHBoxLayout()
+        self.source_toggle = QToolButton()
+        self.source_toggle.setText("Nguồn CSV và Sheet đích")
+        self.source_toggle.setCheckable(True)
+        self.source_toggle.setChecked(True)
+        self.source_toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self.source_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.source_summary = QLabel()
+        self.source_summary.setProperty("muted", True)
+        self.source_summary.setWordWrap(True)
+        self.scan_button = QPushButton("Kiểm tra mapping")
+        self.scan_button.setProperty("primaryAction", True)
+        self.stop_button = QPushButton("Dừng")
+        self.stop_button.setProperty("dangerAction", True)
+        source_bar.addWidget(self.source_toggle)
+        source_bar.addWidget(self.source_summary, 1)
+        source_bar.addWidget(self.stop_button)
+        source_bar.addWidget(self.scan_button)
+        setup_layout.addLayout(source_bar)
+        self.source_panel = QWidget()
+        source_layout = QVBoxLayout(self.source_panel)
+        source_layout.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
         path_row = QHBoxLayout()
         self.mapping_edit = QLineEdit(settings.mapping_path)
@@ -211,16 +225,15 @@ class MappingDialog(QDialog):
         self.sheet_edit = QLineEdit(settings.sheet_url)
         self.sheet_edit.setPlaceholderText("Link Google Sheet để cập nhật Translate_Data")
         form.addRow("Sheet đích", self.sheet_edit)
-        setup_layout.addLayout(form)
+        source_layout.addLayout(form)
         actions = QHBoxLayout()
         self.folder_button = QPushButton("Chọn thư mục DG…")
         self.files_button = QPushButton("Chọn nhiều CSV…")
-        self.scan_button = QPushButton("Kiểm tra mapping")
-        self.stop_button = QPushButton("Dừng")
-        for button in (self.folder_button, self.files_button, self.scan_button, self.stop_button):
+        for button in (self.folder_button, self.files_button):
             actions.addWidget(button)
         actions.addStretch()
-        setup_layout.addLayout(actions)
+        source_layout.addLayout(actions)
+        setup_layout.addWidget(self.source_panel)
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -228,6 +241,7 @@ class MappingDialog(QDialog):
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
+        self.progress.hide()
         setup_layout.addWidget(self.progress)
         filters = QHBoxLayout()
         self.filter_combo = QComboBox()
@@ -235,6 +249,7 @@ class MappingDialog(QDialog):
             self.filter_combo.addItem(label, value)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Tìm key, thuật ngữ hoặc nội dung…")
+        self.search.setClearButtonEnabled(True)
         filters.addWidget(self.filter_combo)
         filters.addWidget(self.search, 1)
         self.fit_button = QPushButton("Căn lại cột")
@@ -244,11 +259,13 @@ class MappingDialog(QDialog):
         filters.addWidget(self.focus_button)
         layout.addLayout(filters)
         selection_actions = QHBoxLayout()
-        self.select_visible_button = QPushButton("Chọn các dòng hiện có")
+        self.select_visible_button = QPushButton("Chọn tất cả đang hiện")
+        self.select_visible_button.setToolTip("Chọn các key đang hiển thị. Giữ Ctrl/Shift hoặc dùng ô tick để chọn từng nhóm.")
         self.clear_selection_button = QPushButton("Bỏ chọn hết")
         self.selection_label = QLabel("Đã chọn 0 key")
         self.selection_label.setWordWrap(True)
         self.mark_button = QPushButton("Ghi Wrong mapping (0)")
+        self.mark_button.setProperty("primaryAction", True)
         self.focus_stop_button = QPushButton("Dừng ghi")
         self.focus_stop_button.hide()
         for widget in (self.select_visible_button, self.clear_selection_button, self.selection_label):
@@ -264,10 +281,6 @@ class MappingDialog(QDialog):
         splitter.setObjectName("mappingSplitter")
         splitter.setHandleWidth(9)
         splitter.setChildrenCollapsible(False)
-        splitter.setStyleSheet("""
-            QSplitter#mappingSplitter::handle:vertical { background: #82998d; margin: 2px 0; }
-            QSplitter#mappingSplitter::handle:vertical:hover { background: #18a56f; }
-        """)
         self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
         self.files_table.setProperty("summaryTable", True)
         self.issues_table = self._table(["Chọn", "Trạng thái", "Key", "Ghi trên Sheet", "Mapping chuẩn / Lý do"])
@@ -284,11 +297,13 @@ class MappingDialog(QDialog):
         self.detail.setReadOnly(True)
         self.detail.setMaximumHeight(90)
         self.detail.setPlaceholderText("Chọn một phát hiện để xem đầy đủ nguồn, bản dịch và lý do.")
+        self.detail.hide()
         layout.addWidget(self.detail)
         self.bottom_panel = QWidget(self)
         bottom = QHBoxLayout(self.bottom_panel)
         bottom.setContentsMargins(0, 0, 0, 0)
         self.all_files_button = QPushButton("Hiện tất cả file")
+        self.all_files_button.setToolTip("Bỏ bộ lọc file được chọn trong bảng tổng hợp phía trên.")
         self.close_button = QPushButton("Đóng")
         bottom.addWidget(self.all_files_button)
         bottom.addStretch()
@@ -296,6 +311,7 @@ class MappingDialog(QDialog):
         layout.addWidget(self.bottom_panel)
         self.fit_button.clicked.connect(self.fit_columns)
         self.focus_button.clicked.connect(self.toggle_focus_mode)
+        self.source_toggle.toggled.connect(self.toggle_sources)
         self.mapping_button.clicked.connect(self.choose_mapping)
         self.folder_button.clicked.connect(self.choose_folder)
         self.files_button.clicked.connect(self.choose_files)
@@ -316,6 +332,15 @@ class MappingDialog(QDialog):
         self.issues_table.itemChanged.connect(self.checkbox_changed)
         self.all_files_button.clicked.connect(self.files_table.clearSelection)
         self.invalidate()
+
+    def toggle_sources(self, expanded):
+        self.source_panel.setVisible(expanded)
+        self.source_toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+
+    def update_source_summary(self):
+        mapping = Path(self.mapping_edit.text()).name if self.mapping_edit.text() else "chưa chọn mapping"
+        self.source_summary.setText(f"{len(self.paths)} CSV · {mapping}")
+        self.source_summary.setToolTip("\n".join([self.mapping_edit.text(), *map(str, self.paths)]))
 
     def fit_columns(self):
         for table in (self.files_table, self.issues_table):
@@ -339,6 +364,7 @@ class MappingDialog(QDialog):
             self.showNormal()
             for widget in (self.setup_panel, self.files_table, self.detail, self.bottom_panel):
                 widget.show()
+            self.detail.setVisible(bool(self.detail.toPlainText()))
             self.restoreGeometry(self._normal_geometry)
             if self._was_maximized:
                 self.showMaximized()
@@ -372,7 +398,9 @@ class MappingDialog(QDialog):
         self.issues_table.setRowCount(0)
         self.issues_table.columns_fitted = False
         self.detail.clear()
-        self.status.setText(f"Đã chọn {len(self.paths)} file CSV. Bấm Kiểm tra mapping để đọc toàn bộ các file này.")
+        self.detail.hide()
+        self.update_source_summary()
+        self.status.setText("Bấm Kiểm tra mapping để đối chiếu các CSV đã chọn." if self.paths else "Chọn thư mục DG hoặc các file CSV để bắt đầu.")
         for path in self.paths:
             row = self.files_table.rowCount()
             self.files_table.insertRow(row)
@@ -389,6 +417,9 @@ class MappingDialog(QDialog):
                        self.files_button, self.scan_button, self.sheet_edit):
             widget.setEnabled(not busy)
         self.stop_button.setEnabled(busy)
+        self.stop_button.setVisible(busy)
+        self.progress.setVisible(busy)
+        self.source_toggle.setEnabled(not busy)
         self.close_button.setEnabled(not busy)
         self.focus_button.setEnabled(not busy)
         self.issues_table.setEnabled(not busy)
@@ -454,12 +485,13 @@ class MappingDialog(QDialog):
         item.setToolTip(tooltip)
         item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         state = self.current_mark_history().get(key, {}).get("status")
+        dark = self.issues_table.palette().color(QPalette.ColorRole.Base).lightness() < 128
         if state in COMPLETE_STATES:
-            item.setBackground(QColor("#dcfce7"))
-            item.setForeground(QColor("#166534"))
+            item.setBackground(QColor("#173d2a" if dark else "#dcfce7"))
+            item.setForeground(QColor("#bbf7d0" if dark else "#166534"))
         elif state in {"partial", "uncertain", "missing"}:
-            item.setBackground(QColor("#fef3c7"))
-            item.setForeground(QColor("#92400e"))
+            item.setBackground(QColor("#45371d" if dark else "#fef3c7"))
+            item.setForeground(QColor("#fde68a" if dark else "#92400e"))
         self.issues_table.setItem(row, 3, item)
 
     def sync_key_selection(self):
@@ -578,6 +610,7 @@ class MappingDialog(QDialog):
                 f"đã thay công thức riêng: {result.replaced_formula_rows} ô; "
                 f"đã có sẵn: {result.already_marked_rows} hàng; không tìm thấy: {len(result.missing_keys)} key.")
             self.detail.setPlainText("Key không tìm thấy trong Translate_Data:\n" + "\n".join(sorted(result.missing_keys)))
+            self.detail.setVisible(bool(result.missing_keys) and not self.focus_mode)
         worker.deleteLater()
         self.set_busy(False)
         if self.history_error:
@@ -621,14 +654,17 @@ class MappingDialog(QDialog):
         self.files_table.fit_content(reset=True)
         self.status.setText(f"Đã kiểm tra {report.checked_cells} ô / {len(report.files)} file · "
             f"{len(report.wrong_keys)} key sai mapping · {sum(i.status == 'review' for i in report.issues)} cần xem ngữ cảnh · "
-            f"{report.unmapped_cells} ô chưa có mapping áp dụng · {len(report.errors)} file lỗi. "
-            "Mỗi key một dòng, mỗi file một cột tham chiếu; cuộn ngang để xem thêm. "
-            "Chỉ ghi các key đã chọn/tick; Ctrl/Shift chọn nhiều dòng, Shift + cuộn chuột để cuộn ngang.")
+            f"{report.unmapped_cells} ô chưa có mapping · {len(report.errors)} file lỗi.")
+        self.status.setToolTip("Mỗi key một dòng; mỗi CSV một cột. Ctrl/Shift để chọn nhiều key. "
+                               "Shift + cuộn chuột để cuộn ngang. Chỉ các key đã chọn được ghi lên Sheet.")
+        self.source_toggle.setChecked(False)
         self.filter_rows()
 
     def filter_rows(self):
         if not self.report:
             return
+        self.issues_table.ensurePolished()
+        dark = self.issues_table.palette().color(QPalette.ColorRole.Base).lightness() < 128
         rows = self.files_table.selectionModel().selectedRows()
         path = self.files_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole) if rows else None
         status, query = self.filter_combo.currentData(), self.search.text().casefold()
@@ -671,8 +707,8 @@ class MappingDialog(QDialog):
                 affected = issues if col == 1 else [i for i in issues if file_column and i.path == self.report.files[col - 4]]
                 if affected:
                     definite = any(i.status == "wrong" for i in affected)
-                    item.setBackground(QColor("#fee2e2" if definite else "#fef3c7"))
-                    item.setForeground(QColor("#7f1d1d" if definite else "#78350f"))
+                    item.setBackground(QColor(("#4c2020" if definite else "#45371d") if dark else ("#fee2e2" if definite else "#fef3c7")))
+                    item.setForeground(QColor(("#fecaca" if definite else "#fde68a") if dark else ("#7f1d1d" if definite else "#78350f")))
                 if file_column:
                     file_path = self.report.files[col - 4]
                     refs = [(locale, line, v) for locale, entries in self.references[key].items()
@@ -688,6 +724,7 @@ class MappingDialog(QDialog):
         rows = self.issues_table.selectionModel().selectedRows()
         if not rows or rows[0].row() >= len(self.visible_keys):
             self.detail.clear()
+            self.detail.hide()
             return
         key = self.visible_keys[rows[0].row()]
         lines = [f"Key: {key}", self.mark_description(key)[1]]
@@ -702,6 +739,7 @@ class MappingDialog(QDialog):
             lines.append(f"\n{issue.locale} · {issue.path.name} · Dòng {issue.line}\nLý do: {issue.reason}\n"
                          f"Mapping chuẩn: {issue.expected}\nNguồn: {issue.source}\nHiện tại: {issue.actual}")
         self.detail.setPlainText("\n".join(lines))
+        self.detail.setVisible(not self.focus_mode)
 
     def mark(self):
         if self.worker or not self.report or not self.selected_keys:
@@ -710,6 +748,7 @@ class MappingDialog(QDialog):
         if not url:
             if self.focus_mode:
                 self.toggle_focus_mode()
+            self.source_toggle.setChecked(True)
             self.status.setText("Nhập link Google Sheet đích trước khi ghi Wrong mapping.")
             self.sheet_edit.setFocus()
             return

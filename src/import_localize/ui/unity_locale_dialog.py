@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar,
     QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
-    QStyledItemDelegate, QStyleOptionViewItem, QStyle,
+    QStyledItemDelegate, QStyleOptionViewItem, QStyle, QToolButton,
 )
 
 from import_localize.app.paths import USER_CONFIG_DIR
@@ -193,10 +193,11 @@ class UnityLocaleDialog(QDialog):
         self._generating = False
         self.backup_path: Path | None = None
         self.setWindowTitle("Unity Locale — Replace Import / Export")
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(1120, 850)
         layout = QVBoxLayout(self)
-        intro = QLabel("Mỗi hàng: file bên trái → file bên phải. Kéo thả trong từng bên để đổi cặp nguồn–đích.\n"
-                       "Import thay toàn bộ term trong asset. Lưu asset và thoát Play Mode trong Unity trước khi ghi.")
+        intro = QLabel("Ghép file nguồn với file nhận theo từng hàng, xem trước thay đổi rồi thực hiện.")
+        intro.setProperty("muted", True)
         intro.setWordWrap(True)
         layout.addWidget(intro)
         self.controls = QWidget()
@@ -206,15 +207,28 @@ class UnityLocaleDialog(QDialog):
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["Replace Import: CSV → Unity .asset", "Replace Export: Unity .asset → CSV"])
         self.mode_combo.setCurrentIndex(1 if settings.unity_mode == "export" else 0)
+        mode_row.addWidget(self.mode_combo, 1)
+        self.options_button = QToolButton()
+        self.options_button.setText("Tùy chọn CSV")
+        self.options_button.setCheckable(True)
+        self.options_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.options_button.setArrowType(Qt.ArrowType.RightArrow)
+        mode_row.addWidget(self.options_button)
+        controls.addLayout(mode_row)
+        self.csv_options = QWidget()
+        csv_options = QHBoxLayout(self.csv_options)
+        csv_options.setContentsMargins(0, 0, 0, 0)
         self.delimiter_combo = QComboBox()
         for label, value in [("Tự nhận diện (export dùng dấu phẩy)", "auto"), ("Dấu phẩy ,", ","), ("Chấm phẩy ;", ";"), ("Tab", "\t")]:
             self.delimiter_combo.addItem(label, value)
-        mode_row.addWidget(self.mode_combo, 1)
-        mode_row.addWidget(QLabel("Phân cách:"))
-        mode_row.addWidget(self.delimiter_combo)
+        csv_options.addWidget(QLabel("Dấu phân cách:"))
+        csv_options.addWidget(self.delimiter_combo)
+        csv_options.addStretch()
         self.language_check_button = QPushButton("Nhận diện ngôn ngữ CSV…")
-        mode_row.addWidget(self.language_check_button)
-        controls.addLayout(mode_row)
+        csv_options.addWidget(self.language_check_button)
+        controls.addWidget(self.csv_options)
+        self.csv_options.hide()
+        self.options_button.toggled.connect(self._set_csv_options_expanded)
 
         self.export_controls = QWidget()
         export_layout = QHBoxLayout(self.export_controls)
@@ -321,17 +335,35 @@ class UnityLocaleDialog(QDialog):
         self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.verticalHeader().hide()
         layout.addWidget(self.table, 3)
+        details_header = QHBoxLayout()
+        self.preview_status = QLabel("Chọn file nguồn và file nhận để bắt đầu.")
+        self.preview_status.setWordWrap(True)
+        details_header.addWidget(self.preview_status, 1)
+        self.details_button = QToolButton()
+        self.details_button.setText("Chi tiết & cảnh báo")
+        self.details_button.setCheckable(True)
+        self.details_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.details_button.setArrowType(Qt.ArrowType.RightArrow)
+        details_header.addWidget(self.details_button)
+        layout.addLayout(details_header)
         self.details = QPlainTextEdit()
         self.details.setReadOnly(True)
         self.details.setPlaceholderText("Kết quả xem trước, cảnh báo và đường dẫn sao lưu.")
         self.details.setMinimumHeight(65)
         self.details.setMaximumHeight(110)
         layout.addWidget(self.details, 1)
+        self.details.hide()
+        self.details_button.toggled.connect(self._set_details_expanded)
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
+        self.progress.hide()
         layout.addWidget(self.progress)
+        safety = self.safety_label = QLabel()
+        safety.setWordWrap(True)
+        safety.setProperty("muted", True)
+        layout.addWidget(safety)
         actions = QHBoxLayout()
         self.backup_button = QPushButton("Mở bản sao lưu")
         self.backup_button.setEnabled(False)
@@ -343,6 +375,8 @@ class UnityLocaleDialog(QDialog):
         for button in (self.preview_button, self.apply_button, self.close_button):
             actions.addWidget(button)
         layout.addLayout(actions)
+        for button in self.findChildren(QPushButton):
+            button.setAutoDefault(False)
 
         self.source_choose_button.clicked.connect(self.choose_source)
         self.target_choose_button.clicked.connect(self.choose_target)
@@ -400,6 +434,8 @@ class UnityLocaleDialog(QDialog):
 
     def _mode_changed(self):
         importing = self.importing()
+        self.safety_label.setText("Replace Import thay toàn bộ term trong asset. Lưu asset và thoát Play Mode trong Unity trước khi ghi."
+                                 if importing else "Replace Export ghi vào các CSV bên nhận. File có sẵn được sao lưu trước khi ghi đè.")
         self.export_controls.setVisible(not importing)
         self.source_choose_button.setText("Thêm CSV đã dịch…" if importing else "Thêm locale*.asset…")
         self.source_extra_button.setText("Thư mục locale…")
@@ -414,10 +450,31 @@ class UnityLocaleDialog(QDialog):
         self.apply_button.setEnabled(False)
         self.table.setRowCount(0)
         self.progress.setValue(0)
+        paired = bool(self.source_list.count()) and self.source_list.count() == self.target_list.count()
+        self.preview_button.setEnabled(paired and self.worker is None)
+        self.preview_status.setText("Chưa ghi dữ liệu. Bấm Xem trước để kiểm tra các cặp file." if paired
+                                    else "Chọn đủ file ở hai bên để xem trước. Các file cùng hàng sẽ được ghép với nhau.")
+        self._update_action_emphasis()
         self.source_metric.setText("NGUỒN · chưa xem trước")
         self.before_metric.setText("ĐÍCH TRƯỚC · chưa xem trước")
         self.after_metric.setText("ĐÍCH SAU · chưa xem trước")
         self.stats_note.setText("Thêm / Xóa / Sửa / Giữ được tính theo key; Sửa là khác bản dịch, loại hoặc mô tả.")
+
+    @Slot(bool)
+    def _set_csv_options_expanded(self, opened):
+        self.csv_options.setVisible(opened)
+        self.options_button.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
+
+    @Slot(bool)
+    def _set_details_expanded(self, opened):
+        self.details.setVisible(opened)
+        self.details_button.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
+
+    def _update_action_emphasis(self):
+        for button, primary in ((self.preview_button, self.plan is None), (self.apply_button, self.plan is not None)):
+            button.setProperty("primaryAction", primary)
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _refresh_lists(self):
         self._selection_sync = True
@@ -532,6 +589,8 @@ class UnityLocaleDialog(QDialog):
             self.set_assets(self._append_unique(self.asset_paths, paths))
             if not paths:
                 self.details.setPlainText("Không có locale*.asset trong thư mục này. Chọn Assets/AssetBundle/Localization của Dicegeon.")
+                self.preview_status.setText("Không tìm thấy locale*.asset trong thư mục đã chọn.")
+                self.details_button.setChecked(True)
 
     def choose_csv(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Chọn CSV đã dịch", self.settings.unity_csv_dir or self.settings.last_export_dir,
@@ -564,6 +623,8 @@ class UnityLocaleDialog(QDialog):
         self.invalidate()
         if not self.output_edit.text().strip():
             self.details.setPlainText("Chọn thư mục tạo CSV trước.")
+            self.preview_status.setText("Chọn thư mục tạo CSV trước.")
+            self.output_edit.setFocus()
             return
         assets, folder, prefix = list(self.asset_paths), Path(self.output_edit.text()), self.prefix_edit.text()
         self.details.setPlainText("Đang tạo danh sách đường dẫn CSV đích…")
@@ -572,6 +633,8 @@ class UnityLocaleDialog(QDialog):
     def _run(self, task: Callable, applying: bool, *, generating: bool = False, reports_progress: bool = False):
         if self.worker:
             return
+        self.progress.show()
+        self.preview_status.setText("Đang sao lưu và ghi dữ liệu…" if applying else "Đang tạo danh sách file…" if generating else "Đang kiểm tra dữ liệu…")
         self.controls.setEnabled(False)
         self.preview_button.setEnabled(False)
         self.apply_button.setEnabled(False)
@@ -627,6 +690,8 @@ class UnityLocaleDialog(QDialog):
             self.progress.setValue(0)
             self.plan = None
             self.details.appendPlainText("LỖI: " + worker.error)
+            self.preview_status.setText("Không thể hoàn tất. Xem lỗi bên dưới và kiểm tra lại.")
+            self.details_button.setChecked(True)
             self.apply_button.setEnabled(False)
         elif self._generating:
             self.export_paths = worker.result
@@ -638,6 +703,8 @@ class UnityLocaleDialog(QDialog):
             self.backup_path = worker.result
             self.backup_button.setEnabled(True)
             self.progress.setValue(1)
+            self.preview_status.setText(f"Đã ghi {self.table.rowCount()} cặp file. Bản sao lưu sẵn sàng để mở.")
+            self.details_button.setChecked(True)
             for row in range(self.table.rowCount()):
                 self.table.item(row, 9).setText("Đã ghi")
             self.details.appendPlainText(f"Hoàn tất. Bản sao lưu: {self.backup_path}\n"
@@ -688,8 +755,14 @@ class UnityLocaleDialog(QDialog):
                 details.append(f"Hàng {row + 1}: {source}\n→ {change.path}\n{change.summary}")
                 details.extend("  • " + warning for warning in change.warnings)
             self.details.setPlainText("\n\n".join(details))
+            warnings = sum(len(change.warnings) for change in self.plan.changes)
+            self.preview_status.setText(f"{len(self.plan.changes)} cặp sẵn sàng · chưa ghi dữ liệu"
+                                        + (f" · {warnings} cảnh báo cần xem" if warnings else ""))
+            self.details_button.setChecked(bool(warnings))
             self.apply_button.setEnabled(True)
             self.progress.setValue(1)
+        self.progress.hide()
+        self._update_action_emphasis()
         if self._applying and self.loading_dialog:
             self.loading_dialog.finish(worker.error, worker.result if not worker.error else None)
         worker.deleteLater()

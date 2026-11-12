@@ -5,14 +5,14 @@ import os
 import threading
 
 from PySide6.QtCore import QUrl, Qt, QSize
-from PySide6.QtGui import QColor, QDesktopServices, QShowEvent
+from PySide6.QtGui import QDesktopServices, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
     QFileDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -60,35 +60,49 @@ from import_localize.workers.update_worker import (
 
 
 class _DesignerDialog(QDialog):
-    """Frameless theme-aware dialog matching the SK Export visual system."""
+    """Theme-aware native windows with standard move/resize controls."""
 
     def _configure_window(self, title: str) -> None:
         self.setObjectName("designerDialog")
         self.setWindowTitle(title)
         self.setModal(True)
         self.setWindowFlags(
-            Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowCloseButtonHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setSizeGripEnabled(True)
+        self._initial_geometry_set = False
 
     @staticmethod
-    def _apply_shadow(card: QFrame) -> None:
-        shadow = QGraphicsDropShadowEffect(card)
-        shadow.setBlurRadius(32)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(0, 0, 0, 95))
-        card.setGraphicsEffect(shadow)
+    def _prepare_card(card: QFrame) -> None:
+        form = card.parentWidget()
+        if form is not None and form.layout() is not None:
+            form.layout().setContentsMargins(0, 0, 0, 0)
+        header = card.findChild(QHBoxLayout, "headerLayout")
+        if header is not None:
+            header.setStretch(1, 1)
+        # The native title bar already provides a familiar close control.
+        close_icon = card.findChild(QPushButton, "closeIconButton")
+        if close_icon is not None:
+            close_icon.hide()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        self.adjustSize()
+        if self._initial_geometry_set:
+            return
+        self._initial_geometry_set = True
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            self.resize(min(self.width(), available.width() - 32),
+                        min(self.height(), available.height() - 60))
         parent = self.parentWidget()
         if parent is not None:
             geometry = self.frameGeometry()
             geometry.moveCenter(parent.frameGeometry().center())
             self.move(geometry.topLeft())
             return
-        screen = QApplication.primaryScreen()
         if screen is not None:
             geometry = self.frameGeometry()
             geometry.moveCenter(screen.availableGeometry().center())
@@ -99,10 +113,8 @@ class SettingsDialog(_DesignerDialog):
     def __init__(self, parent=None, *, initial_tab: str = "google", target_form=None):
         super().__init__(parent)
         self._configure_window("Cài đặt — Import Localize")
-        self.setMinimumWidth(700)
-        self.setMaximumWidth(860)
-        self.setMinimumHeight(700)
-        self.setMaximumHeight(860)
+        self.setMinimumSize(660, 620)
+        self.resize(780, 740)
 
         self.settings_repository = SettingsRepository()
         self.settings = self.settings_repository.load()
@@ -195,12 +207,12 @@ class SettingsDialog(_DesignerDialog):
             self.form, "installUpdateButton", QPushButton
         )
 
-        self._apply_shadow(self.dialog_card)
+        self._prepare_card(self.dialog_card)
         self.dialog_icon_label.setPixmap(icon("settings").pixmap(QSize(22, 22)))
         self.oauth_client_icon_label.setPixmap(icon("oauth").pixmap(QSize(18, 18)))
         self.google_account_icon_label.setPixmap(icon("google").pixmap(QSize(18, 18)))
         self.security_note_icon_label.setPixmap(icon("info").pixmap(QSize(15, 15)))
-        self.update_icon_label.setPixmap(icon("cloud-upload").pixmap(QSize(18, 18)))
+        self.update_icon_label.setPixmap(icon("download").pixmap(QSize(18, 18)))
         set_button_icon(self.close_icon_button, "close", 16)
         set_button_icon(self.choose_oauth_button, "folder", 15)
         set_button_icon(self.open_config_button, "folder", 15)
@@ -559,7 +571,7 @@ class FillDataDialog(_DesignerDialog):
         super().__init__(parent)
         self._configure_window("Thiết lập Fill dữ liệu — Import Localize")
         self.setMinimumWidth(560)
-        self.setMaximumWidth(680)
+        self.resize(620, 520)
         self._options = initial
 
         layout = QVBoxLayout(self)
@@ -579,11 +591,10 @@ class FillDataDialog(_DesignerDialog):
         cancel_button = require_object(self.form, "cancelButton", QPushButton)
         fill_button = require_object(self.form, "fillButton", QPushButton)
 
-        self._apply_shadow(card)
+        self._prepare_card(card)
         dialog_icon.setPixmap(icon("sheet").pixmap(QSize(22, 22)))
         warning_icon.setPixmap(icon("info").pixmap(QSize(15, 15)))
         set_button_icon(close_icon_button, "close", 16)
-        set_button_icon(fill_button, "sheet", 16)
 
         self.sheet_name_edit.setText(initial.sheet_name)
         self.source_row_spin.setValue(max(1, int(initial.source_row)))
@@ -619,10 +630,8 @@ class HelpDialog(_DesignerDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._configure_window("Hướng dẫn — Import Localize")
-        self.setMinimumWidth(740)
-        self.setMaximumWidth(980)
-        self.setMinimumHeight(660)
-        self.setMaximumHeight(860)
+        self.setMinimumSize(640, 560)
+        self.resize(860, 720)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -640,7 +649,7 @@ class HelpDialog(_DesignerDialog):
         )
         require_object(self.form, "helpTextBrowser", QTextBrowser)
 
-        self._apply_shadow(dialog_card)
+        self._prepare_card(dialog_card)
         dialog_icon.setPixmap(icon("help").pixmap(QSize(22, 22)))
         note_icon.setPixmap(icon("info").pixmap(QSize(15, 15)))
         set_button_icon(close_icon_button, "close", 16)

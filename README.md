@@ -1,4 +1,4 @@
-# Import Localize v1.3.0
+# Import Localize
 
 Ứng dụng desktop nhập file CSV vào Google Sheets theo hai chế độ:
 
@@ -25,7 +25,7 @@ DG_Localization - import_en.csv
 
 ## Chế độ một sheet
 
-- Nhập tên tab trực tiếp trong card **Google Sheet đích**.
+- Nhập tên tab trong **Thiết lập đích… → Google Sheet đích**.
 - Chỉ file nằm trên cùng trong card **Tệp CSV** được sử dụng.
 - Các file phía dưới hiển thị `Không nhập` và không được upload.
 - Tên file không cần theo format của chế độ nhiều sheet.
@@ -36,16 +36,18 @@ DG_Localization - import_en.csv
 - Không thêm cột nguồn file.
 - Luôn thay thế toàn bộ dữ liệu của tab đích.
 
-## Giao diện v1.3.0
+## Giao diện v1.19.0
 
-Thứ tự card trên màn hình chính:
+Màn hình chính được chia theo tác vụ:
 
-1. **Google Sheet đích**
-2. **Tệp CSV**
-3. **Hành động**
-4. **Nhật ký**
+1. Thanh công cụ **Unity Locale…**, **Kiểm tra mapping…**, **Kiểm tra CSV** (so sánh hai file / nhận diện ngôn ngữ).
+2. **Tệp CSV**: bảng file và các nút thêm, sắp xếp, bỏ chọn, xóa. Cột mã hóa/phân cách mở từ menu Kiểm tra CSV khi cần.
+3. **Google Sheets**: dán link ngay trên màn hình chính, kiểm tra tóm tắt tab đích và thao tác nhập/điền/tải. **Thiết lập đích…** mở các tùy chọn chi tiết.
+4. **Nhật ký xử lý**: thu gọn mặc định, tự mở khi gặp lỗi; app nhớ lựa chọn mở/đóng của bạn.
 
-Card Google Sheet đích chỉ còn Link Sheet, Kiểu nhập, Tên Sheet khi dùng chế độ một sheet, và cách Google xử lý dữ liệu.
+Phím tắt: **Ctrl+O** thêm CSV, **Ctrl+L** nhập link Sheet, **F1** mở hướng dẫn, **Alt+↑/↓** đổi thứ tự file đã chọn. App nhớ việc hiển thị các cột kỹ thuật.
+
+Các cửa sổ Unity Locale, mapping, ngôn ngữ, so sánh CSV và duplicate key ưu tiên bảng dữ liệu; hướng dẫn dài, tùy chọn CSV và chi tiết mở khi cần. Nút chính thể hiện bước tiếp theo, tiến độ/Dừng xuất hiện khi chạy. Bảng vẫn hỗ trợ kéo độ rộng cột, xuống dòng và cuộn ngang; trạng thái ghi mapping và chế độ mở rộng được giữ. Cửa sổ Cài đặt/Điền dữ liệu/Hướng dẫn dùng thanh tiêu đề hệ điều hành để kéo và thay đổi kích thước.
 
 ## Cài đặt
 

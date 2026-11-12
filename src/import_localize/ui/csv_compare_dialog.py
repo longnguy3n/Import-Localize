@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from concurrent.futures import CancelledError
 from html import escape
+from pathlib import Path
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QThread, Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QPlainTextEdit, QPushButton, QSplitter, QTableView, QVBoxLayout, QWidget,
@@ -17,6 +18,12 @@ STATUS_COLORS = {
     "removed": ("#ffe4e6", "#9f1239"),
     "changed": ("#fef3c7", "#92400e"),
     "unchanged": ("#e2e8f0", "#475569"),
+}
+STATUS_COLORS_DARK = {
+    "added": ("#173e2b", "#86efac"),
+    "removed": ("#482330", "#fda4af"),
+    "changed": ("#46361d", "#fcd34d"),
+    "unchanged": ("#26352f", "#b9c8c1"),
 }
 SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
@@ -78,6 +85,8 @@ class ComparisonModel(QAbstractTableModel):
             return None
         diff, col = self.rows[index.row()]
         column = index.column()
+        table = getattr(self.parent(), "table", None)
+        dark = table is not None and table.palette().color(QPalette.ColorRole.Base).lightness() < 128
         if role == SORT_ROLE:
             if column == 0:
                 return ("added", "changed", "removed", "unchanged").index(diff.status)
@@ -88,7 +97,7 @@ class ComparisonModel(QAbstractTableModel):
             record = diff.before if column == 3 else diff.after
             return (record.get(col, "") if col is not None else diff.key) if record is not None else ""
         if column == 0:
-            background, foreground = STATUS_COLORS[diff.status]
+            background, foreground = (STATUS_COLORS_DARK if dark else STATUS_COLORS)[diff.status]
             if role == Qt.ItemDataRole.BackgroundRole:
                 return QColor(background)
             if role == Qt.ItemDataRole.ForegroundRole:
@@ -103,18 +112,20 @@ class ComparisonModel(QAbstractTableModel):
             record = diff.before if column == 3 else diff.after
             value = record.get(col) if record is not None and col is not None else None
             if col is None:
-                return diff.key if record is not None else "∅ Không tồn tại"
+                return diff.key if record is not None else "Không tồn tại"
             if value is None:
-                return "∅ Không tồn tại"
+                return "Không tồn tại"
             if value == "":
                 return '(rỗng)'
             return value if role == Qt.ItemDataRole.ToolTipRole else value.replace("\r\n", "\n").replace("\n", " ↵ ").replace("\t", " ⇥ ")
         changed = diff.status != "unchanged"
         if changed and column in (3, 4):
             if role == Qt.ItemDataRole.BackgroundRole:
-                return QColor("#ffe7e7" if column == 3 else "#dcfce7")
+                old_color, new_color = ("#482330", "#173e2b") if dark else ("#ffe7e7", "#dcfce7")
+                return QColor(old_color if column == 3 else new_color)
             if role == Qt.ItemDataRole.ForegroundRole:
-                return QColor("#7f1d1d" if column == 3 else "#14532d")
+                old_color, new_color = ("#fda4af", "#86efac") if dark else ("#7f1d1d", "#14532d")
+                return QColor(old_color if column == 3 else new_color)
         return None
 
 
@@ -136,6 +147,7 @@ class CsvCompareDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("So sánh CSV theo key")
         self.setObjectName("csvCompareDialog")
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(1120, 760)
         self.setMinimumSize(660, 500)
         self.paths = old_path, new_path
@@ -146,6 +158,7 @@ class CsvCompareDialog(QDialog):
         self.files_label = QLabel()
         self.files_label.setTextFormat(Qt.TextFormat.PlainText)
         self.files_label.setWordWrap(True)
+        self.files_label.setProperty("muted", True)
         layout.addWidget(self.files_label)
         controls = QHBoxLayout()
         self.swap_button = QPushButton("Đổi cũ ↔ mới")
@@ -154,6 +167,7 @@ class CsvCompareDialog(QDialog):
             self.filter_combo.addItem(text, status)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Tìm theo key…")
+        self.search_edit.setClearButtonEnabled(True)
         controls.addWidget(self.swap_button)
         controls.addWidget(self.filter_combo)
         controls.addWidget(self.search_edit, 1)
@@ -164,6 +178,8 @@ class CsvCompareDialog(QDialog):
         self.summary_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.summary_label)
         splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setHandleWidth(8)
+        splitter.setChildrenCollapsible(False)
         self.table = QTableView()
         self.table.setObjectName("csvComparisonTable")
         self.model = ComparisonModel(self)
@@ -176,12 +192,17 @@ class CsvCompareDialog(QDialog):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setWordWrap(False)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.verticalHeader().hide()
         header = self.table.horizontalHeader()
+        header.setMinimumSectionSize(80)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        header.setToolTip("Kéo mép tiêu đề để chỉnh độ rộng; nhấp đúp để vừa nội dung.")
         for col, width in ((0, 125), (1, 210), (2, 100)):
             header.resizeSection(col, width)
         for col in (3, 4):
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+            header.resizeSection(col, 300)
         splitter.addWidget(self.table)
         details = QWidget()
         detail_layout = QVBoxLayout(details)
@@ -191,11 +212,20 @@ class CsvCompareDialog(QDialog):
         self.detail_label.setWordWrap(True)
         detail_layout.addWidget(self.detail_label)
         panes = QSplitter(Qt.Orientation.Horizontal)
+        panes.setHandleWidth(8)
+        panes.setChildrenCollapsible(False)
         self.old_text = QPlainTextEdit()
         self.new_text = QPlainTextEdit()
-        for pane in (self.old_text, self.new_text):
+        for title, pane in (("Bản cũ", self.old_text), ("Bản mới", self.new_text)):
             pane.setReadOnly(True)
-            panes.addWidget(pane)
+            panel = QWidget()
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(0, 0, 0, 0)
+            label = QLabel(title)
+            label.setProperty("sectionTitle", True)
+            panel_layout.addWidget(label)
+            panel_layout.addWidget(pane)
+            panes.addWidget(panel)
         detail_layout.addWidget(panes)
         splitter.addWidget(details)
         splitter.setSizes([400, 180])
@@ -216,7 +246,8 @@ class CsvCompareDialog(QDialog):
     def _start(self):
         self.result = None
         self._filter()
-        self.files_label.setText(f"Bản cũ: {self.paths[0]}\nBản mới: {self.paths[1]}")
+        self.files_label.setText(f"Bản cũ: {Path(self.paths[0]).name}\nBản mới: {Path(self.paths[1]).name}")
+        self.files_label.setToolTip(f"Bản cũ: {self.paths[0]}\nBản mới: {self.paths[1]}")
         self.summary_label.setTextFormat(Qt.TextFormat.PlainText)
         self.summary_label.setText("Đang đọc và so sánh theo key…")
         self.swap_button.setEnabled(False)
@@ -267,7 +298,7 @@ class CsvCompareDialog(QDialog):
         self.detail_label.setText(f"{diff.key} · {self.result.columns.get(col, 'key')} — Bản cũ (trái) / Bản mới (phải)")
         for widget, record in ((self.old_text, diff.before), (self.new_text, diff.after)):
             value = (record.get(col) if col is not None else diff.key) if record is not None else None
-            widget.setPlainText(value if value is not None else "∅ Không tồn tại")
+            widget.setPlainText(value if value is not None else "Không tồn tại")
 
     def _swap(self):
         self.paths = self.paths[1], self.paths[0]

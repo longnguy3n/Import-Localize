@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -104,7 +106,7 @@ class MainWindow(QMainWindow):
 
         self.append_log(
             "INFO",
-            "Ứng dụng đã sẵn sàng. Chọn chế độ một sheet hoặc nhiều sheet rồi thêm file CSV.",
+            "Sẵn sàng. Thêm CSV để kiểm tra, mở Unity Locale hoặc nhập lên Google Sheets.",
         )
         QTimer.singleShot(1800, self._auto_check_updates)
 
@@ -227,7 +229,7 @@ class MainWindow(QMainWindow):
             self.action_card,
             self.log_card,
         ):
-            self._apply_card_shadow(card)
+            card.setGraphicsEffect(None)
 
         self._configure_card_headers()
 
@@ -260,15 +262,11 @@ class MainWindow(QMainWindow):
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.file_table.setMinimumHeight(100)
         self.file_table.setMaximumHeight(16777215)
-        language_actions = QHBoxLayout()
         self.language_check_button = QPushButton("Nhận diện ngôn ngữ CSV…")
         self.language_check_button.setToolTip("Kiểm tra offline các file được chọn; nếu không chọn hàng, kiểm tra toàn bộ danh sách.")
-        language_actions.addWidget(self.language_check_button)
-        language_actions.addWidget(QLabel("Offline · đối chiếu nội dung với tên cột"), 1)
-        self.files_card_layout.addLayout(language_actions)
         self.mapping_check_button = QPushButton("Kiểm tra mapping…")
         self.mapping_check_button.setToolTip("Đối chiếu CSV với mapping.json; xem file sai và đánh dấu Wrong mapping trên Translate_Data.")
-        self.files_card_layout.addWidget(self.mapping_check_button)
+        self._configure_workspace()
         self.files_card_layout.setStretch(1, 1)
         self.log_card_layout.setStretch(1, 1)
         self.action_card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -277,6 +275,110 @@ class MainWindow(QMainWindow):
         self.cards_splitter.setStretchFactor(1, 1)
         self.cards_splitter.setStretchFactor(2, 2)
         self.cards_splitter.splitterMoved.connect(self._save_card_sizes)
+
+    def _configure_workspace(self) -> None:
+        """Keep tools separate from the CSV-to-Sheets task and expose its target."""
+        self.app_subtitle_label.setText("CSV · Unity Locale · Google Sheets")
+        self.files_subtitle_label.setText("Kéo thả CSV hoặc thêm tệp. Giữ Ctrl/Shift để chọn nhiều.")
+        require_object(self.root, "filesTitleLabel", QLabel).setText("Tệp CSV")
+        require_object(self.root, "actionTitleLabel", QLabel).setText("Google Sheets")
+        require_object(self.root, "logTitleLabel", QLabel).setText("Nhật ký xử lý")
+        self.action_subtitle_label.hide()
+        self.log_subtitle_label.hide()
+        self.add_files_button.setText("Thêm CSV…")
+        self.start_button.setText("Nhập CSV lên Sheet")
+        self.start_button.setProperty("primaryAction", True)
+        self.stop_button.setProperty("dangerAction", True)
+        self.fill_translate_data_button.setText("Điền Translate_Data…")
+        self.download_export_tabs_button.setText("Tải CSV export_*…")
+
+        tools = QWidget(self.root)
+        tools.setObjectName("workspaceTools")
+        toolbar = QHBoxLayout(tools)
+        toolbar.setContentsMargins(12, 0, 12, 0)
+        toolbar.setSpacing(8)
+        self.action_card_layout.removeWidget(self.unity_locale_button)
+        self.unity_locale_button.setText("Unity Locale…")
+        self.unity_locale_button.setToolTip("Import / export locale.asset, ghép cặp file và xử lý key trùng.")
+        toolbar.addWidget(self.unity_locale_button)
+        toolbar.addWidget(self.mapping_check_button)
+        self.csv_tools_button = QToolButton(tools)
+        self.csv_tools_button.setText("Kiểm tra CSV")
+        self.csv_tools_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self.csv_tools_button)
+        self.compare_action = menu.addAction("So sánh 2 CSV đã chọn…", self.compare_files_button.click)
+        self.language_action = menu.addAction("Nhận diện ngôn ngữ…", self.language_check_button.click)
+        menu.addSeparator()
+        self.technical_columns_action = menu.addAction("Hiện cột mã hóa và phân cách")
+        self.technical_columns_action.setCheckable(True)
+        self.technical_columns_action.toggled.connect(self._toggle_technical_columns)
+        self.csv_tools_button.setMenu(menu)
+        toolbar.addWidget(self.csv_tools_button)
+        toolbar.addStretch()
+        self.root.layout().insertWidget(1, tools)
+        # Existing buttons remain the single signal entry points for actions.
+        self.compare_files_button.hide()
+        self.language_check_button.setParent(self)
+        self.language_check_button.hide()
+        self.technical_columns_action.setChecked(bool(self.settings.ui_show_technical_columns))
+        self._toggle_technical_columns(bool(self.settings.ui_show_technical_columns))
+
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Sheet đích"))
+        self.quick_sheet_url_edit = QLineEdit()
+        self.quick_sheet_url_edit.setPlaceholderText("Dán link Google Sheet cần nhập dữ liệu")
+        self.quick_sheet_url_edit.setClearButtonEnabled(True)
+        self.quick_sheet_url_edit.setAccessibleName("Link Google Sheet đích")
+        self.quick_sheet_url_edit.textChanged.connect(self.sheet_url_edit.setText)
+        self.sheet_url_edit.textChanged.connect(self.quick_sheet_url_edit.setText)
+        target_row.addWidget(self.quick_sheet_url_edit, 1)
+        self.target_settings_button = QPushButton("Thiết lập đích…")
+        self.target_settings_button.clicked.connect(lambda: self.show_settings(initial_tab="target"))
+        target_row.addWidget(self.target_settings_button)
+        self.action_card_layout.insertLayout(1, target_row)
+        self.target_summary = QLabel()
+        self.target_summary.setProperty("muted", True)
+        self.target_summary.setWordWrap(True)
+        self.action_card_layout.insertWidget(2, self.target_summary)
+        self.target_mode_combo.currentIndexChanged.connect(self._update_target_summary)
+        self.single_sheet_name_edit.textChanged.connect(self._update_target_summary)
+        self.value_input_combo.currentIndexChanged.connect(self._update_target_summary)
+        self._update_target_summary()
+
+        self.log_toggle = QToolButton(self.log_card)
+        self.log_toggle.setText("Hiện nhật ký")
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.log_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.log_toggle.toggled.connect(self._toggle_log)
+        self.log_header_layout.addWidget(self.log_toggle)
+        self.log_toggle.setChecked(bool(self.settings.ui_log_expanded))
+        self._toggle_log(self.log_toggle.isChecked())
+        self.progress_bar.hide()
+
+    def _toggle_technical_columns(self, visible: bool) -> None:
+        self.settings.ui_show_technical_columns = visible
+        for column in (3, 4):
+            self.file_table.setColumnHidden(column, not visible)
+
+    def _update_target_summary(self, *_args) -> None:
+        mode = (f"Một tab: {self.single_sheet_name_edit.text().strip() or 'chưa đặt tên'}"
+                if self._is_single_mode() else "Mỗi CSV → một tab theo tên file")
+        self.target_summary.setText(mode + " · Ghi đè nội dung tab đích")
+
+    def _toggle_log(self, expanded: bool) -> None:
+        self.settings.ui_log_expanded = expanded
+        self.log_toggle.setText("Thu gọn nhật ký" if expanded else "Hiện nhật ký")
+        self.log_toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self.log_placeholder.setVisible(expanded)
+        self.clear_log_button.setVisible(expanded)
+        self.log_card.setMaximumHeight(16777215 if expanded else 64)
+        self.log_card.setMinimumHeight(140 if expanded else 64)
+        if expanded:
+            sizes = self.cards_splitter.sizes()
+            if len(sizes) == 3:
+                self.cards_splitter.setSizes([max(220, sizes[0] - 100), sizes[1], 160])
+        QTimer.singleShot(0, self._refresh_minimum_height)
 
     def _configure_card_headers(self) -> None:
         """Cho phép phần mô tả dưới tiêu đề card co giãn theo bề ngang cửa sổ."""
@@ -344,6 +446,13 @@ class MainWindow(QMainWindow):
         self._move_down_shortcut.activated.connect(
             lambda: self.move_selected_files(1)
         )
+        self._add_files_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
+        self._add_files_shortcut.activated.connect(self.add_files_button.click)
+        self.add_files_button.setToolTip("Thêm file CSV (Ctrl+O); cũng có thể kéo thả file vào cửa sổ.")
+        self._target_shortcut = QShortcut(QKeySequence("Ctrl+L"), self)
+        self._target_shortcut.activated.connect(self.quick_sheet_url_edit.setFocus)
+        self._help_shortcut = QShortcut(QKeySequence("F1"), self)
+        self._help_shortcut.activated.connect(self.show_help)
         self._update_reorder_buttons()
 
     def _restore_settings(self) -> None:
@@ -493,6 +602,9 @@ class MainWindow(QMainWindow):
             layout.activate()
         cards = (self.files_card, self.action_card, self.log_card)
         for card, floor in zip(cards, (210, 145, 140)):
+            if card is self.log_card and not self.log_toggle.isChecked():
+                card.setMinimumHeight(64)
+                continue
             card.setMinimumHeight(max(
                 floor, card.layout().minimumSize().height(),
                 card.layout().minimumHeightForWidth(card.width()),
@@ -810,6 +922,11 @@ class MainWindow(QMainWindow):
         running = bool(self.worker and self.worker.isRunning())
         self.language_check_button.setEnabled(bool(self.file_infos) and not running)
         self.compare_files_button.setEnabled(len(rows) == 2 and not running)
+        self.compare_action.setEnabled(self.compare_files_button.isEnabled())
+        self.language_action.setEnabled(self.language_check_button.isEnabled())
+        self.remove_files_button.setEnabled(bool(rows) and not running)
+        self.clear_files_button.setEnabled(bool(self.file_infos) and not running)
+        self.start_button.setEnabled(bool(self.file_infos) and not running)
         self.move_up_button.setEnabled(
             bool(rows) and rows[0] > 0 and not running
         )
@@ -897,7 +1014,7 @@ class MainWindow(QMainWindow):
     def open_sheet(self) -> None:
         url = self.sheet_url_edit.text().strip()
         if not url:
-            QMessageBox.warning(self, "Thiếu link", "Hãy nhập Link Google Sheet trong Cài đặt → Google Sheet đích.")
+            QMessageBox.warning(self, "Thiếu link", "Dán link vào ô Sheet đích trên màn hình chính.")
             return
         QDesktopServices.openUrl(QUrl(url))
 
@@ -914,7 +1031,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Link không hợp lệ",
-                "Hãy nhập đúng link trong Cài đặt → Google Sheet đích.",
+                "Dán link Google Sheet hợp lệ vào ô Sheet đích trên màn hình chính.",
             )
             return None
 
@@ -1141,6 +1258,10 @@ class MainWindow(QMainWindow):
             self.append_log("INFO", "Đã yêu cầu dừng ngay. Nếu đang có request Google trên mạng, app sẽ cắt ở timeout ngắn gần nhất.")
 
     def set_running(self, running: bool) -> None:
+        self.progress_bar.setVisible(running or self.progress_bar.value() > 0)
+        self.quick_sheet_url_edit.setEnabled(not running)
+        self.target_settings_button.setEnabled(not running)
+        self.csv_tools_button.setEnabled(not running)
         for button in (
             self.start_button,
             self.fill_translate_data_button,
@@ -1203,6 +1324,7 @@ class MainWindow(QMainWindow):
 
     def on_worker_finished(self) -> None:
         self.worker = None
+        self._update_reorder_buttons()
         if self._close_when_finished:
             self._close_when_finished = False
             self.close()
@@ -1213,6 +1335,8 @@ class MainWindow(QMainWindow):
 
     def append_log(self, level: str, message: str) -> None:
         self.log_edit.append_entry(level, message)
+        if level.upper() in {"FAIL", "ERROR"}:
+            self.log_toggle.setChecked(True)
 
     def save_settings(self) -> None:
         self.settings.sheet_url = self.sheet_url_edit.text().strip()

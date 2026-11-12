@@ -84,6 +84,38 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
     assert repository.load().unity_export_dir == str(tmp_path)
 
 
+def test_csv_options_and_preview_errors_remain_findable(app, tmp_path):
+    asset = tmp_path / "locale_en.asset"
+    asset.write_text(ASSET)
+    csv = tmp_path / "invalid.csv"
+    csv.write_text("Key,Unknown\nhello,World\n", encoding="utf-8")
+    dialog = UnityLocaleDialog(AppSettings())
+    dialog.show()
+    try:
+        assert not dialog.preview_button.isEnabled()
+        assert dialog.csv_options.isHidden()
+        dialog.options_button.click()
+        assert dialog.delimiter_combo.isVisible()
+        assert dialog.language_check_button.isVisible()
+        dialog.csv_paths = [csv]
+        dialog.set_assets([asset])
+        assert dialog.preview_button.isEnabled()
+        assert dialog.preview_button.property("primaryAction")
+        dialog.preview()
+        drain(app, dialog)
+        assert dialog.details.isVisible()
+        assert "Không thể hoàn tất" in dialog.preview_status.text()
+        assert not dialog.apply_button.isEnabled()
+        csv.write_text("Key,Type,Desc,English\nhello,Text,,World\n", encoding="utf-8")
+        dialog.preview()
+        drain(app, dialog)
+        assert dialog.apply_button.isEnabled()
+        assert dialog.apply_button.property("primaryAction")
+        assert not dialog.preview_button.property("primaryAction")
+    finally:
+        dialog.reject()
+
+
 def test_shared_toolbar_multi_selection_and_compact_rows(app, tmp_path):
     csvs = [tmp_path / f"source_{i}.csv" for i in range(6)]
     assets = [tmp_path / f"locale_{i}.asset" for i in range(6)]

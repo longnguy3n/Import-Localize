@@ -2,6 +2,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QHeaderView
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui.csv_language_dialog import CsvLanguageDialog
@@ -37,10 +38,18 @@ def test_dialog_results_filters_content_and_offline_worker(app, tmp_path):
     assert dialog.summary.rowCount() == 1
     assert dialog.summary.item(0, 5).text() == "1"
     assert dialog.model.rowCount() == 1
+    assert dialog.progress.isHidden() and dialog.stop_button.isHidden()
+    assert dialog.content.isHidden()
+    assert dialog.table.horizontalHeader().sectionResizeMode(0) == QHeaderView.ResizeMode.Interactive
+    dialog.help_button.click()
+    assert not dialog.guidance.isHidden()
+    dialog.help_button.click()
+    assert dialog.guidance.isHidden()
     dialog.table.selectRow(0)
     app.processEvents()
     assert "<color=red>" in dialog.content.toPlainText()
     assert "Tiếng Anh" in dialog.content.toPlainText()
+    assert not dialog.content.isHidden()
     dialog.filter_combo.setCurrentIndex(dialog.filter_combo.findData("all"))
     assert dialog.model.rowCount() == 3
     dialog.search.setText("name")

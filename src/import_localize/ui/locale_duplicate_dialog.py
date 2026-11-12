@@ -7,7 +7,7 @@ from PySide6.QtGui import QDesktopServices, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QTextBrowser, QProgressBar, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QFrame,
+    QTableWidgetItem, QVBoxLayout, QWidget, QFrame, QToolButton,
 )
 
 from import_localize.app.paths import USER_CONFIG_DIR
@@ -102,15 +102,29 @@ class LocaleDuplicateDialog(QDialog):
         self.backup_path = None
         self.wrote_files = False
         self.setWindowTitle("Unity Locale — Kiểm tra và xóa duplicate key")
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(1120, 780)
         layout = QVBoxLayout(self)
-        intro = QLabel("Kiểm tra key giống chính xác (phân biệt hoa/thường) trong từng file. "
+        intro_row = QHBoxLayout()
+        intro = QLabel("Nội dung giống nhau: giữ bản đầu. Nội dung khác nhau: chọn bản cần giữ trước khi xóa.")
+        intro.setWordWrap(True)
+        intro.setProperty("muted", True)
+        intro_row.addWidget(intro, 1)
+        self.rules_button = QToolButton()
+        self.rules_button.setText("Quy tắc so sánh")
+        self.rules_button.setCheckable(True)
+        self.rules_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.rules_button.setArrowType(Qt.ArrowType.RightArrow)
+        intro_row.addWidget(self.rules_button)
+        layout.addLayout(intro_row)
+        self.rules_label = QLabel("Kiểm tra key giống chính xác (phân biệt hoa/thường) trong từng file. "
                        "Cùng key ở các file khác nhau không bị xóa.\n"
                        "Chỉ so sánh key và Languages; bỏ qua cờ New/Flags và các trường phụ. "
-                       "Cùng nội dung ngôn ngữ: tự giữ bản đầu. Khác nội dung: bấm khung bên dưới để chọn bản giữ. "
-                       "Chỉ ghi file khi bấm Xóa duplicate. Lưu asset và thoát Play Mode trong Unity trước khi ghi.")
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
+                       "Chỉ ghi file khi bấm Xóa bản trùng; luôn sao lưu trước khi ghi.")
+        self.rules_label.setWordWrap(True)
+        self.rules_label.hide()
+        layout.addWidget(self.rules_label)
+        self.rules_button.toggled.connect(self._set_rules_expanded)
         buttons = QHBoxLayout()
         self.files_label = QLabel()
         self.files_label.setWordWrap(True)
@@ -125,6 +139,7 @@ class LocaleDuplicateDialog(QDialog):
         self.folder_label = QLabel()
         self.folder_label.setTextFormat(Qt.TextFormat.PlainText)
         self.folder_label.setWordWrap(True)
+        self.folder_label.setProperty("muted", True)
         layout.addWidget(self.folder_label)
         self.summary = QLabel("Chưa kiểm tra.")
         self.summary.setWordWrap(True)
@@ -135,32 +150,49 @@ class LocaleDuplicateDialog(QDialog):
         self.groups.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.groups.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.groups.verticalHeader().hide()
-        self.groups.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        for column in (0, 1, 4):
-            self.groups.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
+        self.groups.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.groups.horizontalHeader().setMinimumSectionSize(70)
+        self.groups.horizontalHeader().setStretchLastSection(True)
+        for column, width in enumerate((250, 280, 105, 90, 300)):
+            self.groups.setColumnWidth(column, width)
+        self.groups.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.groups.horizontalHeader().setToolTip("Kéo vạch giữa hai tiêu đề để đổi độ rộng; nhấp đúp để vừa nội dung.")
         self.groups.setMinimumHeight(140)
-        layout.addWidget(self.groups, 2)
+        self.content_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.content_splitter.setHandleWidth(8)
+        self.content_splitter.setChildrenCollapsible(False)
+        self.content_splitter.addWidget(self.groups)
+        comparison = QWidget()
+        comparison_layout = QVBoxLayout(comparison)
+        comparison_layout.setContentsMargins(0, 4, 0, 0)
+        self.content_splitter.addWidget(comparison)
+        self.content_splitter.setStretchFactor(0, 1)
+        self.content_splitter.setStretchFactor(1, 3)
+        self.content_splitter.setSizes([180, 400])
+        self._comparison_sized = False
+        layout.addWidget(self.content_splitter, 1)
         self.group_label = QLabel("Chọn một key để xem đầy đủ các bản ghi.")
         self.group_label.setWordWrap(True)
         self.group_label.setTextFormat(Qt.TextFormat.PlainText)
-        layout.addWidget(self.group_label)
+        comparison_layout.addWidget(self.group_label)
         legend = QLabel('<span style="background-color:#ffe7a3;color:#603e00;"> Đoạn khác nhau </span>'
                         ' · <span style="background-color:#e2e7ee;color:#526172;"> Không có đoạn tương ứng </span>'
                         ' · Dấu “·” = khoảng trắng; [xuống dòng] = xuống dòng trong đoạn khác.')
         legend.setWordWrap(True)
-        layout.addWidget(legend)
+        comparison_layout.addWidget(legend)
         choice_row = QHBoxLayout()
         choice_row.addWidget(QLabel("Giữ lại:"))
         self.keep_combo = QComboBox()
         self.keep_combo.setEnabled(False)
         choice_row.addWidget(self.keep_combo, 1)
-        self.next_button = QPushButton("Key chưa chọn tiếp theo →")
+        self.next_button = QPushButton("Key cần chọn tiếp theo")
         self.next_button.setEnabled(False)
         choice_row.addWidget(self.next_button)
-        layout.addLayout(choice_row)
+        comparison_layout.addLayout(choice_row)
         self.variants = QSplitter(Qt.Orientation.Horizontal)
         self.variants.setMinimumHeight(150)
-        layout.addWidget(self.variants, 3)
+        self.variants.setChildrenCollapsible(False)
+        comparison_layout.addWidget(self.variants, 1)
         self.status = QLabel()
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
@@ -169,11 +201,17 @@ class LocaleDuplicateDialog(QDialog):
         self.progress.setTextVisible(False)
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
+        self.progress.hide()
         layout.addWidget(self.progress)
+        safety = QLabel("Lưu asset và thoát Play Mode trong Unity trước khi xóa bản trùng.")
+        safety.setProperty("muted", True)
+        safety.setWordWrap(True)
+        layout.addWidget(safety)
         actions = QHBoxLayout()
         self.backup_button = QPushButton("Mở bản sao lưu")
         self.backup_button.setEnabled(False)
-        self.apply_button = QPushButton("Xóa duplicate")
+        self.apply_button = QPushButton("Xóa bản trùng")
+        self.apply_button.setProperty("primaryAction", True)
         self.apply_button.setEnabled(False)
         self.close_button = QPushButton("Đóng")
         actions.addWidget(self.backup_button)
@@ -181,6 +219,8 @@ class LocaleDuplicateDialog(QDialog):
         actions.addWidget(self.apply_button)
         actions.addWidget(self.close_button)
         layout.addLayout(actions)
+        for button in self.findChildren(QPushButton):
+            button.setAutoDefault(False)
         self.choose_button.clicked.connect(self.choose_files)
         self.folder_button.clicked.connect(self.choose_folder)
         self.scan_button.clicked.connect(self.scan)
@@ -223,9 +263,15 @@ class LocaleDuplicateDialog(QDialog):
             self._files_label()
             self.scan()
 
+    @Slot(bool)
+    def _set_rules_expanded(self, opened):
+        self.rules_label.setVisible(opened)
+        self.rules_button.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
+
     def _run(self, task, writing=False):
         if self.worker:
             return
+        self.progress.show()
         self._writing = writing
         self.worker = DuplicateWorker(task, self)
         for widget in (self.choose_button, self.folder_button, self.scan_button, self.groups, self.keep_combo,
@@ -266,8 +312,8 @@ class LocaleDuplicateDialog(QDialog):
                      if len({variant.term["Languages"][i] for variant in group.variants}) > 1]
         self.group_label.setText(f"{group.path.name} · Key: {group.key}"
                                  + (" · Khác: " + ", ".join(different) if different else " · Giống nội dung ngôn ngữ")
-                                 + "\nBấm vào khung nội dung để giữ bản đó và chuyển đến key chưa chọn tiếp theo.")
-        self.group_label.setToolTip(str(group.path))
+                                 )
+        self.group_label.setToolTip(str(group.path) + "\nBấm khung nội dung để giữ bản đó; app chuyển tới key cần chọn tiếp theo.")
         if group.conflict:
             self.keep_combo.addItem("— Chọn bản giữ lại sau khi so sánh nội dung —", None)
         documents = variant_documents(group.variants, asset.languages)
@@ -332,7 +378,7 @@ class LocaleDuplicateDialog(QDialog):
         self.apply_button.setEnabled(bool(self.scan_result.groups) and not unresolved and self.worker is None)
         self.next_button.setEnabled(bool(unresolved) and self.worker is None)
         self.status.setText(f"Còn {unresolved} key khác nội dung cần chọn bản giữ. Chưa ghi thay đổi nào."
-                            if unresolved else "Đã chọn đủ. Bấm Xóa duplicate để sao lưu và chỉ xóa các bản ghi dư."
+                            if unresolved else "Đã chọn đủ. Bấm Xóa bản trùng để sao lưu và xóa các bản ghi dư."
                             if self.scan_result.groups else "Không có duplicate key. Không cần ghi file.")
 
     def next_conflict(self):
@@ -368,6 +414,7 @@ class LocaleDuplicateDialog(QDialog):
             widget.setEnabled(True)
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
+        self.progress.hide()
         if worker.error:
             self.scan_result = None
             self.groups.setRowCount(0)
@@ -397,6 +444,11 @@ class LocaleDuplicateDialog(QDialog):
                     item.setToolTip(str(group.path) if col == 0 else str(value))
                     self.groups.setItem(row, col, item)
             self._update_choices()
+            self.groups.resizeRowsToContents()
+            if not self._comparison_sized:
+                table_height = min(240, max(140, self.groups.horizontalHeader().height() + sum(self.groups.rowHeight(i) for i in range(min(len(groups), 5))) + 8))
+                self.content_splitter.setSizes([table_height, max(300, self.content_splitter.height() - table_height)])
+                self._comparison_sized = True
             if groups:
                 self.groups.selectRow(0)
         worker.deleteLater()

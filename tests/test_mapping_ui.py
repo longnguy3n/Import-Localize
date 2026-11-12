@@ -10,6 +10,28 @@ from import_localize.ui.mapping_dialog import MappingDialog, MappingWorker, snap
 from test_unity_locale_ui import app
 
 
+def test_mapping_source_and_detail_panels_open_when_needed(app, tmp_path):
+    _, csv = inputs(tmp_path)
+    dialog = MappingDialog(AppSettings(), [csv])
+    try:
+        assert not dialog.source_panel.isHidden()
+        assert dialog.detail.isHidden() and dialog.progress.isHidden()
+        dialog.report = report([csv])
+        dialog.render_report()
+        assert dialog.source_panel.isHidden()
+        dialog.issues_table.selectRow(0)
+        assert not dialog.detail.isHidden()
+        dialog.mark()  # A missing Sheet URL must reveal the field to fix it.
+        assert not dialog.source_panel.isHidden()
+        assert "Nhập link Google Sheet" in dialog.status.text()
+        dialog.set_busy(True)
+        assert not dialog.progress.isHidden() and not dialog.stop_button.isHidden()
+        dialog.set_busy(False)
+        assert dialog.progress.isHidden() and dialog.stop_button.isHidden()
+    finally:
+        dialog.reject()
+
+
 def test_mark_history_survives_reopen_is_scoped_to_sheet_and_unchecks_only_completed(app, tmp_path):
     from import_localize.config.mapping_history import MappingHistoryRepository
     from import_localize.services.mapping_sheet_service import MappingKeyResult, MappingMarkResult

@@ -90,8 +90,9 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         assert window.target_form.isHidden()
         assert window.cards_splitter.indexOf(window.target_card) == -1
         assert window.file_table.minimumHeight() >= 100
-        assert window.file_table.geometry().bottom() < window.compare_files_button.mapTo(window.files_card, window.compare_files_button.rect().topLeft()).y()
-        assert window.compare_files_button.y() == window.add_files_button.y()
+        assert window.file_table.geometry().bottom() < window.add_files_button.mapTo(window.files_card, window.add_files_button.rect().topLeft()).y()
+        assert window.compare_files_button.isHidden() and window.csv_tools_button.isVisible()
+        assert abs(window.move_up_button.geometry().center().y() - window.add_files_button.geometry().center().y()) <= 1
         window.add_csv_files(list(csv_pair))
         window.file_table.clearSelection()
         assert not window.compare_files_button.isEnabled()
@@ -143,7 +144,7 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         splitter.moveSplitter(0, 1)
         app.processEvents()
         assert window.files_card.height() >= window.files_card.minimumHeight()
-        assert window.file_table.geometry().bottom() < window.compare_files_button.y()
+        assert window.file_table.geometry().bottom() < window.add_files_button.y()
         splitter.moveSplitter(splitter.height(), 2)
         app.processEvents()
         assert window.log_card.height() >= window.log_card.minimumHeight()
@@ -162,7 +163,7 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         reopened.resize(660, 700)
         for _ in range(10):
             app.processEvents()
-        buttons = [reopened.compare_files_button, reopened.add_files_button,
+        buttons = [reopened.add_files_button,
                    reopened.move_up_button, reopened.move_down_button,
                    reopened.remove_files_button, reopened.clear_files_button]
         assert max(button.geometry().center().y() for button in buttons) - min(button.geometry().center().y() for button in buttons) <= 1
