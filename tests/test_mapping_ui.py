@@ -260,9 +260,12 @@ def test_mark_uses_only_selected_review_key(app, tmp_path, monkeypatch):
         dialog.filter_combo.setCurrentIndex(dialog.filter_combo.findData("review"))
         dialog.issues_table.selectRow(0)
         launched = []
-        monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
+        confirmations = []
+        monkeypatch.setattr(QMessageBox, "question", lambda *args: confirmations.append(args[2]) or QMessageBox.StandardButton.Yes)
         monkeypatch.setattr(dialog, "launch", launched.append)
         dialog.mark()
+        assert "Công thức riêng tại các ô C" in confirmations[0]
+        assert "giá trị cố định Wrong mapping" in confirmations[0]
         assert len(launched) == 1
         worker = launched[0]
         assert worker.keys == {"cf_story_desc"}

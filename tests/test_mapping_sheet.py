@@ -32,7 +32,7 @@ class Response:
 class Session:
     def __init__(self, rows, formulas=None):
         self.rows = deepcopy(rows)
-        self.formulas = formulas or [[r[2]] if len(r) > 2 else [] for r in rows]
+        self.formulas = deepcopy(formulas) if formulas is not None else [[r[2]] if len(r) > 2 else [] for r in rows]
         self.calls = []
         self.before_read = None
         self.reads = 0
@@ -78,6 +78,9 @@ class Session:
             row = self.rows[number - 1]
             row.extend([""] * max(0, 3 - len(row)))
             row[2] = item["values"][0][0]
+            while len(self.formulas) < number:
+                self.formulas.append([])
+            self.formulas[number - 1] = [row[2]]
         return Response({"totalUpdatedCells": len(payload["data"])})
 
     def close(self):
@@ -130,9 +133,9 @@ def test_missing_or_already_marked_keys_do_not_write():
     assert conn.authorized_session.writes == 0
 
 
-@pytest.mark.parametrize("formulas", [[["Custom(modified)"], ['=IF(1,"new","")']],
+@pytest.mark.parametrize("formulas", [[["Custom(modified)"], ['=ARRAYFORMULA(A:A)']],
                                      [["Custom(modified)"], [""], ["=ARRAYFORMULA(A:A)"]]])
-def test_formula_backed_status_is_not_overwritten(formulas):
+def test_shared_array_formula_is_not_overwritten(formulas):
     conn = connection([HEADERS, ["", "a", "new"]], formulas=formulas)
     with pytest.raises(GoogleServiceError, match="công thức|ARRAYFORMULA"):
         service.mark_wrong_mapping(conn, {"a"})
@@ -160,7 +163,7 @@ def test_new_formula_with_same_displayed_value_is_rechecked_before_write(new_for
             # reveals this concurrent edit.
             session.formulas[1][0] = new_formula
     conn.authorized_session.before_read = insert_formula_after_initial_check
-    with pytest.raises(GoogleServiceError, match="công thức|ARRAYFORMULA"):
+    with pytest.raises(GoogleServiceError, match="đã thay đổi|ARRAYFORMULA"):
         service.mark_wrong_mapping(conn, {"a"})
     assert conn.authorized_session.writes == 0
     assert conn.authorized_session.rows[1][2] == "new"
@@ -280,5 +283,37 @@ def test_key_in_column_a_and_header_drift_still_guarded():
             session.rows[0] = ["Key", "Tag", "Custom(modified)"]
     conn.authorized_session.before_read = change_header
     with pytest.raises(GoogleServiceError, match="Cột key đã thay đổi"):
+        service.mark_wrong_mapping(conn, {"a"})
+    assert conn.authorized_session.writes == 0
+
+
+def test_selected_c412_formula_is_replaced_without_touching_other_keys():
+    rows = [HEADERS] + [["Base", f"key{i}", "new"] for i in range(1, 414)]
+    formulas = [["Custom(modified)"]] + [['=IF(TRUE,"new","")'] for _ in rows[1:]]
+    # Both occurrences of the selected key must be marked, including C412.
+    rows[412][1] = rows[411][1]
+    conn = connection(rows, formulas=formulas)
+    result = service.mark_wrong_mapping(conn, {rows[411][1]})
+    assert result.updated_rows == result.replaced_formula_rows == 2
+    for number in (412, 413):
+        assert conn.authorized_session.rows[number - 1][2] == service.MARKER
+        assert conn.authorized_session.formulas[number - 1] == [service.MARKER]
+    for number in (2, 411, 414):
+        assert conn.authorized_session.rows[number - 1] == rows[number - 1]
+        assert conn.authorized_session.formulas[number - 1] == formulas[number - 1]
+    again = service.mark_wrong_mapping(conn, {rows[411][1]})
+    assert again.updated_rows == again.replaced_formula_rows == 0
+    assert again.already_marked_rows == 2
+    assert conn.authorized_session.writes == 1
+
+
+def test_formula_changed_to_same_displayed_result_stops_before_write():
+    conn = connection([HEADERS, ["", "a", "new"]],
+                      formulas=[["Custom(modified)"], ['=IF(TRUE,"new","")']])
+    def change_formula(session):
+        if session.reads == 4:
+            session.formulas[1] = ['=IF(1=1,"new","")']
+    conn.authorized_session.before_read = change_formula
+    with pytest.raises(GoogleServiceError, match="đã thay đổi"):
         service.mark_wrong_mapping(conn, {"a"})
     assert conn.authorized_session.writes == 0

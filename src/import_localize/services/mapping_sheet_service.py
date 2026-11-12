@@ -33,6 +33,7 @@ class MappingMarkResult:
     already_marked_rows: int = 0
     matched_keys: tuple[str, ...] = ()
     missing_keys: tuple[str, ...] = ()
+    replaced_formula_rows: int = 0
 
 
 def _cell(row: list, index: int) -> str:
@@ -51,14 +52,11 @@ def _key_column(rows: list[list]) -> int:
     return key_columns[0]
 
 
-def _check_status_formulas(formulas: list[list], rows: Iterable[int]) -> None:
+def _check_status_array_formulas(formulas: list[list]) -> None:
     for formula_row in formulas:
         formula = _cell(formula_row, 0)
         if formula.startswith("=") and "ARRAYFORMULA" in formula.upper():
-            raise GoogleServiceError("Cột C có ARRAYFORMULA; không ghi đè kết quả công thức.")
-    for number in rows:
-        if number <= len(formulas) and _cell(formulas[number - 1], 0).startswith("="):
-            raise GoogleServiceError(f"Ô C{number} đang là công thức; chưa ghi dữ liệu trong lô này.")
+            raise GoogleServiceError("Cột C có ARRAYFORMULA dùng chung nhiều hàng; không thể thay riêng ô bằng Wrong mapping. Chưa ghi dữ liệu trong lô này.")
 
 
 def mark_wrong_mapping(
@@ -73,7 +71,8 @@ def mark_wrong_mapping(
 
     All rows of a duplicated key are marked. Exact key matching preserves case,
     whitespace and leading zeroes. No live writes are performed for missing keys.
-    Direct formulas and ARRAYFORMULA in C are rejected. This values API check
+    The confirmed action replaces ordinary formulas in selected C cells with
+    the marker, while ARRAYFORMULA in C is rejected. This values API check
     does not detect every spill formula anchored outside C. Each batch re-reads
     formatted keys and raw status/formula cells immediately before writing;
     users should not sort or edit the tab while this runs because
@@ -130,9 +129,10 @@ def mark_wrong_mapping(
         _progress(progress_callback, 100, "Không có ô cần thay đổi")
         return MappingMarkResult(0, already, tuple(sorted(found)), missing)
 
-    _check_status_formulas(statuses, (number for number, _, _ in pending))
+    _check_status_array_formulas(statuses)
 
     updated = 0
+    replaced_formulas = 0
     submitted = False
     try:
         for offset in range(0, len(pending), WRITE_BATCH_SIZE):
@@ -161,7 +161,7 @@ def mark_wrong_mapping(
             # Re-read raw statuses, including global ARRAYFORMULA anchors.
             # One read serves both drift and formula checks.
             latest_statuses = read("C:C", "FORMULA")
-            _check_status_formulas(latest_statuses, (number for number, _, _ in chunk))
+            _check_status_array_formulas(latest_statuses)
             for number, key, old_value in chunk:
                 if (latest_keys.get(number) != key or status_at(latest_statuses, number) != old_value):
                     raise GoogleServiceError(f"Hàng {number} đã thay đổi trong lúc kiểm tra; hãy chạy lại.")
@@ -181,6 +181,7 @@ def mark_wrong_mapping(
             if count != len(chunk):
                 raise GoogleServiceError("Google trả số ô cập nhật không khớp yêu cầu; cần kiểm tra lại tab.")
             updated += count
+            replaced_formulas += sum(old_value.startswith("=") for _, _, old_value in chunk)
             submitted = False
             _progress(progress_callback, 15 + round(85 * updated / len(pending)),
                       f"Đã đánh dấu {updated}/{len(pending)} ô Wrong mapping")
@@ -192,5 +193,5 @@ def mark_wrong_mapping(
                 f"Hãy kiểm tra Translate_Data trước khi chạy lại. Chi tiết: {exc}"
             ) from exc
         raise
-    _log(log_callback, f"Đã đánh dấu {updated} ô; {already} ô đã là Wrong mapping; {len(missing)} key không tìm thấy.")
-    return MappingMarkResult(updated, already, tuple(sorted(found)), missing)
+    _log(log_callback, f"Đã đánh dấu {updated} ô (thay {replaced_formulas} công thức riêng); {already} ô đã là Wrong mapping; {len(missing)} key không tìm thấy.")
+    return MappingMarkResult(updated, already, tuple(sorted(found)), missing, replaced_formulas)

@@ -504,6 +504,7 @@ class MappingDialog(QDialog):
         else:
             result = worker.result
             self.status.setText(f"Đã ghi Wrong mapping: {result.updated_rows} hàng; "
+                f"đã thay công thức riêng: {result.replaced_formula_rows} ô; "
                 f"đã có sẵn: {result.already_marked_rows} hàng; không tìm thấy: {len(result.missing_keys)} key.")
             self.detail.setPlainText("Key không tìm thấy trong Translate_Data:\n" + "\n".join(sorted(result.missing_keys)))
         worker.deleteLater()
@@ -644,6 +645,7 @@ class MappingDialog(QDialog):
                 f"Trong đó {review_count} key thuộc nhóm Cần xem ngữ cảnh do bạn chủ động chọn.\n"
                 f"{len(keys - set(self.visible_keys))} key đang ẩn bởi bộ lọc.\n\n"
                 f"Sheet: {url}\n\nCác trạng thái cũ ở đúng các key này sẽ được thay thế. "
+                "Công thức riêng tại các ô C tương ứng cũng sẽ được thay bằng giá trị cố định Wrong mapping. "
                 "Không sửa bản dịch hoặc các key chưa chọn. "
                 "Không sắp xếp hoặc chỉnh sửa tab trong lúc đang ghi.")
         if QMessageBox.question(self, "Đánh dấu các key sai mapping", text) != QMessageBox.StandardButton.Yes:
