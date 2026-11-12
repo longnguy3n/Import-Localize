@@ -3,11 +3,19 @@ from __future__ import annotations
 from concurrent.futures import CancelledError
 from copy import deepcopy
 from types import SimpleNamespace
+import re
 
 import pytest
 
 from import_localize.services import mapping_sheet_service as service
 from import_localize.services.google_service import GoogleServiceError
+from import_localize.services import google_service
+
+
+@pytest.fixture(autouse=True)
+def isolated_fake_http(monkeypatch):
+    # Exercise the real cancellable background transport without any network.
+    monkeypatch.setattr(google_service, "AuthorizedSession", lambda credentials: credentials)
 
 
 class Response:
@@ -37,8 +45,29 @@ class Session:
             if self.before_read:
                 self.before_read(self)
             params = kwargs["params"]
-            values = self.formulas if params["valueRenderOption"] == "FORMULA" else self.rows
-            return Response({"valueRanges": [{"values": deepcopy(values)}]})
+            result = []
+            for area in params["ranges"]:
+                match = re.fullmatch(r"'Translate_Data'!([A-C])(\d*):([A-C])(\d*)", area)
+                assert match, area
+                left, first, right, last = match.groups()
+                first = int(first or 1)
+                size = max(len(self.rows), len(self.formulas))
+                last = int(last or size)
+                values = []
+                for number in range(first, last + 1):
+                    row = self.rows[number - 1] if number <= len(self.rows) else []
+                    selected = []
+                    for col in range(ord(left) - 65, ord(right) - 65 + 1):
+                        formula = self.formulas[number - 1] if number <= len(self.formulas) else []
+                        if params["valueRenderOption"] == "FORMULA" and col == 2 and formula and str(formula[0]).startswith("="):
+                            selected.append(formula[0])
+                        else:
+                            selected.append(row[col] if col < len(row) else "")
+                    values.append(selected)
+                while values and not any(values[-1]):
+                    values.pop()
+                result.append({"values": deepcopy(values)})
+            return Response({"valueRanges": result})
         assert method == "POST" and url.endswith("/values:batchUpdate")
         self.writes += 1
         payload = kwargs["json"]
@@ -51,9 +80,13 @@ class Session:
             row[2] = item["values"][0][0]
         return Response({"totalUpdatedCells": len(payload["data"])})
 
+    def close(self):
+        pass
+
 
 def connection(rows, **kwargs):
-    return SimpleNamespace(spreadsheet_id="test-id", authorized_session=Session(rows, **kwargs))
+    session = Session(rows, **kwargs)
+    return SimpleNamespace(spreadsheet_id="test-id", authorized_session=session, credentials=session)
 
 
 HEADERS = ["Tag", "Key", "Custom(modified)"]
@@ -110,7 +143,7 @@ def test_formula_backed_status_is_not_overwritten(formulas):
 def test_live_row_or_status_change_aborts_before_write(column, replacement):
     conn = connection([HEADERS, ["", "a", "new"]])
     def change_on_preflight(session):
-        if session.reads == 3:
+        if session.reads == 4:
             session.rows[1][column] = replacement
     conn.authorized_session.before_read = change_on_preflight
     with pytest.raises(GoogleServiceError, match="đã thay đổi"):
@@ -122,7 +155,7 @@ def test_live_row_or_status_change_aborts_before_write(column, replacement):
 def test_new_formula_with_same_displayed_value_is_rechecked_before_write(new_formula):
     conn = connection([HEADERS, ["", "a", "new"]])
     def insert_formula_after_initial_check(session):
-        if session.reads == 3:
+        if session.reads == 4:
             # Keep the rendered status identical so only FORMULA rendering
             # reveals this concurrent edit.
             session.formulas[1][0] = new_formula
@@ -188,3 +221,64 @@ def test_uncertain_write_is_not_retried_and_is_reported():
         service.mark_wrong_mapping(conn, {"a"})
     assert conn.authorized_session.writes == 1
     assert conn.authorized_session.rows[1][2] == "Wrong mapping"
+
+
+def test_slow_read_can_finish_after_old_six_second_limit_without_retry():
+    import time
+    from requests.exceptions import ReadTimeout
+    conn = connection([HEADERS, ["", "a", "new"]])
+    original = conn.authorized_session.request
+    calls = []
+    def slow_first_read(method, url, **kwargs):
+        calls.append(kwargs["timeout"])
+        if len(calls) == 1:
+            # Reproduce a server that needs seven seconds. The old cancellable
+            # transport would abort this response at six seconds.
+            budget = kwargs["timeout"][1]
+            if budget < 7:
+                raise ReadTimeout("response arrives after the client deadline")
+            time.sleep(7)
+        return original(method, url, **kwargs)
+    conn.authorized_session.request = slow_first_read
+    result = service.mark_wrong_mapping(conn, {"a"}, cancel_callback=lambda: False)
+    assert result.updated_rows == 1
+    assert conn.authorized_session.reads == 5
+    assert len(calls) == 6  # Five reads, one write; no timeout/retry cycle.
+    assert all(timeout == (5.0, 60.0) for timeout in calls)
+
+
+def test_sparse_preflight_only_reads_key_spans_and_raw_statuses():
+    rows = [HEADERS] + [["expensive tag formula", f"k{i}", ""] for i in range(3000)]
+    conn = connection(rows)
+    result = service.mark_wrong_mapping(conn, {"k0", "k2999"})
+    assert result.updated_rows == 2
+    reads = [kwargs["params"] for method, _, kwargs in conn.authorized_session.calls if method == "GET"]
+    assert reads[3]["ranges"] == ["'Translate_Data'!A1:C1", "'Translate_Data'!B2:B2", "'Translate_Data'!B3001:B3001"]
+    assert not any("'Translate_Data'!A:C" in p["ranges"] for p in reads)
+    assert all(p["valueRenderOption"] == "FORMULA" for p in reads if "'Translate_Data'!C:C" in p["ranges"])
+    assert conn.authorized_session.rows[1500][2] == ""
+
+
+def test_sparse_batches_keep_blank_row_offsets_and_limit_request_ranges(monkeypatch):
+    monkeypatch.setattr(service, "READ_BATCH_RANGES", 2)
+    rows = [HEADERS] + [[] for _ in range(100)]
+    for number in (2, 30, 60, 100):
+        rows[number - 1] = ["", f"key{number}", ""]
+    conn = connection(rows)
+    result = service.mark_wrong_mapping(conn, {"key2", "key30", "key60", "key100"})
+    assert result.updated_rows == 4
+    assert [i for i, row in enumerate(conn.authorized_session.rows, 1) if len(row) > 2 and row[2] == service.MARKER] == [2, 30, 60, 100]
+    assert all(len(kw["params"]["ranges"]) <= 3 for method, _, kw in conn.authorized_session.calls if method == "GET")
+
+
+def test_key_in_column_a_and_header_drift_still_guarded():
+    conn = connection([["Key", "Tag", "Custom(modified)"], ["001", "", "new"]])
+    assert service.mark_wrong_mapping(conn, {"001"}).updated_rows == 1
+    conn = connection([HEADERS, ["", "a", "new"]])
+    def change_header(session):
+        if session.reads == 4:
+            session.rows[0] = ["Key", "Tag", "Custom(modified)"]
+    conn.authorized_session.before_read = change_header
+    with pytest.raises(GoogleServiceError, match="Cột key đã thay đổi"):
+        service.mark_wrong_mapping(conn, {"a"})
+    assert conn.authorized_session.writes == 0

@@ -89,3 +89,60 @@ def test_structure_builder_does_not_add_existing_sheet_again():
 
     assert requests == []
     assert clear_ranges == ["'import_vi'"]
+
+
+def test_background_request_stops_while_socket_read_is_still_blocked(monkeypatch):
+    from concurrent.futures import CancelledError
+    from threading import Event, Thread
+    entered, release, cancel, closed = Event(), Event(), Event(), Event()
+    outcomes = []
+    class BlockedSession:
+        def request(self, **kwargs):
+            assert kwargs["timeout"] == (5, 60)
+            entered.set()
+            release.wait(5)
+            return _Response(200)
+        def close(self):
+            closed.set()
+    monkeypatch.setattr(google_service, "AuthorizedSession", lambda credentials: BlockedSession())
+    def run():
+        try:
+            google_service._request_with_retry(None, "GET", "https://example.test",
+                action="read", background_credentials=object(), timeout=(5, 60),
+                cancel_callback=cancel.is_set)
+        except BaseException as exc:
+            outcomes.append(exc)
+    worker = Thread(target=run)
+    worker.start()
+    try:
+        assert entered.wait(2)
+        cancel.set()
+        worker.join(1)
+        assert not worker.is_alive()
+        assert len(outcomes) == 1 and isinstance(outcomes[0], CancelledError)
+        assert not closed.is_set()  # Worker stopped before HTTP finished.
+    finally:
+        release.set()
+        worker.join(2)
+        assert closed.wait(2)
+
+
+def test_background_read_retries_with_long_timeout_and_reports_retry(monkeypatch):
+    session = _FlakySession([ReadTimeout("slow"), _Response(200)])
+    session.close = lambda: None
+    monkeypatch.setattr(google_service, "AuthorizedSession", lambda credentials: session)
+    monkeypatch.setattr(google_service, "_sleep_with_cancel", lambda *_: None)
+    messages = []
+    result = google_service._request_with_retry(None, "GET", "https://example.test",
+        action="read", background_credentials=object(), timeout=(5, 60), max_attempts=3,
+        cancel_callback=lambda: False, log_callback=messages.append)
+    assert result.status_code == 200 and session.calls == 2
+    assert any("2/3" in message for message in messages)
+
+
+def test_background_session_startup_failure_reaches_caller(monkeypatch):
+    def fail(credentials):
+        raise FileNotFoundError("missing SSL resource")
+    monkeypatch.setattr(google_service, "AuthorizedSession", fail)
+    with pytest.raises(FileNotFoundError, match="SSL"):
+        google_service._request_in_background(object(), "GET", "https://example.test")

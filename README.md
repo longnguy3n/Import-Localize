@@ -159,6 +159,8 @@ App chỉ thay trạng thái cột C của **các key đã chọn** bằng `Wron
 
 App đọc lại vị trí key trên Sheet, kiểm tra cột C có tiêu đề `Custom(modified)` và chỉ ghi các ô C bằng RAW; không thay bản dịch hoặc các cột khác. Key trùng được đánh dấu trên mọi hàng tương ứng; key không tìm thấy được liệt kê. File mapping/CSV thay đổi thì phải kiểm tra lại. Không sắp xếp/chỉnh sửa tab trong lúc ghi. Nếu dừng hoặc lỗi mạng giữa các lô, app báo số ô đã xác nhận và trường hợp kết quả ghi chưa rõ; kiểm tra tab trước khi chạy lại.
 
+Từ v1.18.5, ghi mapping dùng cơ chế chờ mạng nền giống Fill: thời gian chờ đọc tối đa 60 giây, nút Dừng vẫn phản hồi mà không phải ngắt mọi yêu cầu ở 6 giây. App đọc riêng cột key và trạng thái/công thức cột C; trước mỗi lô chỉ đọc lại các vùng key quanh hàng cần ghi, thay vì tải lại toàn bộ `A:C`. Vẫn kiểm tra toàn cột C để phát hiện ARRAYFORMULA. Trạng thái hiển thị bước đang đọc và lần thử lại; chỉ các yêu cầu đọc được thử lại tối đa 3 lần. Lệnh ghi không tự gửi lại khi chưa rõ kết quả để tránh ghi nhầm sau khi hàng đã thay đổi.
+
 ## Nhận diện ngôn ngữ CSV offline
 
 Chọn một hoặc nhiều hàng trong card **Tệp CSV** → **Nhận diện ngôn ngữ CSV…**. Không chọn hàng thì kiểm tra toàn bộ danh sách. Cũng có nút này trong cửa sổ Unity Locale để kiểm tra CSV import hoặc CSV export. Trong cửa sổ kết quả có thể chọn các CSV khác và **Kiểm tra lại**.

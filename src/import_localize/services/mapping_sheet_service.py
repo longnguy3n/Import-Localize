@@ -12,6 +12,19 @@ from import_localize.services.google_service import (
 SHEET_NAME = "Translate_Data"
 MARKER = "Wrong mapping"
 WRITE_BATCH_SIZE = 500
+REQUEST_TIMEOUT = (5.0, 60.0)
+READ_BATCH_RANGES = 50
+
+
+def _key_ranges(column: str, rows: Iterable[int]) -> list[tuple[int, int, str]]:
+    """Coalesce nearby target rows; cap each span to avoid huge sparse reads."""
+    spans = []
+    for row in sorted(set(rows)):
+        if spans and row - spans[-1][1] <= 16 and row - spans[-1][0] < 1000:
+            spans[-1][1] = row
+        else:
+            spans.append([row, row])
+    return [(start, end, f"{column}{start}:{column}{end}") for start, end in spans]
 
 
 @dataclass(frozen=True)
@@ -62,7 +75,7 @@ def mark_wrong_mapping(
     whitespace and leading zeroes. No live writes are performed for missing keys.
     Direct formulas and ARRAYFORMULA in C are rejected. This values API check
     does not detect every spill formula anchored outside C. Each batch re-reads
-    formatted keys/statuses and formula cells immediately before writing;
+    formatted keys and raw status/formula cells immediately before writing;
     users should not sort or edit the tab while this runs because
     Sheets values updates cannot provide an atomic compare-and-set operation.
     """
@@ -74,24 +87,39 @@ def mark_wrong_mapping(
         return MappingMarkResult()
     base = f"https://sheets.googleapis.com/v4/spreadsheets/{connection.spreadsheet_id}"
 
-    def read(range_name: str, render: str = "FORMATTED_VALUE") -> list[list]:
+    def read_many(range_names: list[str], render: str = "FORMATTED_VALUE") -> list[list[list]]:
+        action = f"Đọc Translate_Data ({render}, {len(range_names)} vùng)"
         response = _request_with_retry(
             connection.authorized_session, "GET", base + "/values:batchGet",
-            action="Đọc Translate_Data", log_callback=log_callback, cancel_callback=cancel_callback,
-            params={"ranges": f"'{SHEET_NAME}'!{range_name}", "valueRenderOption": render},
+            action=action, log_callback=log_callback, cancel_callback=cancel_callback,
+            background_credentials=connection.credentials, timeout=REQUEST_TIMEOUT, max_attempts=3,
+            params={"ranges": [f"'{SHEET_NAME}'!{name}" for name in range_names],
+                    "majorDimension": "ROWS", "valueRenderOption": render},
         )
-        _raise_for_response(response, "Đọc Translate_Data")
+        _raise_for_response(response, action)
         ranges = response.json().get("valueRanges", [])
-        if len(ranges) != 1:
+        if len(ranges) != len(range_names):
             raise GoogleServiceError("Google không trả về vùng Translate_Data được yêu cầu.")
-        return ranges[0].get("values", [])
+        return [entry.get("values", []) for entry in ranges]
 
-    _progress(progress_callback, 5, "Đang đọc key và cột C trong Translate_Data")
-    original = read("A:C")
-    key_index = _key_column(original)
-    matches = [(number, _cell(row, key_index), _cell(row, 2))
-               for number, row in enumerate(original[1:], start=2)
-               if _cell(row, key_index) in requested]
+    def read(range_name: str, render: str = "FORMATTED_VALUE") -> list[list]:
+        return read_many([range_name], render)[0]
+
+    _progress(progress_callback, 5, "Đang kiểm tra tiêu đề Translate_Data")
+    key_index = _key_column(read("A1:C1"))
+    key_column = "AB"[key_index]
+    _progress(progress_callback, 7, f"Đang tìm key trong cột {key_column} của Translate_Data")
+    key_rows = read(f"{key_column}2:{key_column}")
+    matches = [(number, _cell(row, 0)) for number, row in enumerate(key_rows, start=2)
+               if _cell(row, 0) in requested]
+    _progress(progress_callback, 10, "Đang đọc trạng thái và kiểm tra công thức cột C")
+    # FORMULA gives literals or formula text, avoiding a second full-column
+    # formatted-status read. Scan all of C to detect ARRAYFORMULA anchors even
+    # outside the selected rows; never fetch translation columns.
+    statuses = read("C:C", "FORMULA") if matches else []
+    def status_at(values: list[list], number: int) -> str:
+        return _cell(values[number - 1], 0) if number <= len(values) else ""
+    matches = [(number, key, status_at(statuses, number)) for number, key in matches]
     found = {key for _, key, _ in matches}
     missing = tuple(sorted(requested - found))
     already = sum(value == MARKER for _, _, value in matches)
@@ -102,7 +130,7 @@ def mark_wrong_mapping(
         _progress(progress_callback, 100, "Không có ô cần thay đổi")
         return MappingMarkResult(0, already, tuple(sorted(found)), missing)
 
-    _check_status_formulas(read("C:C", "FORMULA"), (number for number, _, _ in pending))
+    _check_status_formulas(statuses, (number for number, _, _ in pending))
 
     updated = 0
     submitted = False
@@ -112,22 +140,38 @@ def mark_wrong_mapping(
             chunk = pending[offset:offset + WRITE_BATCH_SIZE]
             # Resolve drift immediately before each write. Never reuse a row
             # number from a prior scan or from a local CSV.
-            latest = read("A:C")
-            if _key_column(latest) != key_index:
-                raise GoogleServiceError("Cột key đã thay đổi trong lúc kiểm tra; hãy chạy lại.")
+            _progress(progress_callback, 15 + round(85 * updated / len(pending)),
+                      f"Đang kiểm tra lại {len(chunk)} hàng trước khi ghi; đã ghi {updated}/{len(pending)} ô")
+            spans = _key_ranges(key_column, (number for number, _, _ in chunk))
+            latest_keys = {}
+            for start in range(0, len(spans), READ_BATCH_RANGES):
+                group = spans[start:start + READ_BATCH_RANGES]
+                names = [name for _, _, name in group]
+                if start == 0:
+                    names.insert(0, "A1:C1")
+                values = read_many(names)
+                if start == 0:
+                    header = values.pop(0)
+                    if _key_column(header) != key_index:
+                        raise GoogleServiceError("Cột key đã thay đổi trong lúc kiểm tra; hãy chạy lại.")
+                for (first, last, _), rows in zip(group, values):
+                    for number in range(first, last + 1):
+                        index = number - first
+                        latest_keys[number] = _cell(rows[index], 0) if index < len(rows) else ""
+            # Re-read raw statuses, including global ARRAYFORMULA anchors.
+            # One read serves both drift and formula checks.
+            latest_statuses = read("C:C", "FORMULA")
+            _check_status_formulas(latest_statuses, (number for number, _, _ in chunk))
             for number, key, old_value in chunk:
-                if (number > len(latest) or _cell(latest[number - 1], key_index) != key
-                        or _cell(latest[number - 1], 2) != old_value):
+                if (latest_keys.get(number) != key or status_at(latest_statuses, number) != old_value):
                     raise GoogleServiceError(f"Hàng {number} đã thay đổi trong lúc kiểm tra; hãy chạy lại.")
-            # A newly inserted formula can evaluate to the same formatted value
-            # as the old literal; formatted-value checks alone cannot detect it.
-            _check_status_formulas(read("C:C", "FORMULA"), (number for number, _, _ in chunk))
             _check_cancel(cancel_callback)
             submitted = True
             response = _request_with_retry(
                 connection.authorized_session, "POST", base + "/values:batchUpdate",
                 action="Đánh dấu Wrong mapping", log_callback=log_callback,
                 cancel_callback=cancel_callback, max_attempts=1,
+                background_credentials=connection.credentials, timeout=REQUEST_TIMEOUT,
                 json={"valueInputOption": "RAW", "data": [
                     {"range": f"'{SHEET_NAME}'!C{number}", "values": [[MARKER]]}
                     for number, _, _ in chunk]},

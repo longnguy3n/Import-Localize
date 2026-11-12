@@ -929,7 +929,7 @@ def _last_populated_row(values: list[list[object]]) -> int:
 
 
 
-def _request_in_background_for_fill(
+def _request_in_background(
     credentials: Credentials,
     method: str,
     url: str,
@@ -944,16 +944,18 @@ def _request_in_background_for_fill(
     """Run one potentially long Sheets request without blocking Stop.
 
     ``requests`` cannot abort a synchronous socket read from another thread.
-    Fill therefore uses a dedicated AuthorizedSession in a daemon thread and
-    polls the result from the worker thread.  If the user presses Stop, the
+    Use a dedicated AuthorizedSession in a daemon thread and
+    poll the result from the worker thread. If the user presses Stop, the
     worker can return immediately while the isolated network request is left
     to finish in the daemon thread.
     """
+    _check_cancel(cancel_callback)
     result_queue = Queue(maxsize=1)
 
     def _runner() -> None:
-        session = AuthorizedSession(credentials)
+        session = None
         try:
+            session = AuthorizedSession(credentials)
             response = session.request(
                 method=method,
                 url=url,
@@ -965,13 +967,14 @@ def _request_in_background_for_fill(
             result_queue.put(("error", exc))
         finally:
             try:
-                session.close()
+                if session is not None:
+                    session.close()
             except Exception:
                 pass
 
     thread = Thread(
         target=_runner,
-        name="import-localize-fill-http",
+        name="import-localize-sheets-http",
         daemon=True,
     )
     thread.start()
@@ -985,6 +988,10 @@ def _request_in_background_for_fill(
         if kind == "error":
             raise payload
         return payload
+
+
+# Keep the existing Fill call sites and test hooks stable.
+_request_in_background_for_fill = _request_in_background
 
 
 def _fill_verification_ranges(
@@ -1545,19 +1552,31 @@ def _request_with_retry(
     cancel_callback: CancelCallback = None,
     timeout: int | float | tuple[float, float] = GOOGLE_REQUEST_TIMEOUT_SECONDS,
     max_attempts: int = GOOGLE_REQUEST_RETRY_ATTEMPTS,
+    background_credentials: Credentials | None = None,
     **kwargs,
 ):
-    """Run an idempotent Google API request with cancellable retry/backoff."""
+    """Run a Google request with cancellable retry/backoff.
+
+    Background credentials opt into an isolated session and polling, so Stop
+    stays responsive without shortening the socket timeout. Non-idempotent
+    writes must pass max_attempts=1 to avoid retrying an uncertain result.
+    """
     last_error: Exception | None = None
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         _check_cancel(cancel_callback)
         try:
-            response = session.request(
-                method=method,
-                url=url,
-                timeout=_effective_request_timeout(timeout, cancel_callback),
-                **kwargs,
-            )
+            if background_credentials is not None:
+                response = _request_in_background(
+                    background_credentials, method, url,
+                    cancel_callback=cancel_callback, timeout=timeout, **kwargs,
+                )
+            else:
+                response = session.request(
+                    method=method,
+                    url=url,
+                    timeout=_effective_request_timeout(timeout, cancel_callback),
+                    **kwargs,
+                )
         except (ReadTimeout, RequestsTimeout, RequestsConnectionError) as exc:
             _check_cancel(cancel_callback)
             last_error = exc

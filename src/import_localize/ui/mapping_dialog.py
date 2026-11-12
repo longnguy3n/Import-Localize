@@ -58,8 +58,14 @@ class MappingWorker(QThread):
                     cancel_callback=self.isInterruptionRequested)
                 if snapshots(inputs) != self.snapshot:
                     raise ValueError("Mapping hoặc CSV đã thay đổi. Hãy kiểm tra lại trước khi ghi Sheet.")
+                last_progress = 0
+                def report_mark_progress(n, text):
+                    nonlocal last_progress
+                    last_progress = n
+                    self.progress.emit(n, 100, text)
                 self.result = mark_wrong_mapping(connection, self.keys,
-                    progress_callback=lambda n, text: self.progress.emit(n, 100, text),
+                    progress_callback=report_mark_progress,
+                    log_callback=lambda text: self.progress.emit(last_progress, 100, text),
                     cancel_callback=self.isInterruptionRequested)
         except Exception as exc:
             self.error = str(exc) or type(exc).__name__
