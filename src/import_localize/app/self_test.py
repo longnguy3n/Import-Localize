@@ -161,15 +161,18 @@ def run_self_test(report_path: str) -> int:
                 time.sleep(.001)
             assert mapping_dialog.worker is None, "Mapping audit timed out"
             assert mapping_dialog.report and mapping_dialog.report.wrong_keys == {"cf_damage_title"}, mapping_dialog.status.text()
+            assert not mapping_dialog.mark_button.isEnabled()
+            mapping_dialog.issues_table.selectRow(0)
             assert mapping_dialog.mark_button.isEnabled()
             assert mapping_dialog.issues_table.rowCount() == 1
-            assert mapping_dialog.issues_table.columnCount() == 4
-            assert "DMG" in mapping_dialog.issues_table.item(0, 2).text()
-            assert "DNO" in mapping_dialog.issues_table.item(0, 2).text()
+            assert mapping_dialog.issues_table.columnCount() == 5
+            assert "DMG" in mapping_dialog.issues_table.item(0, 3).text()
+            assert "DNO" in mapping_dialog.issues_table.item(0, 3).text()
             assert not mapping_dialog.grab().isNull(), "Mapping results could not render"
             mapping_dialog.toggle_focus_mode()
             app.processEvents()
             assert mapping_dialog.isFullScreen() and mapping_dialog.setup_panel.isHidden()
+            assert mapping_dialog.mark_button.isVisible() and mapping_dialog.mark_button.isEnabled()
             assert not mapping_dialog.grab().isNull(), "Focused mapping table could not render"
             mapping_dialog.reject()  # Escape restores the normal layout.
             app.processEvents()

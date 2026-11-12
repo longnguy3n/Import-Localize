@@ -66,6 +66,94 @@ def inputs(tmp_path):
     return mapping, csv
 
 
+def test_ctrl_shift_checkboxes_filter_selection_and_fullscreen_mark(app, tmp_path, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    mapping, csv = inputs(tmp_path)
+    dialog = MappingDialog(AppSettings(mapping_path=str(mapping), sheet_url="https://example.invalid"), [csv])
+    dialog.report = report([csv])
+    dialog.snapshot = snapshots([mapping, csv])
+    dialog.render_report()
+    dialog.set_busy(False)
+    dialog.resize(1180, 1000)
+    dialog.show()
+    QTest.qWait(150)
+    table = dialog.issues_table
+    def click(row, column=2, modifier=Qt.KeyboardModifier.NoModifier):
+        table.scrollToItem(table.item(row, column))
+        QTest.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, modifier,
+                         table.visualItemRect(table.item(row, column)).center())
+    try:
+        click(0)
+        click(1, modifier=Qt.KeyboardModifier.ControlModifier)
+        assert dialog.selected_keys == {"cf_hp_title", "cf_story_desc"}
+        click(0, 0)
+        assert dialog.selected_keys == {"cf_story_desc"}
+        click(0, 0)
+        assert len(dialog.selected_keys) == 2
+        dialog.clear_selection_button.click()
+        click(0)
+        click(1, modifier=Qt.KeyboardModifier.ShiftModifier)
+        assert len(dialog.selected_keys) == 2
+        dialog.filter_combo.setCurrentIndex(dialog.filter_combo.findData("review"))
+        assert dialog.selected_keys == {"cf_hp_title", "cf_story_desc"}
+        assert "1 đang ẩn" in dialog.selection_label.text()
+        dialog.clear_selection_button.click()
+        dialog.select_visible_button.click()
+        assert dialog.selected_keys == {"cf_story_desc"}
+        launched, confirmations = [], []
+        def confirm(*args):
+            confirmations.append(args[-1])
+            return QMessageBox.StandardButton.Yes
+        monkeypatch.setattr(QMessageBox, "question", confirm)
+        monkeypatch.setattr(dialog, "launch", launched.append)
+        dialog.focus_button.click()
+        app.processEvents()
+        assert dialog.mark_button.isVisible() and dialog.mark_button.isEnabled()
+        dialog.mark_button.click()
+        assert len(launched) == 1 and launched[0].keys == {"cf_story_desc"}
+        assert "1 key thuộc nhóm Cần xem ngữ cảnh" in confirmations[0]
+        launched[0].deleteLater()
+    finally:
+        if dialog.focus_mode:
+            dialog.toggle_focus_mode()
+        dialog.reject()
+
+
+def test_table_outer_edge_fills_viewport_and_shift_wheel_is_horizontal(app):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtTest import QTest
+    from import_localize.ui.mapping_dialog import MappingTable
+    from PySide6.QtWidgets import QTableWidgetItem
+    table = MappingTable(4)
+    table.setHorizontalHeaderLabels(["A", "B", "C", "D"])
+    table.setRowCount(30)
+    for row in range(30):
+        table.setItem(row, 0, QTableWidgetItem("text"))
+    table.resize(800, 350)
+    table.show()
+    QTest.qWait(120)
+    try:
+        for column in range(4):
+            table.setColumnWidth(column, 100)
+        app.processEvents()
+        assert abs(table.horizontalHeader().length() - table.viewport().width()) <= 2
+        for column in range(4):
+            table.setColumnWidth(column, 400)
+        app.processEvents()
+        y = table.verticalScrollBar().value()
+        event = QWheelEvent(QPointF(30, 30), QPointF(30, 30), QPoint(), QPoint(0, -120),
+                            Qt.MouseButton.NoButton, Qt.KeyboardModifier.ShiftModifier,
+                            Qt.ScrollPhase.NoScrollPhase, False)
+        app.sendEvent(table.viewport(), event)
+        assert table.horizontalScrollBar().value() > 0
+        assert table.verticalScrollBar().value() == y
+    finally:
+        QTest.keyRelease(table, Qt.Key.Key_Shift)
+        table.close()
+
+
 def report(paths):
     def issue(path, key, status, source, actual, expected):
         return SimpleNamespace(path=path, line=2, key=key, locale="vi", source=source,
@@ -100,10 +188,10 @@ def test_file_summary_filters_and_full_content(app, tmp_path):
         assert dialog.files_table.item(1, 2).text() == "1"
         assert dialog.issues_table.rowCount() == 2
         assert "1 key sai mapping" in dialog.status.text()
-        assert dialog.mark_button.isEnabled()
+        assert not dialog.mark_button.isEnabled()
         dialog.files_table.selectRow(1)
         assert dialog.issues_table.rowCount() == 1
-        assert dialog.issues_table.columnCount() == 5
+        assert dialog.issues_table.columnCount() == 6
         dialog.issues_table.selectRow(0)
         assert "<b>Frostbite</b>" in dialog.detail.toPlainText()
         dialog.all_files_button.click()
@@ -136,18 +224,18 @@ def test_one_key_row_has_one_column_per_file_including_same_language(app, tmp_pa
         dialog.report = result
         dialog.render_report()
         assert dialog.issues_table.rowCount() == 1
-        assert dialog.issues_table.columnCount() == 7
-        assert dialog.issues_table.item(0, 2).text() == "Damage"
-        assert dialog.issues_table.item(0, 4).text() == "DNO"
-        text = dialog.issues_table.item(0, 3).text()
-        assert dialog.issues_table.horizontalHeaderItem(3).text() == "export_vi.csv"
-        assert dialog.issues_table.horizontalHeaderItem(5).text() == "upload_vi.csv"
+        assert dialog.issues_table.columnCount() == 8
+        assert dialog.issues_table.item(0, 3).text() == "Damage"
+        assert dialog.issues_table.item(0, 5).text() == "DNO"
+        text = dialog.issues_table.item(0, 4).text()
+        assert dialog.issues_table.horizontalHeaderItem(4).text() == "export_vi.csv"
+        assert dialog.issues_table.horizontalHeaderItem(6).text() == "upload_vi.csv"
         assert text == "Wrong\ntranslation"
-        assert dialog.issues_table.item(0, 5).text() == "Another version"
+        assert dialog.issues_table.item(0, 6).text() == "Another version"
         dialog.files_table.selectRow(1)
         assert dialog.issues_table.rowCount() == 1
-        assert dialog.issues_table.item(0, 2).text() == "Damage"
-        assert dialog.issues_table.item(0, 4).text() == "DNO"
+        assert dialog.issues_table.item(0, 3).text() == "Damage"
+        assert dialog.issues_table.item(0, 5).text() == "DNO"
         dialog.issues_table.selectRow(0)
         assert str(pt) in dialog.detail.toPlainText()
         dialog.show()
@@ -161,7 +249,7 @@ def test_one_key_row_has_one_column_per_file_including_same_language(app, tmp_pa
         dialog.reject()
 
 
-def test_mark_uses_all_definite_wrong_keys_not_visible_review_row(app, tmp_path, monkeypatch):
+def test_mark_uses_only_selected_review_key(app, tmp_path, monkeypatch):
     mapping, csv = inputs(tmp_path)
     settings = AppSettings(mapping_path=str(mapping), sheet_url="https://docs.google.com/spreadsheets/d/example")
     dialog = MappingDialog(settings, [csv])
@@ -170,14 +258,15 @@ def test_mark_uses_all_definite_wrong_keys_not_visible_review_row(app, tmp_path,
         dialog.snapshot = snapshots([mapping, csv])
         dialog.render_report()
         dialog.filter_combo.setCurrentIndex(dialog.filter_combo.findData("review"))
+        dialog.issues_table.selectRow(0)
         launched = []
         monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
         monkeypatch.setattr(dialog, "launch", launched.append)
         dialog.mark()
         assert len(launched) == 1
         worker = launched[0]
-        assert worker.keys == {"cf_hp_title"}
-        assert "cf_story_desc" not in worker.keys
+        assert worker.keys == {"cf_story_desc"}
+        assert "cf_hp_title" not in worker.keys
         assert worker.snapshot == dialog.snapshot
         assert worker.sheet_url == settings.sheet_url
         worker.deleteLater()
@@ -190,6 +279,8 @@ def test_declining_mark_never_launches_write(app, tmp_path, monkeypatch):
     dialog = MappingDialog(AppSettings(mapping_path=str(mapping), sheet_url="https://example.invalid"), [csv])
     try:
         dialog.report = report([csv])
+        dialog.render_report()
+        dialog.issues_table.selectRow(0)
         monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.No)
         launched = []
         monkeypatch.setattr(dialog, "launch", launched.append)

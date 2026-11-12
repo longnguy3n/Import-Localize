@@ -5,7 +5,7 @@ import hashlib
 from collections import defaultdict
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QItemSelectionModel, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
@@ -78,6 +78,8 @@ class MappingTable(QTableWidget):
         self.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.horizontalHeader().setMinimumSectionSize(60)
+        self.horizontalHeader().setStretchLastSection(True)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.horizontalHeader().setToolTip("Kéo vạch dọc giữa hai tiêu đề để chỉnh cột. Nhấp đúp để vừa nội dung.")
         self.setStyleSheet("""
@@ -97,6 +99,7 @@ class MappingTable(QTableWidget):
 
     def fit_content(self, *, reset=False):
         if self.rowCount() and (reset or not self.columns_fitted):
+            self.horizontalHeader().setStretchLastSection(False)
             self.ensurePolished()
             self.horizontalHeader().ensurePolished()
             self.resizeColumnsToContents()
@@ -106,8 +109,34 @@ class MappingTable(QTableWidget):
                 heading = self.horizontalHeaderItem(column)
                 header_width = self.horizontalHeader().fontMetrics().horizontalAdvance(heading.text()) + 38 if heading else 100
                 self.setColumnWidth(column, min(480, max(100, header_width, self.columnWidth(column) + 12)))
+            if self.property("keyCheckboxes"):
+                self.setColumnWidth(0, 60)
             self.columns_fitted = True
+            self.horizontalHeader().setStretchLastSection(True)
         self._row_timer.start()
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            delta = event.pixelDelta().x() or event.pixelDelta().y()
+            if not delta:
+                angle = event.angleDelta().x() or event.angleDelta().y()
+                delta = angle / 120 * max(60, self.horizontalScrollBar().singleStep() * 3)
+            bar = self.horizontalScrollBar()
+            bar.setValue(bar.value() - round(delta))
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def mousePressEvent(self, event):
+        index = self.indexAt(event.position().toPoint())
+        if (self.property("keyCheckboxes") and index.isValid() and index.column() == 0
+                and event.button() == Qt.MouseButton.LeftButton):
+            item = self.item(index.row(), 0)
+            self.setCurrentCell(index.row(), 1, QItemSelectionModel.SelectionFlag.NoUpdate)
+            item.setCheckState(Qt.CheckState.Unchecked if item.checkState() == Qt.CheckState.Checked else Qt.CheckState.Checked)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def resize_wrapped_rows(self):
         self.resizeRowsToContents()
@@ -134,6 +163,9 @@ class MappingDialog(QDialog):
         self.visible_keys = []
         self.key_issues = {}
         self.references = {}
+        self.selected_keys = set()
+        self._selection_sync = False
+        self._busy = False
         self.focus_mode = False
         self._normal_geometry = None
         self.setWindowTitle("Kiểm tra mapping — CSV → Translate_Data")
@@ -145,7 +177,7 @@ class MappingDialog(QDialog):
         setup_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.setup_panel)
         intro = QLabel("Đối chiếu thuật ngữ trong CSV với mapping.json v2. "
-                       "Chỉ các key thuộc nhóm Sai mapping được đánh dấu trên Sheet; nhóm Cần xem ngữ cảnh giữ nguyên.")
+                       "Tick hoặc giữ Ctrl/Shift để chọn nhiều dòng key rồi ghi Wrong mapping theo lựa chọn.")
         intro.setWordWrap(True)
         setup_layout.addWidget(intro)
         form = QFormLayout()
@@ -196,6 +228,24 @@ class MappingDialog(QDialog):
         filters.addWidget(self.fit_button)
         filters.addWidget(self.focus_button)
         layout.addLayout(filters)
+        selection_actions = QHBoxLayout()
+        self.select_visible_button = QPushButton("Chọn các dòng hiện có")
+        self.clear_selection_button = QPushButton("Bỏ chọn hết")
+        self.selection_label = QLabel("Đã chọn 0 key")
+        self.selection_label.setWordWrap(True)
+        self.mark_button = QPushButton("Ghi Wrong mapping (0)")
+        self.focus_stop_button = QPushButton("Dừng ghi")
+        self.focus_stop_button.hide()
+        for widget in (self.select_visible_button, self.clear_selection_button, self.selection_label):
+            selection_actions.addWidget(widget)
+        selection_actions.addStretch()
+        selection_actions.addWidget(self.focus_stop_button)
+        selection_actions.addWidget(self.mark_button)
+        layout.addLayout(selection_actions)
+        self.focus_status = QLabel()
+        self.focus_status.setWordWrap(True)
+        self.focus_status.hide()
+        layout.addWidget(self.focus_status)
         splitter = self.tables_splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setObjectName("mappingSplitter")
         splitter.setHandleWidth(9)
@@ -206,7 +256,9 @@ class MappingDialog(QDialog):
         """)
         self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
         self.files_table.setProperty("summaryTable", True)
-        self.issues_table = self._table(["Trạng thái", "Key", "Mapping chuẩn / Lý do"])
+        self.issues_table = self._table(["Chọn", "Trạng thái", "Key", "Mapping chuẩn / Lý do"])
+        self.issues_table.setProperty("keyCheckboxes", True)
+        self.issues_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.issues_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         splitter.addWidget(self.files_table)
         splitter.addWidget(self.issues_table)
@@ -223,11 +275,9 @@ class MappingDialog(QDialog):
         bottom = QHBoxLayout(self.bottom_panel)
         bottom.setContentsMargins(0, 0, 0, 0)
         self.all_files_button = QPushButton("Hiện tất cả file")
-        self.mark_button = QPushButton("Ghi Wrong mapping vào Translate_Data!C")
         self.close_button = QPushButton("Đóng")
         bottom.addWidget(self.all_files_button)
         bottom.addStretch()
-        bottom.addWidget(self.mark_button)
         bottom.addWidget(self.close_button)
         layout.addWidget(self.bottom_panel)
         self.fit_button.clicked.connect(self.fit_columns)
@@ -239,11 +289,16 @@ class MappingDialog(QDialog):
         self.stop_button.clicked.connect(self.stop)
         self.close_button.clicked.connect(self.reject)
         self.mark_button.clicked.connect(self.mark)
+        self.focus_stop_button.clicked.connect(self.stop)
+        self.select_visible_button.clicked.connect(self.select_visible)
+        self.clear_selection_button.clicked.connect(self.clear_key_selection)
         self.mapping_edit.textChanged.connect(self.invalidate)
         self.files_table.itemSelectionChanged.connect(self.filter_rows)
         self.filter_combo.currentIndexChanged.connect(self.filter_rows)
         self.search.textChanged.connect(self.filter_rows)
         self.issues_table.itemSelectionChanged.connect(self.show_detail)
+        self.issues_table.itemSelectionChanged.connect(self.rows_selected)
+        self.issues_table.itemChanged.connect(self.checkbox_changed)
         self.all_files_button.clicked.connect(self.files_table.clearSelection)
         self.invalidate()
 
@@ -263,6 +318,7 @@ class MappingDialog(QDialog):
                 widget.hide()
             self.focus_button.setText("Thu gọn bảng (Esc)")
             self.showFullScreen()
+            self.focus_status.setVisible(bool(self.focus_status.text()))
         else:
             self.focus_mode = False
             self.showNormal()
@@ -275,6 +331,8 @@ class MappingDialog(QDialog):
             self.focus_button.setText("Phóng to bảng")
             self.issues_table.horizontalScrollBar().setValue(self._scroll_position[0])
             self.issues_table.verticalScrollBar().setValue(self._scroll_position[1])
+            self.focus_status.hide()
+            self.focus_stop_button.hide()
 
     def _table(self, headers):
         table = MappingTable(len(headers), self)
@@ -287,6 +345,10 @@ class MappingDialog(QDialog):
 
     def invalidate(self):
         self.report = None
+        self.focus_status.clear()
+        self.focus_status.hide()
+        self.selected_keys.clear()
+        self._selection_sync = True
         self.snapshot = None
         self.files_table.setRowCount(0)
         self.issues_table.setRowCount(0)
@@ -300,16 +362,71 @@ class MappingDialog(QDialog):
             item.setToolTip(str(path))
             self.files_table.setItem(row, 0, item)
         self.files_table.fit_content(reset=True)
+        self._selection_sync = False
         self.set_busy(False)
 
     def set_busy(self, busy):
+        self._busy = busy
         for widget in (self.mapping_edit, self.mapping_button, self.folder_button,
                        self.files_button, self.scan_button, self.sheet_edit):
             widget.setEnabled(not busy)
         self.stop_button.setEnabled(busy)
         self.close_button.setEnabled(not busy)
         self.focus_button.setEnabled(not busy)
-        self.mark_button.setEnabled(not busy and bool(self.report and self.report.wrong_keys))
+        self.issues_table.setEnabled(not busy)
+        self.focus_stop_button.setVisible(busy and self.focus_mode)
+        self.focus_stop_button.setEnabled(busy)
+        self.update_selection_ui()
+
+    def update_selection_ui(self):
+        hidden = len(self.selected_keys - set(self.visible_keys))
+        self.selection_label.setText(f"Đã chọn {len(self.selected_keys)} key" + (f" · {hidden} đang ẩn bởi bộ lọc" if hidden else ""))
+        self.mark_button.setText(f"Ghi Wrong mapping ({len(self.selected_keys)})")
+        self.mark_button.setEnabled(not self._busy and bool(self.report and self.selected_keys))
+        self.select_visible_button.setEnabled(not self._busy and bool(self.report and self.visible_keys))
+        self.clear_selection_button.setEnabled(not self._busy and bool(self.selected_keys))
+
+    def sync_key_selection(self):
+        self._selection_sync = True
+        table = self.issues_table
+        table.clearSelection()
+        for row, key in enumerate(self.visible_keys):
+            checked = key in self.selected_keys
+            table.item(row, 0).setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+            if checked:
+                table.selectionModel().select(table.model().index(row, 0), QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+        self._selection_sync = False
+        self.update_selection_ui()
+
+    def rows_selected(self):
+        if self._selection_sync or not self.report:
+            return
+        selected = {self.visible_keys[index.row()] for index in self.issues_table.selectionModel().selectedRows()}
+        self.selected_keys.difference_update(self.visible_keys)
+        self.selected_keys.update(selected)
+        self._selection_sync = True
+        for row, key in enumerate(self.visible_keys):
+            self.issues_table.item(row, 0).setCheckState(Qt.CheckState.Checked if key in selected else Qt.CheckState.Unchecked)
+        self._selection_sync = False
+        self.update_selection_ui()
+
+    def checkbox_changed(self, item):
+        if self._selection_sync or not self.report or item.column() != 0:
+            return
+        key = self.visible_keys[item.row()]
+        if item.checkState() == Qt.CheckState.Checked:
+            self.selected_keys.add(key)
+        else:
+            self.selected_keys.discard(key)
+        self.sync_key_selection()
+
+    def select_visible(self):
+        self.selected_keys.update(self.visible_keys)
+        self.sync_key_selection()
+
+    def clear_key_selection(self):
+        self.selected_keys.clear()
+        self.sync_key_selection()
 
     def choose_mapping(self):
         path, _ = QFileDialog.getOpenFileName(self, "Chọn mapping.json", self.mapping_edit.text(), "JSON (*.json)")
@@ -354,13 +471,17 @@ class MappingDialog(QDialog):
         if self.worker:
             self.worker.requestInterruption()
             self.status.setText("Đang dừng… Nếu một lệnh ghi đã gửi, cần chờ Google trả kết quả.")
+            self.focus_status.setText(self.status.text())
             self.stop_button.setEnabled(False)
+            self.focus_stop_button.setEnabled(False)
 
     @Slot(int, int, str)
     def on_progress(self, done, total, text):
         self.progress.setRange(0, total)
         self.progress.setValue(done)
         self.status.setText(text)
+        self.focus_status.setText(text)
+        self.focus_status.setVisible(self.focus_mode)
 
     @Slot()
     def finished_work(self):
@@ -381,9 +502,13 @@ class MappingDialog(QDialog):
             self.detail.setPlainText("Key không tìm thấy trong Translate_Data:\n" + "\n".join(sorted(result.missing_keys)))
         worker.deleteLater()
         self.set_busy(False)
+        self.focus_status.setText(self.status.text())
+        self.focus_status.setVisible(self.focus_mode)
 
     def render_report(self):
         report = self.report
+        self._selection_sync = True
+        self.selected_keys.clear()
         self.key_issues = defaultdict(list)
         self.references = defaultdict(lambda: defaultdict(list))
         for issue in report.issues:
@@ -396,9 +521,9 @@ class MappingDialog(QDialog):
             reference = (issue.path, issue.line, issue.actual)
             if reference not in self.references[issue.key][issue.locale]:
                 self.references[issue.key][issue.locale].append(reference)
-        self.issues_table.setColumnCount(len(report.files) + 3)
-        self.issues_table.setHorizontalHeaderLabels(["Trạng thái", "Key", *[p.name for p in report.files], "Mapping chuẩn / Lý do"])
-        for col, path in enumerate(report.files, start=2):
+        self.issues_table.setColumnCount(len(report.files) + 4)
+        self.issues_table.setHorizontalHeaderLabels(["Chọn", "Trạng thái", "Key", *[p.name for p in report.files], "Mapping chuẩn / Lý do"])
+        for col, path in enumerate(report.files, start=3):
             self.issues_table.horizontalHeaderItem(col).setToolTip(str(path))
         self.issues_table.columns_fitted = False
         self.files_table.setRowCount(0)
@@ -418,7 +543,7 @@ class MappingDialog(QDialog):
             f"{len(report.wrong_keys)} key sai mapping · {sum(i.status == 'review' for i in report.issues)} cần xem ngữ cảnh · "
             f"{report.unmapped_cells} ô chưa có mapping áp dụng · {len(report.errors)} file lỗi. "
             "Mỗi key một dòng, mỗi file một cột tham chiếu; cuộn ngang để xem thêm. "
-            "Các bộ lọc chỉ thay đổi hiển thị; nút ghi xử lý toàn bộ key sai xác định.")
+            "Chỉ ghi các key đã chọn/tick; Ctrl/Shift chọn nhiều dòng, Shift + cuộn chuột để cuộn ngang.")
         self.filter_rows()
 
     def filter_rows(self):
@@ -436,13 +561,15 @@ class MappingDialog(QDialog):
             if not query or query in search_text.casefold():
                 self.visible_keys.append(key)
         self.visible_issues = [self.key_issues[key][0] for key in self.visible_keys]
+        self._selection_sync = True
+        self.issues_table.blockSignals(True)
         self.issues_table.setRowCount(0)
         for key in self.visible_keys:
             issues = self.key_issues[key]
             wrong = any(i.status == "wrong" for i in issues)
             row = self.issues_table.rowCount()
             self.issues_table.insertRow(row)
-            values = ["Sai mapping" if wrong else "Cần xem ngữ cảnh", key]
+            values = ["", "Sai mapping" if wrong else "Cần xem ngữ cảnh", key]
             for file_path in self.report.files:
                 refs = [(locale, line, value) for locale, entries in self.references[key].items()
                         for p, line, value in entries if p == file_path]
@@ -455,21 +582,26 @@ class MappingDialog(QDialog):
             values.append("\n".join(dict.fromkeys(f"{i.locale}: {i.expected or '[Cần ngữ cảnh]'} — {i.reason}" for i in issues)))
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
+                if col == 0:
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(Qt.CheckState.Checked if key in self.selected_keys else Qt.CheckState.Unchecked)
                 item.setToolTip(value)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-                file_column = 2 <= col < len(self.report.files) + 2
-                affected = issues if col == 0 else [i for i in issues if file_column and i.path == self.report.files[col - 2]]
+                file_column = 3 <= col < len(self.report.files) + 3
+                affected = issues if col == 1 else [i for i in issues if file_column and i.path == self.report.files[col - 3]]
                 if affected:
                     definite = any(i.status == "wrong" for i in affected)
                     item.setBackground(QColor("#fee2e2" if definite else "#fef3c7"))
                     item.setForeground(QColor("#7f1d1d" if definite else "#78350f"))
                 if file_column:
-                    file_path = self.report.files[col - 2]
+                    file_path = self.report.files[col - 3]
                     refs = [(locale, line, v) for locale, entries in self.references[key].items()
                             for p, line, v in entries if p == file_path]
                     item.setToolTip(str(file_path) + "\n\n" + "\n\n".join(f"{locale} · Dòng {line}\n{v}" for locale, line, v in refs))
                 self.issues_table.setItem(row, col, item)
         self.issues_table.fit_content()
+        self.issues_table.blockSignals(False)
+        self.sync_key_selection()
 
     def show_detail(self):
         rows = self.issues_table.selectionModel().selectedRows()
@@ -491,16 +623,22 @@ class MappingDialog(QDialog):
         self.detail.setPlainText("\n".join(lines))
 
     def mark(self):
-        if self.worker or not self.report or not self.report.wrong_keys:
+        if self.worker or not self.report or not self.selected_keys:
             return
         url = self.sheet_edit.text().strip()
         if not url:
+            if self.focus_mode:
+                self.toggle_focus_mode()
             self.status.setText("Nhập link Google Sheet đích trước khi ghi Wrong mapping.")
+            self.sheet_edit.setFocus()
             return
-        keys = set(self.report.wrong_keys)
-        text = (f"Ghi Wrong mapping vào cột C (Custom(modified)) của Translate_Data cho {len(keys)} key sai xác định?\n\n"
+        keys = set(self.selected_keys) & set(self.key_issues)
+        review_count = len(keys - self.report.wrong_keys)
+        text = (f"Ghi Wrong mapping vào cột C (Custom(modified)) của Translate_Data cho {len(keys)} key đã chọn?\n\n"
+                f"Trong đó {review_count} key thuộc nhóm Cần xem ngữ cảnh do bạn chủ động chọn.\n"
+                f"{len(keys - set(self.visible_keys))} key đang ẩn bởi bộ lọc.\n\n"
                 f"Sheet: {url}\n\nCác trạng thái cũ ở đúng các key này sẽ được thay thế. "
-                "Không sửa bản dịch hay các key chỉ cần xem ngữ cảnh. "
+                "Không sửa bản dịch hoặc các key chưa chọn. "
                 "Không sắp xếp hoặc chỉnh sửa tab trong lúc đang ghi.")
         if QMessageBox.question(self, "Đánh dấu các key sai mapping", text) != QMessageBox.StandardButton.Yes:
             return
