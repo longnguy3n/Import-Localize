@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import time
 
-from PySide6.QtWidgets import QMessageBox
+from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAPPING
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui.mapping_dialog import MappingDialog, MappingWorker, snapshots
@@ -21,9 +21,9 @@ def test_mapping_source_and_detail_panels_open_when_needed(app, tmp_path):
         assert dialog.source_panel.isHidden()
         dialog.issues_table.selectRow(0)
         assert not dialog.detail.isHidden()
-        dialog.mark()  # A missing Sheet URL must reveal the field to fix it.
-        assert not dialog.source_panel.isHidden()
-        assert "Nhập link Google Sheet" in dialog.status.text()
+        dialog.mark()
+        assert dialog.source_panel.isHidden()
+        assert dialog.annotations.has("vi", "cf_hp_title", WRONG_MAPPING)
         dialog.set_busy(True)
         assert not dialog.progress.isHidden() and not dialog.stop_button.isHidden()
         dialog.set_busy(False)
@@ -32,95 +32,35 @@ def test_mapping_source_and_detail_panels_open_when_needed(app, tmp_path):
         dialog.reject()
 
 
-def test_mark_history_survives_reopen_is_scoped_to_sheet_and_unchecks_only_completed(app, tmp_path):
-    from import_localize.config.mapping_history import MappingHistoryRepository
-    from import_localize.services.mapping_sheet_service import MappingKeyResult, MappingMarkResult
-    mapping, csv = inputs(tmp_path)
-    repo = MappingHistoryRepository(tmp_path / "history.json")
-    settings = AppSettings(mapping_path=str(mapping), sheet_url="https://docs.google.com/spreadsheets/d/sheet-one/edit")
-    dialog = MappingDialog(settings, [csv], history_repository=repo)
+def test_annotate_snapshot_then_reopen_without_touching_files(app, tmp_path):
+    mapping = Path(__file__).parent / "fixtures" / "mapping_v2.json"
+    sources = {Path("upload_en.csv"): b"Key,English\ncf_damage_title,DMG\n",
+               Path("upload_vi.csv"): b"Key,Vietnamese\ncf_damage_title,wrong\n"}
+    annotations = DescAnnotations()
+    settings = AppSettings(mapping_path=str(mapping), mapping_csv_files=["remembered.csv"])
+    dialog = MappingDialog(settings, sources=sources, annotations=annotations)
     try:
-        dialog.report = report([csv])
-        dialog.render_report()
+        dialog.scan()
+        drain(app, dialog)
+        assert dialog.report.wrong_keys == {"cf_damage_title"}
         dialog.select_visible()
-        dialog.on_mark_result(settings.sheet_url, MappingMarkResult(key_results=(
-            MappingKeyResult("cf_hp_title", "written", 2, 2, 2),
-            MappingKeyResult("cf_story_desc", "uncertain", 0, 1, 0, 1))))
-        assert dialog.selected_keys == {"cf_story_desc"}
-        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
-        assert "2/2 hàng" in dialog.issues_table.item(0, 3).text()
-        assert "Chưa rõ kết quả" in dialog.issues_table.item(1, 3).text()
-        dialog.search.setText("cf_hp_title")
-        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
-        dialog.sheet_edit.setText("https://docs.google.com/spreadsheets/d/sheet-two/edit")
-        assert dialog.issues_table.item(0, 3).text() == "Chưa kiểm tra"
-        dialog.sheet_edit.setText(settings.sheet_url + "#gid=42")
-        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
+        dialog.mark()
+        assert annotations.has("vi", "cf_damage_title", WRONG_MAPPING)
+        assert not annotations.has("en", "cf_damage_title", WRONG_MAPPING)
+        assert not dialog.selected_keys
     finally:
         dialog.reject()
-    reopened = MappingDialog(settings, [csv], history_repository=MappingHistoryRepository(repo.path))
+    assert settings.mapping_csv_files == ["remembered.csv"]
+    reopened = MappingDialog(settings, sources=sources, annotations=annotations)
     try:
-        reopened.report = report([csv])
-        reopened.render_report()
-        assert "Đã ghi" in reopened.issues_table.item(0, 3).text()
-        assert "Chưa rõ kết quả" in reopened.issues_table.item(1, 3).text()
-        # Live feedback supersedes an old success if the Sheet was edited.
-        reopened.on_mark_result(settings.sheet_url, MappingMarkResult(key_results=(
-            MappingKeyResult("cf_hp_title", "pending", 0, 2),)))
-        assert "Chưa ghi" in reopened.issues_table.item(0, 3).text()
+        reopened.scan()
+        drain(app, reopened)
+        assert reopened.issues_table.item(0, 3).text() == "vi"
+        reopened.select_visible()
+        reopened.unmark()
+        assert not annotations
     finally:
         reopened.reject()
-
-
-def test_history_save_error_does_not_lose_live_status(app, tmp_path, monkeypatch):
-    from import_localize.config.mapping_history import MappingHistoryRepository
-    from import_localize.services.mapping_sheet_service import MappingKeyResult, MappingMarkResult
-    _, csv = inputs(tmp_path)
-    repo = MappingHistoryRepository(tmp_path / "history.json")
-    dialog = MappingDialog(AppSettings(sheet_url="https://docs.google.com/spreadsheets/d/sheet-one"), [csv], history_repository=repo)
-    def fail_save(data):
-        raise OSError("disk unavailable")
-    monkeypatch.setattr(repo, "save", fail_save)
-    try:
-        dialog.report = report([csv])
-        dialog.render_report()
-        dialog.on_mark_result(dialog.sheet_edit.text(), MappingMarkResult(key_results=(
-            MappingKeyResult("cf_hp_title", "already", 1, 1),)))
-        assert "Đã có sẵn" in dialog.issues_table.item(0, 3).text()
-        assert "Không lưu được lịch sử" in dialog.history_error
-    finally:
-        dialog.reject()
-
-
-def test_worker_partial_error_keeps_per_key_feedback_on_gui(app, tmp_path, monkeypatch):
-    from import_localize.config.mapping_history import MappingHistoryRepository
-    from import_localize.services import google_service, mapping_sheet_service
-    from import_localize.services.mapping_sheet_service import MappingKeyResult, MappingMarkResult
-    mapping, csv = inputs(tmp_path)
-    settings = AppSettings(mapping_path=str(mapping), sheet_url="https://docs.google.com/spreadsheets/d/test-target")
-    dialog = MappingDialog(settings, [csv], history_repository=MappingHistoryRepository(tmp_path / "history.json"))
-    monkeypatch.setattr(google_service, "connect_to_spreadsheet", lambda *a, **kw: object())
-    def mark(*args, result_callback, **kwargs):
-        result_callback(MappingMarkResult(updated_rows=1, key_results=(
-            MappingKeyResult("cf_hp_title", "written", 1, 1, 1),
-            MappingKeyResult("cf_story_desc", "uncertain", 0, 1, 0, 1))))
-        raise google_service.GoogleServiceError("Mất phản hồi ở lô cuối")
-    monkeypatch.setattr(mapping_sheet_service, "mark_wrong_mapping", mark)
-    try:
-        dialog.report = report([csv])
-        dialog.snapshot = snapshots([mapping, csv])
-        dialog.render_report()
-        dialog.select_visible()
-        dialog.launch(MappingWorker(mapping, [csv], keys=set(dialog.selected_keys),
-                      sheet_url=settings.sheet_url, snapshot=dialog.snapshot, parent=dialog))
-        drain(app, dialog)
-        assert "Mất phản hồi" in dialog.status.text()
-        assert "Đã ghi" in dialog.issues_table.item(0, 3).text()
-        assert "Chưa rõ kết quả" in dialog.issues_table.item(1, 3).text()
-        assert dialog.selected_keys == {"cf_story_desc"}
-        assert "written" == dialog.history_repository.load()["test-target"]["cf_hp_title"]["status"]
-    finally:
-        dialog.reject()
 
 
 def test_themed_resize_handles_and_focused_table_restore(app, tmp_path):
@@ -214,19 +154,12 @@ def test_ctrl_shift_checkboxes_filter_selection_and_fullscreen_mark(app, tmp_pat
         dialog.clear_selection_button.click()
         dialog.select_visible_button.click()
         assert dialog.selected_keys == {"cf_story_desc"}
-        launched, confirmations = [], []
-        def confirm(*args):
-            confirmations.append(args[-1])
-            return QMessageBox.StandardButton.Yes
-        monkeypatch.setattr(QMessageBox, "question", confirm)
-        monkeypatch.setattr(dialog, "launch", launched.append)
         dialog.focus_button.click()
         app.processEvents()
         assert dialog.mark_button.isVisible() and dialog.mark_button.isEnabled()
         dialog.mark_button.click()
-        assert len(launched) == 1 and launched[0].keys == {"cf_story_desc"}
-        assert "1 key thuộc nhóm Cần xem ngữ cảnh" in confirmations[0]
-        launched[0].deleteLater()
+        assert dialog.annotations.has("vi", "cf_story_desc", WRONG_MAPPING)
+        assert not dialog.annotations.has("vi", "cf_hp_title", WRONG_MAPPING)
     finally:
         if dialog.focus_mode:
             dialog.toggle_focus_mode()
@@ -362,78 +295,20 @@ def test_one_key_row_has_one_column_per_file_including_same_language(app, tmp_pa
         dialog.reject()
 
 
-def test_mark_uses_only_selected_review_key(app, tmp_path, monkeypatch):
-    mapping, csv = inputs(tmp_path)
-    settings = AppSettings(mapping_path=str(mapping), sheet_url="https://docs.google.com/spreadsheets/d/example")
-    dialog = MappingDialog(settings, [csv])
+def test_changed_source_blocks_staging_old_result(app, tmp_path):
+    mapping, path = inputs(tmp_path)
+    dialog = MappingDialog(AppSettings(mapping_path=str(mapping)), [path])
     try:
-        dialog.report = report([csv])
-        dialog.snapshot = snapshots([mapping, csv])
+        dialog.report = report([path])
         dialog.render_report()
-        dialog.filter_combo.setCurrentIndex(dialog.filter_combo.findData("review"))
-        dialog.issues_table.selectRow(0)
-        launched = []
-        confirmations = []
-        monkeypatch.setattr(QMessageBox, "question", lambda *args: confirmations.append(args[2]) or QMessageBox.StandardButton.Yes)
-        monkeypatch.setattr(dialog, "launch", launched.append)
+        dialog.snapshot = snapshots([mapping, path])
+        path.write_text("changed", encoding="utf-8")
+        dialog.select_visible()
         dialog.mark()
-        assert "Công thức riêng tại các ô C" in confirmations[0]
-        assert "giá trị cố định Wrong mapping" in confirmations[0]
-        assert len(launched) == 1
-        worker = launched[0]
-        assert worker.keys == {"cf_story_desc"}
-        assert "cf_hp_title" not in worker.keys
-        assert worker.snapshot == dialog.snapshot
-        assert worker.sheet_url == settings.sheet_url
-        worker.deleteLater()
+        assert "đã thay đổi" in dialog.status.text()
+        assert not dialog.annotations
     finally:
         dialog.reject()
-
-
-def test_declining_mark_never_launches_write(app, tmp_path, monkeypatch):
-    mapping, csv = inputs(tmp_path)
-    dialog = MappingDialog(AppSettings(mapping_path=str(mapping), sheet_url="https://example.invalid"), [csv])
-    try:
-        dialog.report = report([csv])
-        dialog.render_report()
-        dialog.issues_table.selectRow(0)
-        monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.No)
-        launched = []
-        monkeypatch.setattr(dialog, "launch", launched.append)
-        dialog.mark()
-        assert not launched
-    finally:
-        dialog.reject()
-
-
-def test_stale_csv_blocks_google_connection_and_write(tmp_path, monkeypatch):
-    from import_localize.services import google_service, mapping_sheet_service
-    mapping, csv = inputs(tmp_path)
-    snapshot = snapshots([mapping, csv])
-    csv.write_text("changed", encoding="utf-8")
-    calls = []
-    monkeypatch.setattr(google_service, "connect_to_spreadsheet", lambda *a, **kw: calls.append("connect"))
-    monkeypatch.setattr(mapping_sheet_service, "mark_wrong_mapping", lambda *a, **kw: calls.append("write"))
-    worker = MappingWorker(mapping, [csv], keys={"wrong"}, snapshot=snapshot)
-    worker.run()
-    assert "đã thay đổi" in worker.error
-    assert not calls
-
-
-def test_changes_during_authentication_block_write(tmp_path, monkeypatch):
-    from import_localize.services import google_service, mapping_sheet_service
-    mapping, csv = inputs(tmp_path)
-    snapshot = snapshots([mapping, csv])
-    def connect(*args, **kwargs):
-        mapping.write_text('{"changed": true}', encoding="utf-8")
-        return object()
-    calls = []
-    monkeypatch.setattr(google_service, "connect_to_spreadsheet", connect)
-    monkeypatch.setattr(mapping_sheet_service, "mark_wrong_mapping", lambda *a, **kw: calls.append("write"))
-    worker = MappingWorker(mapping, [csv], keys={"wrong"}, snapshot=snapshot)
-    worker.run()
-    assert "đã thay đổi" in worker.error
-    assert not calls
 
 
 def test_mapping_selection_is_remembered_and_change_invalidates_report(app, tmp_path):

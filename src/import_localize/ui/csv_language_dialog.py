@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
 )
 
+from import_localize.services.desc_annotations import DescAnnotations, WRONG_LANGUAGE, locales_for_table
 from import_localize.services.csv_language_service import STATUS, COLORS, language_name
 from import_localize.services.language_audit_process import read_report
 
@@ -22,9 +23,10 @@ from import_localize.services.language_audit_process import read_report
 class LanguageWorker(QThread):
     progress = Signal(int, int, str)
 
-    def __init__(self, paths, parent=None):
+    def __init__(self, paths, parent=None, *, sources=None):
         super().__init__(parent)
         self.paths = list(paths)
+        self.sources = sources
         self.result = None
         self.error = ""
         self.cancelled = False
@@ -33,7 +35,10 @@ class LanguageWorker(QThread):
         try:
             with tempfile.TemporaryDirectory(prefix="import-localize-language-") as directory:
                 folder = Path(directory)
-                (folder / "request.json").write_text(json.dumps({"paths": [str(p.resolve()) for p in self.paths]}), encoding="utf-8")
+                request = {"paths": [str(p.resolve()) for p in self.paths]}
+                if self.sources is not None:
+                    request["sources"] = {str(p): data.decode("utf-8-sig") for p, data in self.sources.items()}
+                (folder / "request.json").write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
                 command = [sys.executable]
                 if not getattr(sys, "frozen", False):
                     command.append(str(Path(__file__).resolve().parents[2] / "main.py"))
@@ -122,9 +127,11 @@ class LanguageRowsModel(QAbstractTableModel):
 
 
 class CsvLanguageDialog(QDialog):
-    def __init__(self, paths=(), parent=None):
+    def __init__(self, paths=(), parent=None, *, annotations=None, sources=None):
         super().__init__(parent)
-        self.paths = list(map(Path, paths))
+        self.sources = sources
+        self.paths = list(sources) if sources is not None else list(map(Path, paths))
+        self.annotations = annotations if annotations is not None else DescAnnotations()
         self.worker = None
         self.report = None
         self._closing = False
@@ -132,12 +139,13 @@ class CsvLanguageDialog(QDialog):
         self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(1180, 820)
         layout = QVBoxLayout(self)
-        intro = QLabel("So sánh ngôn ngữ nội dung với tên cột. Xử lý offline, không thay đổi CSV.")
+        intro = QLabel("Chọn các dòng nghi sai để thêm Wrong languague vào Desc của bản xuất.")
         intro.setWordWrap(True)
         intro.setProperty("muted", True)
         layout.addWidget(intro)
         actions = QHBoxLayout()
         self.choose_button = QPushButton("Chọn CSV…")
+        self.choose_button.setVisible(self.sources is None)
         self.scan_button = QPushButton("Kiểm tra lại")
         self.scan_button.setProperty("primaryAction", True)
         self.stop_button = QPushButton("Dừng")
@@ -204,12 +212,20 @@ class CsvLanguageDialog(QDialog):
         filters.addWidget(self.fit_button)
         layout.addLayout(filters)
         self.result_label = QLabel()
-        layout.addWidget(self.result_label)
+        results_bar = QHBoxLayout()
+        results_bar.addWidget(self.result_label, 1)
+        self.mark_button = QPushButton("Đánh dấu Desc")
+        self.unmark_button = QPushButton("Gỡ dấu Desc")
+        self.mark_button.clicked.connect(self.mark)
+        self.unmark_button.clicked.connect(self.unmark)
+        results_bar.addWidget(self.unmark_button)
+        results_bar.addWidget(self.mark_button)
+        layout.addLayout(results_bar)
         self.table = QTableView()
         self.model = LanguageRowsModel(self)
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setWordWrap(False)
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -253,6 +269,7 @@ class CsvLanguageDialog(QDialog):
         self.help_button.toggled.connect(self.toggle_guidance)
         self.summary.itemSelectionChanged.connect(self.select_column)
         self.table.selectionModel().selectionChanged.connect(self.show_content)
+        self.table.selectionModel().selectionChanged.connect(self.update_mark_buttons)
         self._set_busy(False)
         if self.paths:
             self.start_scan()
@@ -290,6 +307,7 @@ class CsvLanguageDialog(QDialog):
         self.summary.setMinimumHeight(min(220, max(100, height)))
 
     def _set_busy(self, busy):
+        self.update_mark_buttons()
         self.choose_button.setEnabled(not busy)
         self.scan_button.setEnabled(not busy and bool(self.paths))
         self.stop_button.setEnabled(busy)
@@ -323,7 +341,7 @@ class CsvLanguageDialog(QDialog):
         self._set_busy(True)
         self.progress.setRange(0, 0)
         self.status.setText("Đang đọc CSV và chuẩn bị mô hình offline…")
-        self.worker = LanguageWorker(self.paths, self)
+        self.worker = LanguageWorker(self.paths, self, sources=self.sources)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.finished_scan)
         self.worker.start()
@@ -404,12 +422,43 @@ class CsvLanguageDialog(QDialog):
         self.model.beginResetModel()
         self.model.rows = rows
         self.model.endResetModel()
+        self.update_mark_buttons()
         self.content.clear()
         self.content.hide()
         if self.report:
             self.result_label.setText(f"{len(rows)} ô theo bộ lọc" if rows else "Không có ô phù hợp bộ lọc. Thử chọn Tất cả dòng hoặc bỏ tìm kiếm.")
         else:
             self.result_label.setText("Chưa có kết quả nhận diện.")
+
+    def selected_annotations(self):
+        pairs = set()
+        for index in self.table.selectionModel().selectedRows():
+            cell = self.model.rows[index.row()]
+            if cell.status != "mismatch" or not cell.key:
+                continue
+            for code in locales_for_table([cell.column], cell.path.stem):
+                pairs.add((code, cell.key))
+        return pairs
+
+    def update_mark_buttons(self, *_):
+        pairs = self.selected_annotations()
+        self.mark_button.setEnabled(any(not self.annotations.has(code, key, WRONG_LANGUAGE) for code, key in pairs))
+        self.unmark_button.setEnabled(any(self.annotations.has(code, key, WRONG_LANGUAGE) for code, key in pairs))
+
+    def mark(self):
+        self.set_desc_marks(True)
+
+    def unmark(self):
+        self.set_desc_marks(False)
+
+    def set_desc_marks(self, enabled):
+        pairs = self.selected_annotations()
+        for locale, key in pairs:
+            self.annotations.set_mark(locale, key, WRONG_LANGUAGE, enabled)
+        self.update_mark_buttons()
+        self.show_content()
+        verb = "Đã đánh dấu" if enabled else "Đã gỡ dấu"
+        self.status.setText(f"{verb} Wrong languague cho {len(pairs)} cặp key/ngôn ngữ của bản xuất.")
 
     def show_content(self, *_):
         index = self.table.currentIndex()
@@ -427,6 +476,8 @@ class CsvLanguageDialog(QDialog):
             detail += "Tên cột không có tên/mã ngôn ngữ được hỗ trợ nên chưa thể đối chiếu.\n"
         if p.sampled:
             detail += "Ô dài: mô hình phân tích 2.000 ký tự đầu và 2.000 ký tự cuối.\n"
+        if any(self.annotations.has(code, cell.key, WRONG_LANGUAGE) for code in locales_for_table([cell.column], cell.path.stem)):
+            detail += "Desc khi xuất: Wrong languague\n"
         self.content.setPlainText(detail + "\nNỘI DUNG GỐC\n" + cell.text)
         self.content.show()
 

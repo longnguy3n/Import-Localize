@@ -30,15 +30,11 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         window.compare_files_button.clicked.connect(lambda: calls.append('compare'))
         window.compare_action.trigger()
         assert calls == ['compare']
-        assert window.fill_translate_data_button.isVisible()
-        window.hide_fill_checkbox.setChecked(True)
-        assert window.fill_translate_data_button.isHidden()
         window.set_running(True)
         assert not window.quick_sheet_url_edit.isEnabled()
         assert not window.csv_tools_button.isEnabled()
         window.set_running(False)
         assert window.quick_sheet_url_edit.isEnabled()
-        assert window.fill_translate_data_button.isHidden()
         # A completion signal can arrive while QThread still reports running.
         class FinishingWorker:
             def isRunning(self):
@@ -57,9 +53,6 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         window.close()
     reopened = main_window.MainWindow()
     try:
-        assert reopened.fill_translate_data_button.isHidden()
-        reopened.hide_fill_checkbox.setChecked(False)
-        assert not reopened.fill_translate_data_button.isHidden()
         assert reopened.log_toggle.isChecked()
         assert not reopened.file_table.isColumnHidden(3)
         assert reopened.quick_sheet_url_edit.text().endswith('/other/edit')

@@ -4,10 +4,10 @@ The application is an operating tool for CSV localization, Unity locale assets a
 
 ## Structure
 
-- Keep Unity tools, mapping audit and CSV analysis together in a toolbar. Keep CSV-to-Sheets operations together with their visible Sheet target.
+- Put the spreadsheet link above the direct Unity transfer actions. Group file-based Unity and CSV review tools alongside them.
 - Retain all existing import/export semantics, confirmation dialogs, backup paths and worker behavior.
 - Show a concise summary first. Place lengthy instructions, advanced CSV settings and detailed logs behind labeled disclosure controls. Errors reveal relevant detail automatically.
-- Use separate labels for audit findings and confirmed Sheet-write state. Cached history is explicitly the last observation, never a substitute for a fresh read before writing.
+- Distinguish pending Desc annotations from an applied export. Review decisions belong to the current spreadsheet session, language and key.
 - Reserve the main accent for the next action. In Unity the emphasis changes from preview to apply only after a valid plan exists. Close/cancel remain neutral; stop/destructive actions are distinct.
 
 ## Visual system

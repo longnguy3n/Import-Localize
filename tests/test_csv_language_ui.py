@@ -5,6 +5,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QHeaderView
 
 from import_localize.config.settings import AppSettings, SettingsRepository
+from import_localize.services.desc_annotations import DescAnnotations, WRONG_LANGUAGE
 from import_localize.ui.csv_language_dialog import CsvLanguageDialog
 from import_localize.ui.main_window import MainWindow
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
@@ -60,6 +61,24 @@ def test_dialog_results_filters_content_and_offline_worker(app, tmp_path):
     assert dialog.progress.value() == dialog.progress.maximum()
     dialog.reject()
     assert path.read_bytes() == before
+
+
+def test_mark_virtual_locale_rows_without_managing_a_csv(app):
+    marks = DescAnnotations()
+    source = Path("upload_pt-BR.csv")
+    dialog = CsvLanguageDialog(sources={source: b"Key,Portuguese/Brazil\na,Increase damage against enemies\n"}, annotations=marks)
+    try:
+        wait(app, dialog)
+        assert not dialog.report.errors
+        assert dialog.model.rowCount() == 1
+        dialog.table.selectRow(0)
+        dialog.mark_button.click()
+        assert marks.has("pt-BR", "a", WRONG_LANGUAGE)
+        assert not marks.has("pt-PT", "a", WRONG_LANGUAGE)
+        dialog.unmark_button.click()
+        assert not marks
+    finally:
+        dialog.reject()
 
 
 def test_close_while_scanning_cancels_and_joins_worker(app, tmp_path):

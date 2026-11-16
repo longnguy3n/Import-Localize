@@ -170,6 +170,10 @@ def _valid_key(key: str) -> str:
 
 def _read_csv(path: Path, delimiter: str) -> tuple[bytes, list[list[str]]]:
     raw = path.read_bytes()
+    return raw, parse_locale_csv(raw, path.name, delimiter)
+
+
+def parse_locale_csv(raw: bytes, source_name: str, delimiter: str) -> list[list[str]]:
     try:
         text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
         if delimiter == "auto":
@@ -181,9 +185,9 @@ def _read_csv(path: Path, delimiter: str) -> tuple[bytes, list[list[str]]]:
         rows = [row for row in rows if any(row)]
         if not rows or len(rows[0]) < 2 or rows[0][0].casefold() != "key":
             raise UnityLocaleError("CSV phải có cột đầu là Key và ít nhất một ngôn ngữ.")
-        return raw, rows
+        return rows
     except (UnicodeError, csv.Error, IndexError) as exc:
-        raise UnityLocaleError(f"{path.name}: CSV UTF-8 không hợp lệ: {exc}") from exc
+        raise UnityLocaleError(f"{source_name}: CSV UTF-8 không hợp lệ: {exc}") from exc
 
 
 def _columns(header: list[str], asset: LocaleAsset) -> tuple[dict, list[tuple[int, dict]]]:
@@ -426,7 +430,7 @@ def prepare_import_pairs(csv_paths: list[Path], asset_paths: list[Path], delimit
     return LocalePlan(changes, sources)
 
 
-def prepare_export_pairs(asset_paths: list[Path], csv_paths: list[Path], delimiter: str = ",") -> LocalePlan:
+def prepare_export_pairs(asset_paths: list[Path], csv_paths: list[Path], delimiter: str = ",", *, annotations=None) -> LocalePlan:
     """Export each asset into the explicit CSV destination on the same row."""
     _validate_pairs(asset_paths, csv_paths, ".csv")
     changes, sources = [], {}
@@ -434,7 +438,7 @@ def prepare_export_pairs(asset_paths: list[Path], csv_paths: list[Path], delimit
         target = Path(csv_path).resolve()
         try:
             asset = read_asset(asset_path)
-            change = _export_change(asset, target, delimiter)
+            change = _export_change(asset, target, delimiter, annotations=annotations)
         except (OSError, ValueError) as exc:
             raise UnityLocaleError(f"Hàng {index}: {Path(asset_path).name} → {target.name}: {exc}") from exc
         sources[asset.path] = asset.original
@@ -442,17 +446,13 @@ def prepare_export_pairs(asset_paths: list[Path], csv_paths: list[Path], delimit
     return LocalePlan(changes, sources)
 
 
-def export_csv(asset: LocaleAsset, delimiter: str = ",") -> bytes:
-    if delimiter not in (",", ";", "\t"):
-        raise UnityLocaleError("Dấu phân cách CSV không hợp lệ.")
+def export_rows(asset: LocaleAsset, *, annotations=None) -> list[list[str]]:
     headers = []
     for language in asset.languages:
         name, code = language["Name"], language["Code"]
         token = name if DEFAULT_CODES.get(name, "").casefold() == code.casefold() else f"{name} [{code}]"
         headers.append(("$" if int(language.get("Flags", 0)) & 1 else "") + token)
-    stream = io.StringIO(newline="")
-    writer = csv.writer(stream, delimiter=delimiter, lineterminator="\n")
-    writer.writerow(["Key", "Type", "Desc", *headers])
+    rows = [["Key", "Type", "Desc", *headers]]
     terms = sorted(asset.terms, key=lambda t: t["Term"].encode("utf-16-be")) if asset.sort_rows else asset.terms
     for term in terms:
         specializations = dict.fromkeys(s for text in term["Languages"] for s in _specializations(text)) if asset.specialization_rows else {None: None}
@@ -460,15 +460,27 @@ def export_csv(asset: LocaleAsset, delimiter: str = ",") -> bytes:
             key = term["Term"] + (f"[{specialization}]" if specialization not in (None, "Any") else "")
             values = [_get_translation(t, specialization) if specialization else t for t in term["Languages"]]
             row = [key, TERM_TYPES[int(term.get("TermType", 0))], term.get("Description", ""), *values]
-            writer.writerow([v.replace("\\n", "\n") for v in row])
+            rows.append([v.replace("\\n", "\n") for v in row])
+    if annotations is not None:
+        return annotations.apply_rows(rows, [language["Code"] for language in asset.languages])
+    return rows
+
+
+def export_csv(asset: LocaleAsset, delimiter: str = ",", *, annotations=None) -> bytes:
+    if delimiter not in (",", ";", "\t"):
+        raise UnityLocaleError("Dấu phân cách CSV không hợp lệ.")
+    stream = io.StringIO(newline="")
+    csv.writer(stream, delimiter=delimiter, lineterminator="\n").writerows(
+        export_rows(asset, annotations=annotations)
+    )
     return stream.getvalue().encode("utf-8-sig")
 
 
-def _export_change(asset: LocaleAsset, target: Path, delimiter: str) -> FileChange:
+def _export_change(asset: LocaleAsset, target: Path, delimiter: str, *, annotations=None) -> FileChange:
     duplicates = len(asset.terms) - len({t["Term"] for t in asset.terms})
     warnings = (f"Asset có {duplicates} term trùng; Export giữ lại như I2.",) if duplicates else ()
     before = target.read_bytes() if target.exists() else None
-    after = export_csv(asset, delimiter)
+    after = export_csv(asset, delimiter, annotations=annotations)
     new_rows = list(csv.reader(io.StringIO(after.decode("utf-8-sig")), delimiter=delimiter))
     def records(rows):
         # Compare by column name, so column order alone does not imply a change.
@@ -503,7 +515,7 @@ def _export_change(asset: LocaleAsset, target: Path, delimiter: str) -> FileChan
                       f"{len(asset.terms)} term → {stats.after_count} dòng CSV", warnings, asset.path, stats)
 
 
-def prepare_export(asset_paths: list[Path], output_dir: Path, prefix: str = "DG_Localization", delimiter: str = ",") -> LocalePlan:
+def prepare_export(asset_paths: list[Path], output_dir: Path, prefix: str = "DG_Localization", delimiter: str = ",", *, annotations=None) -> LocalePlan:
     if not asset_paths:
         raise UnityLocaleError("Chọn ít nhất một asset để xuất.")
     if not output_dir.is_dir():
@@ -520,7 +532,7 @@ def prepare_export(asset_paths: list[Path], output_dir: Path, prefix: str = "DG_
         if target in targets:
             raise UnityLocaleError(f"Nhiều asset tạo cùng file {target.name}.")
         targets.add(target)
-        changes.append(_export_change(asset, target, delimiter))
+        changes.append(_export_change(asset, target, delimiter, annotations=annotations))
         sources[asset.path] = asset.original
     return LocalePlan(changes, sources)
 

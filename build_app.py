@@ -367,7 +367,7 @@ def write_release_docs(
     2. Chạy {APP_NAME}.exe. Máy sử dụng KHÔNG cần cài Python.
     3. {oauth_note}
     4. Lần đầu trên mỗi máy, nhấn Cài đặt → Đăng nhập Google và cấp quyền một lần.
-    5. Mở Cài đặt → Google Sheet đích để nhập link Sheet, chọn CSV rồi Import.
+    5. Dán link chia sẻ bảng tính trên màn hình chính. Chọn Unity → Sheet hoặc Sheet → Unity để chuyển trực tiếp, hoặc chọn luồng qua CSV.
 
     SO SÁNH CSV THEO KEY
     Giữ Ctrl/Shift chọn đúng hai tệp trong card Tệp CSV → So sánh 2 CSV.

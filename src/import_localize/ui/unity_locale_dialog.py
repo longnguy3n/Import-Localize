@@ -8,13 +8,15 @@ from PySide6.QtGui import QCloseEvent, QDesktopServices, QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar,
-    QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QToolButton,
 )
 
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.config.settings import AppSettings
 from .locale_progress_dialog import LocaleProgressDialog
+from .unity_audit import asset_audit_sources, review_sources
+from import_localize.services.desc_annotations import DescAnnotations
 from import_localize.services.unity_locale_service import (
     LocalePlan, apply_plan, prepare_export, prepare_export_pairs, prepare_import_pairs,
 )
@@ -179,9 +181,11 @@ class LocaleWorker(QThread):
 class UnityLocaleDialog(QDialog):
     """Visible source/destination row pairs, independent of Google settings."""
 
-    def __init__(self, settings: AppSettings, csv_paths: list[Path] | None = None, parent=None):
+    def __init__(self, settings: AppSettings, csv_paths: list[Path] | None = None, parent=None, *, annotations=None):
         super().__init__(parent)
         self.settings = settings
+        self.desc_annotations = annotations if annotations is not None else DescAnnotations()
+        self.audit_kind = None
         self.asset_paths = [Path(p) for p in settings.unity_asset_files]
         self.csv_paths = ([Path(p) for p in settings.unity_import_csv_files]
                           if settings.unity_import_csv_files is not None else list(csv_paths or []))
@@ -214,6 +218,17 @@ class UnityLocaleDialog(QDialog):
         self.options_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.options_button.setArrowType(Qt.ArrowType.RightArrow)
         mode_row.addWidget(self.options_button)
+        self.review_button = QToolButton()
+        self.review_button.setText("Kiểm tra trước khi xuất")
+        self.review_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        review_menu = QMenu(self.review_button)
+        review_menu.addAction("Kiểm tra mapping…", self.review_mapping)
+        review_menu.addAction("Nhận diện ngôn ngữ…", self.review_language)
+        self.review_button.setMenu(review_menu)
+        mode_row.addWidget(self.review_button)
+        self.direct_button = QPushButton()
+        self.direct_button.clicked.connect(self.open_direct)
+        mode_row.addWidget(self.direct_button)
         controls.addLayout(mode_row)
         self.csv_options = QWidget()
         csv_options = QHBoxLayout(self.csv_options)
@@ -411,9 +426,32 @@ class UnityLocaleDialog(QDialog):
     def importing(self):
         return self.mode_combo.currentIndex() == 0
 
+    def open_direct(self):
+        from .direct_sheet_dialog import DirectSheetDialog
+        self.settings.unity_asset_files = [str(p) for p in self.asset_paths]
+        dialog = DirectSheetDialog(self.settings, "download" if self.importing() else "upload",
+                                   self, annotations=self.desc_annotations)
+        dialog.exec()
+        dialog.deleteLater()
+        self.set_assets([Path(p) for p in self.settings.unity_asset_files])
+
+    def review_mapping(self):
+        self.start_audit("mapping")
+
+    def review_language(self):
+        self.start_audit("language")
+
+    def start_audit(self, kind):
+        if self.worker or not self.asset_paths:
+            return
+        self.invalidate()
+        paths = list(self.asset_paths)
+        self.audit_kind = kind
+        self._run(lambda: asset_audit_sources(paths), False)
+
     def check_csv_languages(self):
         from .csv_language_dialog import CsvLanguageDialog
-        dialog = CsvLanguageDialog(self.csv_paths if self.importing() else self.export_paths, self)
+        dialog = CsvLanguageDialog(self.csv_paths, self, annotations=self.desc_annotations)
         dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
         dialog.deleteLater()
@@ -437,6 +475,9 @@ class UnityLocaleDialog(QDialog):
         self.safety_label.setText("Replace Import thay toàn bộ term trong asset. Lưu asset và thoát Play Mode trong Unity trước khi ghi."
                                  if importing else "Replace Export ghi vào các CSV bên nhận. File có sẵn được sao lưu trước khi ghi đè.")
         self.export_controls.setVisible(not importing)
+        self.review_button.setVisible(not importing)
+        self.language_check_button.setVisible(importing)
+        self.direct_button.setText("Sheet → Unity…" if importing else "Unity → Sheet…")
         self.source_choose_button.setText("Thêm CSV đã dịch…" if importing else "Thêm locale*.asset…")
         self.source_extra_button.setText("Thư mục locale…")
         self.source_extra_button.setVisible(not importing)
@@ -448,6 +489,7 @@ class UnityLocaleDialog(QDialog):
     def invalidate(self):
         self.plan = None
         self.apply_button.setEnabled(False)
+        self.review_button.setEnabled(bool(self.asset_paths))
         self.table.setRowCount(0)
         self.progress.setValue(0)
         paired = bool(self.source_list.count()) and self.source_list.count() == self.target_list.count()
@@ -667,7 +709,8 @@ class UnityLocaleDialog(QDialog):
         if self.importing():
             task = lambda: prepare_import_pairs(source, target, delimiter)
         else:
-            task = lambda: prepare_export_pairs(source, target, "," if delimiter == "auto" else delimiter)
+            annotations = self.desc_annotations.snapshot()
+            task = lambda: prepare_export_pairs(source, target, "," if delimiter == "auto" else delimiter, annotations=annotations)
         self._run(task, False)
 
     def apply(self):
@@ -686,6 +729,7 @@ class UnityLocaleDialog(QDialog):
         self.preview_button.setEnabled(True)
         self.close_button.setEnabled(True)
         self.progress.setRange(0, 1)
+        audit_kind, self.audit_kind = self.audit_kind, None
         if worker.error:
             self.progress.setValue(0)
             self.plan = None
@@ -693,6 +737,10 @@ class UnityLocaleDialog(QDialog):
             self.preview_status.setText("Không thể hoàn tất. Xem lỗi bên dưới và kiểm tra lại.")
             self.details_button.setChecked(True)
             self.apply_button.setEnabled(False)
+        elif audit_kind:
+            self.progress.hide()
+            review_sources(audit_kind, self, self.settings, worker.result, self.desc_annotations)
+            self.invalidate()
         elif self._generating:
             self.export_paths = worker.result
             self._refresh_lists()

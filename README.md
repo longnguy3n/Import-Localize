@@ -1,9 +1,15 @@
 # Import Localize
 
-Ứng dụng desktop nhập file CSV vào Google Sheets theo hai chế độ:
+Dán link chia sẻ bảng tính từ Google Sheets hoặc Drive ở đầu màn hình. Kiểm tra tên bảng, rồi chọn chiều chuyển.
 
-- **Nhiều sheet:** mỗi CSV vào một tab riêng theo tên file.
-- **Một sheet:** chỉ file nằm trên cùng trong danh sách được nhập vào tab do người dùng nhập.
+| Thao tác | Nguồn → đích |
+|---|---|
+| Unity → Sheet | Asset một ngôn ngữ → tab `upload_<mã>` |
+| Sheet → Unity | Tab `export_<mã>` → asset có cùng mã ngôn ngữ |
+| Unity ↔ CSV | Replace Export hoặc Replace Import qua các cặp file đã chọn |
+| CSV ↔ Sheet | Nhập CSV lên Sheet hoặc tải các tab `export_*` ra CSV |
+
+Chuyển trực tiếp ghép theo mã ngôn ngữ bên trong asset. Xem trước toàn bộ cặp rồi áp dụng. Khi nhập vào Unity, ứng dụng ghi nội dung đã xem trước và sao lưu asset trước khi thay đổi. Nếu có nhiều asset cùng mã hoặc asset chứa nhiều ngôn ngữ, dùng luồng CSV để ghép đích thủ công.
 
 ## Chế độ nhiều sheet
 
@@ -25,7 +31,7 @@ DG_Localization - import_en.csv
 
 ## Chế độ một sheet
 
-- Nhập tên tab trong **Thiết lập đích… → Google Sheet đích**.
+- Nhập tên tab trong **Thiết lập đích… → Google Sheets**.
 - Chỉ file nằm trên cùng trong card **Tệp CSV** được sử dụng.
 - Các file phía dưới hiển thị `Không nhập` và không được upload.
 - Tên file không cần theo format của chế độ nhiều sheet.
@@ -35,19 +41,6 @@ DG_Localization - import_en.csv
 - Dòng đầu CSV luôn là tiêu đề.
 - Không thêm cột nguồn file.
 - Luôn thay thế toàn bộ dữ liệu của tab đích.
-
-## Giao diện v1.19.0
-
-Màn hình chính được chia theo tác vụ:
-
-1. Thanh công cụ **Unity Locale…**, **Kiểm tra mapping…**, **Kiểm tra CSV** (so sánh hai file / nhận diện ngôn ngữ).
-2. **Tệp CSV**: bảng file và các nút thêm, sắp xếp, bỏ chọn, xóa. Cột mã hóa/phân cách mở từ menu Kiểm tra CSV khi cần.
-3. **Google Sheets**: dán link ngay trên màn hình chính, kiểm tra tóm tắt tab đích và thao tác nhập/điền/tải. **Thiết lập đích…** mở các tùy chọn chi tiết.
-4. **Nhật ký xử lý**: thu gọn mặc định, tự mở khi gặp lỗi; app nhớ lựa chọn mở/đóng của bạn.
-
-Phím tắt: **Ctrl+O** thêm CSV, **Ctrl+L** nhập link Sheet, **F1** mở hướng dẫn, **Alt+↑/↓** đổi thứ tự file đã chọn. App nhớ việc hiển thị các cột kỹ thuật.
-
-Các cửa sổ Unity Locale, mapping, ngôn ngữ, so sánh CSV và duplicate key ưu tiên bảng dữ liệu; hướng dẫn dài, tùy chọn CSV và chi tiết mở khi cần. Nút chính thể hiện bước tiếp theo, tiến độ/Dừng xuất hiện khi chạy. Bảng vẫn hỗ trợ kéo độ rộng cột, xuống dòng và cuộn ngang; trạng thái ghi mapping và chế độ mở rộng được giữ. Cửa sổ Cài đặt/Điền dữ liệu/Hướng dẫn dùng thanh tiêu đề hệ điều hành để kéo và thay đổi kích thước.
 
 ## Cài đặt
 
@@ -125,9 +118,8 @@ Từ v1.5.0, bản EXE có thể kiểm tra và tự cài bản mới tại **C�
 
 ## Tải các tab export_* về máy
 
-Trong card **Hành động**, chọn **Tải các tab export_*** rồi chọn thư mục lưu.
-Ứng dụng sẽ quét mọi tab có tên bắt đầu bằng `export_`, tải nguyên byte CSV do
-Google Sheets tạo và lưu theo mẫu:
+Trong phần **Chuyển giữa CSV và Google Sheets**, chọn **Tải CSV export_*…** rồi chọn thư mục lưu.
+Ứng dụng sẽ quét mọi tab có tên bắt đầu bằng `export_`, tải CSV do Google Sheets tạo (thêm nhãn vào Desc nếu đã đánh dấu) và lưu theo mẫu:
 
 ```text
 [Tên Google Sheet] - [Tên tab].csv
@@ -138,36 +130,24 @@ Các file trùng tên trong thư mục đích sẽ được thay thế. Những 
 
 ## So sánh CSV theo key
 
-Chọn hai tệp trong card Tệp CSV → **So sánh 2 CSV** để xem key mới, đã xóa và thay đổi. Link Google Sheet và kiểu nhập nằm trong **Cài đặt → Google Sheet đích**. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
+Chọn hai tệp trong card Tệp CSV → **So sánh 2 CSV** để xem key mới, đã xóa và thay đổi. Dán link trên màn hình chính, chọn kiểu nhập trong **Thiết lập đích…**. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
 
 ## Kiểm tra mapping DG
 
-Trong card Tệp CSV, bấm **Kiểm tra mapping…** → **Chọn thư mục DG…**. App lấy toàn bộ CSV ngay trong thư mục đó và `data/mapping.json`. Có thể chọn mapping khác hoặc chọn nhiều CSV riêng; đường dẫn và danh sách file được nhớ cho lần sau.
+Bấm **Kiểm tra CSV → Kiểm tra mapping…** → **Chọn thư mục DG…**. App lấy toàn bộ CSV ngay trong thư mục đó và `data/mapping.json`. Có thể chọn mapping khác hoặc chọn nhiều CSV riêng; đường dẫn và danh sách file được nhớ cho lần sau.
 
 - Nhấn **Kiểm tra mapping** để chạy offline. Hỗ trợ hợp đồng DG v2 (`schema_version: 2.0.0`); schema được đóng gói cùng app. App chỉ đọc mapping hiện hành, không chạy script trong `support`/`code`, không dùng mapping pending hay báo cáo lịch sử làm quy tắc.
 - Bảng file hiển thị số phát hiện sai và số cần xem ngữ cảnh. Bấm file để lọc; bảng dưới chỉ rõ key, ngôn ngữ, mapping chuẩn và nội dung hiện tại. Chọn một dòng để xem đầy đủ nguồn và lý do. Có tìm kiếm, bộ lọc và nút hiện tất cả file.
 - Kéo mép tiêu đề để chỉnh độ rộng cột. Mặc định cột vừa nội dung, giới hạn ban đầu 480 px cho văn bản dài để tự xuống dòng; bạn vẫn có thể kéo rộng hơn. Hàng tự tăng chiều cao, giữ xuống dòng gốc; lọc kết quả không đặt lại độ rộng đã chỉnh.
 - Vạch dọc trên tiêu đề và đường lưới hiện rõ ở cả hai bảng; kéo vạch để đổi độ rộng, nhấp đúp để vừa nội dung. **Căn lại cột** khôi phục kích thước theo dữ liệu. Bảng file chừa đủ chiều cao cho các hàng đầu, không dồn các tiêu đề sát nhau.
-- **Phóng to bảng** mở riêng vùng đối chiếu ra toàn màn hình, vẫn giữ tìm kiếm/bộ lọc, chọn key và nút **Ghi Wrong mapping**. Bấm **Thu gọn bảng (Esc)** hoặc nhấn Esc để trở lại cửa sổ và bố cục trước đó; độ rộng cột và dòng đang chọn được giữ. Có thể phóng lớn/thu nhỏ toàn cửa sổ bằng nút trên thanh tiêu đề.
+- **Phóng to bảng** mở riêng vùng đối chiếu ra toàn màn hình, vẫn giữ tìm kiếm/bộ lọc, chọn key và nút đánh dấu **Desc**. Bấm **Thu gọn bảng (Esc)** hoặc nhấn Esc để trở lại cửa sổ và bố cục trước đó; độ rộng cột và dòng đang chọn được giữ. Có thể phóng lớn/thu nhỏ toàn cửa sổ bằng nút trên thanh tiêu đề.
 - Cột cuối tự giãn tới mép phải khi bảng còn khoảng trống. Giữ **Shift + cuộn chuột** để cuộn ngang; cuộn chuột bình thường để cuộn dọc.
 - Kết quả gộp theo key: mỗi key một dòng và **mỗi file đã chọn một cột tham chiếu**, theo đúng thứ tự danh sách, kể cả nhiều file cùng ngôn ngữ. Cuộn ngang để xem các cột còn lại. Ô có phát hiện được tô màu; cột cuối là mapping chuẩn/lý do. Lọc theo file vẫn giữ tham chiếu từ tất cả file khác. Nếu một file có nhiều ngôn ngữ hoặc nhiều bản ghi cùng key, ô của file đó hiển thị từng nội dung kèm ngôn ngữ/dòng. Phần chi tiết và tooltip giữ đầy đủ đường dẫn nguồn; phân biệt key không có trong file, file không đọc được và ô dịch trống.
 - Với CSV một ngôn ngữ, chọn kèm bản English cùng nhóm `export_*` hoặc `upload_*` để đối chiếu theo key. Không ghép export với upload hay nguồn từ thư mục/nhóm khác. CSV `Translate_Data` nhiều cột ngôn ngữ cũng được hỗ trợ. File lỗi được báo riêng; thiếu nguồn, nhiều nghĩa, biến thể có điều kiện hoặc biến đổi ngữ pháp cần người xem lại.
 - Khớp thuật ngữ theo NFC, không phân biệt hoa/thường, giữ dấu, ranh giới từ và ưu tiên cụm dài. Alias chỉ dùng nhận diện nguồn; tag, placeholder và technical key được bảo vệ. Key là ngữ cảnh, không thay cả mô tả bằng tên. Có quy tắc key override và tên kỹ năng nâng cấp ` +`.
 - **Sai mapping** là lỗi có đủ căn cứ. **Cần xem ngữ cảnh** chưa phải kết luận sai; câu không chứa nguyên văn thuật ngữ chuẩn có thể là biến đổi ngữ pháp hợp lệ. Ô chưa có mapping áp dụng không được coi là đã đúng. Đây là kiểm tra thuật ngữ theo dữ liệu mapping, không phải đánh giá toàn bộ chất lượng dịch hay suy luận nghĩa tự động.
 
-Để cập nhật Google Sheets: nhập/kiểm tra **Sheet đích**, tick cột đầu hoặc giữ **Ctrl/Shift** để chọn nhiều dòng key, bấm **Ghi Wrong mapping (N)** và xác nhận. Có nút **Chọn các dòng hiện có** và **Bỏ chọn hết**. Khi lọc, các key đã chọn vẫn được giữ; bộ đếm và hộp xác nhận nêu rõ số key đang ẩn. Ban đầu không có key nào được chọn.
-
-App chỉ thay trạng thái cột C của **các key đã chọn** bằng `Wrong mapping`. Bạn có thể chủ động chọn cả dòng **Cần xem ngữ cảnh** sau khi xem xét; hộp xác nhận báo riêng số key chưa được kết luận sai tự động. Nút ghi, trạng thái tiến độ và nút dừng cũng có trong chế độ mở rộng.
-
-Từ v1.18.6, công thức riêng ở ô C của các key đã chọn cũng được thay bằng giá trị cố định `Wrong mapping`, như nội dung hộp xác nhận. Kết quả báo số ô công thức đã thay. Công thức ở các key chưa chọn được giữ nguyên; ARRAYFORMULA dùng chung nhiều hàng vẫn bị chặn. Nếu key, trạng thái hoặc chính công thức thay đổi trong lúc kiểm tra, app dừng trước khi ghi lô đó.
-
-Từ v1.18.7, cột **Ghi trên Sheet** hiển thị kết quả theo từng key: **Đã ghi**, **Đã có sẵn**, **Chưa ghi**, **Đã ghi một phần**, **Chưa rõ kết quả**, **Không tìm thấy key**; key chưa có lịch sử hiển thị **Chưa kiểm tra**. Trạng thái cập nhật theo từng lô, kèm số hàng đã xác nhận/tổng số hàng của key; key trùng chỉ hoàn tất khi mọi hàng tương ứng đã được xác nhận. Key hoàn tất tự bỏ tick, key chưa xong giữ lựa chọn. Khi dừng hoặc mất phản hồi, các key đã xác nhận vẫn được ghi nhận, không coi lô chưa rõ kết quả là thành công.
-
-Lịch sử được lưu tại `mapping_mark_history.json` trong thư mục cấu hình app, riêng theo ID Google Sheet và giữ sau khi mở lại app. Di chuột lên trạng thái để xem thời điểm ghi nhận. Đây là kết quả gần nhất, không phải đồng bộ trực tiếp: khi bấm ghi tiếp, app luôn đọc lại Sheet và bỏ qua các ô hiện đã là `Wrong mapping`, kể cả lịch sử cục bộ chưa có hoặc Sheet đã được sửa bên ngoài.
-
-App đọc lại vị trí key trên Sheet, kiểm tra cột C có tiêu đề `Custom(modified)` và chỉ ghi các ô C bằng RAW; không thay bản dịch hoặc các cột khác. Key trùng được đánh dấu trên mọi hàng tương ứng; key không tìm thấy được liệt kê. File mapping/CSV thay đổi thì phải kiểm tra lại. Không sắp xếp/chỉnh sửa tab trong lúc ghi. Nếu dừng hoặc lỗi mạng giữa các lô, app báo số ô đã xác nhận và trường hợp kết quả ghi chưa rõ; kiểm tra tab trước khi chạy lại.
-
-Từ v1.18.5, ghi mapping dùng cơ chế chờ mạng nền giống Fill: thời gian chờ đọc tối đa 60 giây, nút Dừng vẫn phản hồi mà không phải ngắt mọi yêu cầu ở 6 giây. App đọc riêng cột key và trạng thái/công thức cột C; trước mỗi lô chỉ đọc lại các vùng key quanh hàng cần ghi, thay vì tải lại toàn bộ `A:C`. Vẫn kiểm tra toàn cột C để phát hiện ARRAYFORMULA. Trạng thái hiển thị bước đang đọc và lần thử lại; chỉ các yêu cầu đọc được thử lại tối đa 3 lần. Lệnh ghi không tự gửi lại khi chưa rõ kết quả để tránh ghi nhầm sau khi hàng đã thay đổi.
+Chọn các key cần xử lý để thêm nhãn `Wrong mapping` vào Desc của dữ liệu xuất. Trong kiểm tra ngôn ngữ có thể chọn các dòng sai và thêm `Wrong languague`. App giữ các quyết định theo key và mã ngôn ngữ trong phiên hiện tại của bảng tính. Cả hai nhãn có thể cùng nằm trong Desc vốn có.
 
 ## Nhận diện ngôn ngữ CSV offline
 

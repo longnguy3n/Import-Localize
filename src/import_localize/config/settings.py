@@ -33,15 +33,11 @@ class AppSettings:
     unity_csv_dir: str = ""
     unity_export_dir: str = ""
     unity_export_prefix: str = "DG_Localization"
-    fill_sheet_name: str = "Translate_Data"
-    fill_source_row: int = 2
-    fill_columns: str = "D:I"
     window_width: int = 760
     window_height: int = 950
     card_sizes: list[int] = field(default_factory=list)
     update_repository: str = ""
     auto_check_updates: bool = True
-    hide_translate_fill: bool = False
     ui_log_expanded: bool = False
     ui_show_technical_columns: bool = False
 

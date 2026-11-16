@@ -27,8 +27,9 @@ class ImportWorker(QThread):
     log_emitted = Signal(str, str)
     completed = Signal(bool, str)
 
-    def __init__(self, job: ImportJob, parent=None):
+    def __init__(self, job: ImportJob, parent=None, *, annotations=None):
         super().__init__(parent)
+        self.annotations = annotations
         self.job = job
         self._cancel_event = Event()
 
@@ -104,6 +105,7 @@ class ImportWorker(QThread):
             ),
             log_callback=lambda message: self._log(message),
             cancel_callback=self._is_cancelled,
+            annotations=self.annotations,
             info_lookup={str(info.path.resolve()): info},
         )
         rows_written = upload_bundles_fast(
@@ -160,6 +162,7 @@ class ImportWorker(QThread):
                 ),
                 log_callback=lambda message: self._log(message),
                 cancel_callback=self._is_cancelled,
+                annotations=self.annotations,
                 info_lookup=info_lookup,
             )
             upload_plans.append((bundle, file_job))

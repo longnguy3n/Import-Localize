@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from import_localize.app.paths import ASSETS_DIR
-from import_localize.services.csv_service import inspect_csv
+from .audit_csv_source import audit_reader
 
 LOCALES = ("en", "vi", "pt-BR")
 PROTECTED = re.compile(r"<[^>]*>|\{[^{}]*\}|(?<!\w)[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+(?!\w)")
@@ -184,7 +184,7 @@ def _locale(header):
     text = header.strip().lstrip("$").casefold()
     aliases = {"en": ("en", "english", "english (en)"),
                "vi": ("vi", "vietnamese", "vietnamese (vi)", "tiếng việt"),
-               "pt-BR": ("pt-br", "pt_br", "portuguese (brazil)", "portuguese (brazil) (pt-br)", "portuguese (brazil) [pt-br]")}
+               "pt-BR": ("pt-br", "pt_br", "portuguese (brazil)", "portuguese/brazil", "portuguese (brazil) (pt-br)", "portuguese (brazil) [pt-br]")}
     for code, names in aliases.items():
         if text in names or text.endswith(f"[{code.casefold()}]"):
             return code
@@ -205,11 +205,9 @@ class MappingRecord:
     family: tuple
 
 
-def _read_csv(path, cancel_callback):
-    info = inspect_csv(path)
+def _read_csv(path, cancel_callback, data=None):
     rows = []
-    with path.open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.reader(stream, delimiter=info.delimiter, strict=True)
+    with audit_reader(path, data) as reader:
         headers = next(reader, [])
         keys = [i for i, h in enumerate(headers) if h.strip().casefold() in ("key", "term", "technical key")]
         if len(keys) != 1:
@@ -304,17 +302,18 @@ def _audit_cell(index, row, locale, actual, source_locale, source, source_proble
     return issues, checked
 
 
-def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=None, cancel_callback=None) -> MappingReport:
+def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=None, cancel_callback=None, *, sources=None) -> MappingReport:
     mapping_path = Path(mapping_path).expanduser().resolve()
     index = MappingIndex(load_mapping(mapping_path))
     report = MappingReport(mapping_path)
     rows = []
-    for path in dict.fromkeys(Path(p).expanduser().resolve() for p in csv_paths):
+    paths = sources if sources is not None else dict.fromkeys(Path(p).expanduser().resolve() for p in csv_paths)
+    for path in paths:
         if cancel_callback and cancel_callback():
             raise CancelledError()
         report.files.append(path)
         try:
-            rows.extend(_read_csv(path, cancel_callback))
+            rows.extend(_read_csv(path, cancel_callback, sources[path] if sources is not None else None))
         except (OSError, UnicodeError, ValueError, csv.Error, RuntimeError) as exc:
             if isinstance(exc, CancelledError):
                 raise

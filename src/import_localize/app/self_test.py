@@ -64,6 +64,8 @@ def run_self_test(report_path: str) -> int:
                 prepare_export, prepare_import_pairs, apply_plan, read_asset,
             )
 
+            from import_localize.ui.direct_sheet_dialog import DirectSheetDialog
+
             check_tls_context()
             app = create_application(["Import_Localize self-test"])
             window = MainWindow()
@@ -73,6 +75,10 @@ def run_self_test(report_path: str) -> int:
             assert window.cards_splitter.count() == 3, "Missing main window cards"
             assert window.file_table.columnCount() == 5, "Missing CSV table"
             assert not window.grab().isNull(), "Main window could not render"
+            for direction in ("upload", "download"):
+                transfer = DirectSheetDialog(window.settings, direction, window, annotations=window.desc_annotations)
+                assert not transfer.apply_button.isEnabled() and not transfer.grab().isNull()
+                transfer.reject()
             before, after = Path(directory) / "old.csv", Path(directory) / "new.csv"
             before.write_text("key,en\na,Old\n", encoding="utf-8")
             after.write_text("key,en\na,New\nb,Added\n", encoding="utf-8")
@@ -177,6 +183,8 @@ def run_self_test(report_path: str) -> int:
             mapping_dialog.reject()  # Escape restores the normal layout.
             app.processEvents()
             assert not mapping_dialog.focus_mode and not mapping_dialog.files_table.isHidden()
+            mapping_dialog.mark()
+            assert mapping_dialog.annotations.has("vi", "cf_damage_title", "Wrong mapping")
             mapping_dialog.close()
             # Verify the packaged model without any network access, not just
             # an import of the Python wrapper around the native extension.
@@ -207,6 +215,8 @@ def run_self_test(report_path: str) -> int:
                 "offline_language_detection": True,
                 "tls_context": True,
                 "mapping_audit": True,
+                "direct_workspace": True,
+                "desc_annotations": True,
             }
             window.close()
             app.processEvents()

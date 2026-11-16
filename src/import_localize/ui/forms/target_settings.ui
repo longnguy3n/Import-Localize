@@ -264,9 +264,6 @@
                  </layout>
                 </widget>
                </item>
-               <item><widget class="QCheckBox" name="hideTranslateFillCheckBox">
-                <property name="text"><string>Ẩn nút Điền Translate_Data trên màn hình chính</string></property>
-               </widget></item>
               </layout>
              </widget></item>
    <item><spacer name="targetSettingsSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>

@@ -18,7 +18,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -53,7 +52,7 @@ from import_localize.app.constants import (
 )
 from import_localize.app.paths import FORMS_DIR, ICONS_DIR, IMAGES_DIR, THEMES_DIR
 from import_localize.config.settings import SettingsRepository
-from import_localize.models.import_job import CsvFileInfo, FillOptions, ImportJob
+from import_localize.models.import_job import CsvFileInfo, ImportJob
 from import_localize.services.csv_service import (
     CsvImportError,
     format_size,
@@ -65,12 +64,13 @@ from import_localize.services.update_service import UpdateRelease, is_newer_vers
 from import_localize.ui.assets import icon, load_logo, set_button_icon
 from import_localize.ui.csv_compare_dialog import CsvCompareDialog
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
-from import_localize.ui.dialogs import FillDataDialog, HelpDialog, SettingsDialog
+from import_localize.ui.dialogs import HelpDialog, SettingsDialog
 from import_localize.ui.ui_loader import load_ui, require_object
 from import_localize.ui.widgets import BottomAlignedLogView
 from import_localize.workers.export_tabs_worker import ExportTabsWorker
 from import_localize.workers.import_worker import ImportWorker
-from import_localize.workers.translate_fill_worker import TranslateFillWorker
+from import_localize.services.desc_annotations import DescAnnotations
+from import_localize.services.sheet_link import sheet_id_from_link
 from import_localize.workers.update_worker import UpdateCheckWorker
 
 
@@ -83,9 +83,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings_repository = SettingsRepository()
         self.settings = self.settings_repository.load()
-        self.worker: ImportWorker | TranslateFillWorker | ExportTabsWorker | None = None
+        self.worker: ImportWorker | ExportTabsWorker | None = None
         self._active_operation = ""
         self.update_check_worker: UpdateCheckWorker | None = None
+        self._sheet_annotations: dict[str, DescAnnotations] = {}
         self.file_infos: dict[str, CsvFileInfo] = {}
         self._close_when_finished = False
         self._card_sizes_restored = False
@@ -168,7 +169,6 @@ class MainWindow(QMainWindow):
         self.clear_files_button = require_object(root, "clearFilesButton", QPushButton)
         self.file_summary_label = require_object(root, "fileSummaryLabel", QLabel)
 
-        self.hide_fill_checkbox = require_object(target, "hideTranslateFillCheckBox", QCheckBox)
         self.sheet_url_edit = require_object(target, "sheetUrlEdit", QLineEdit)
         self.open_sheet_button = require_object(target, "openSheetButton", QPushButton)
         self.target_mode_combo = require_object(target, "targetModeCombo", QComboBox)
@@ -179,9 +179,6 @@ class MainWindow(QMainWindow):
             target, "singleSheetNameEdit", QLineEdit
         )
         self.value_input_combo = require_object(target, "valueInputCombo", QComboBox)
-        self.fill_translate_data_button = require_object(
-            root, "fillTranslateDataButton", QPushButton
-        )
         self.download_export_tabs_button = require_object(
             root, "downloadExportTabsButton", QPushButton
         )
@@ -222,7 +219,6 @@ class MainWindow(QMainWindow):
         set_button_icon(self.remove_files_button, "remove", 15)
         set_button_icon(self.clear_files_button, "trash", 15)
         set_button_icon(self.clear_log_button, "trash", 15)
-        set_button_icon(self.fill_translate_data_button, "sheet", 16)
         set_button_icon(self.download_export_tabs_button, "download", 16)
         set_button_icon(self.start_button, "upload", 17)
         set_button_icon(self.stop_button, "stop", 15)
@@ -269,7 +265,7 @@ class MainWindow(QMainWindow):
         self.language_check_button = QPushButton("Nhận diện ngôn ngữ CSV…")
         self.language_check_button.setToolTip("Kiểm tra offline các file được chọn; nếu không chọn hàng, kiểm tra toàn bộ danh sách.")
         self.mapping_check_button = QPushButton("Kiểm tra mapping…")
-        self.mapping_check_button.setToolTip("Đối chiếu CSV với mapping.json; xem file sai và đánh dấu Wrong mapping trên Translate_Data.")
+        self.mapping_check_button.setToolTip("Đối chiếu CSV với mapping.json; xem file sai và đánh dấu Wrong mapping trong Desc khi xuất.")
         self._configure_workspace()
         self.files_card_layout.setStretch(1, 1)
         self.log_card_layout.setStretch(1, 1)
@@ -285,7 +281,7 @@ class MainWindow(QMainWindow):
         self.app_subtitle_label.setText("CSV · Unity Locale · Google Sheets")
         self.files_subtitle_label.setText("Kéo thả CSV hoặc thêm tệp. Giữ Ctrl/Shift để chọn nhiều.")
         require_object(self.root, "filesTitleLabel", QLabel).setText("Tệp CSV")
-        require_object(self.root, "actionTitleLabel", QLabel).setText("Google Sheets")
+        require_object(self.root, "actionTitleLabel", QLabel).setText("Chuyển giữa CSV và Google Sheets")
         require_object(self.root, "logTitleLabel", QLabel).setText("Nhật ký xử lý")
         self.action_subtitle_label.hide()
         self.log_subtitle_label.hide()
@@ -293,26 +289,40 @@ class MainWindow(QMainWindow):
         self.start_button.setText("Nhập CSV lên Sheet")
         self.start_button.setProperty("primaryAction", True)
         self.stop_button.setProperty("dangerAction", True)
-        self.fill_translate_data_button.setText("Điền Translate_Data…")
         self.download_export_tabs_button.setText("Tải CSV export_*…")
 
         tools = QWidget(self.root)
         tools.setObjectName("workspaceTools")
-        toolbar = QHBoxLayout(tools)
-        toolbar.setContentsMargins(12, 0, 12, 0)
+        stack = QVBoxLayout(tools)
+        stack.setContentsMargins(12, 0, 12, 0)
+        toolbar = QHBoxLayout()
+        stack.addLayout(toolbar)
+        toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(8)
         self.action_card_layout.removeWidget(self.unity_locale_button)
-        self.unity_locale_button.setText("Unity Locale…")
+        self.unity_locale_button.setText("Unity ↔ CSV…")
         self.unity_locale_button.setToolTip("Import / export locale.asset, ghép cặp file và xử lý key trùng.")
+        self.direct_upload_button = QPushButton("Unity → Sheet…")
+        self.direct_upload_button.setProperty("primaryAction", True)
+        self.direct_upload_button.setToolTip("Ghi asset vào các tab upload_ theo mã ngôn ngữ")
+        self.direct_download_button = QPushButton("Sheet → Unity…")
+        self.direct_download_button.setToolTip("Đọc các tab export_ và xem trước thay đổi trong asset")
+        self.direct_upload_button.clicked.connect(self.show_direct_upload)
+        self.direct_download_button.clicked.connect(self.show_direct_download)
+        toolbar.addWidget(self.direct_upload_button)
+        toolbar.addWidget(self.direct_download_button)
         toolbar.addWidget(self.unity_locale_button)
-        toolbar.addWidget(self.mapping_check_button)
+        self.mapping_check_button.setParent(self)
+        self.mapping_check_button.hide()
         self.csv_tools_button = QToolButton(tools)
         self.csv_tools_button.setText("Kiểm tra CSV")
         self.csv_tools_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self.csv_tools_button)
+        menu.addAction("Kiểm tra mapping…", self.mapping_check_button.click)
         self.compare_action = menu.addAction("So sánh 2 CSV đã chọn…", self.compare_files_button.click)
         self.language_action = menu.addAction("Nhận diện ngôn ngữ…", self.language_check_button.click)
         menu.addSeparator()
+        self.clear_desc_action = menu.addAction("Bỏ tất cả dấu Desc của bản xuất", self.clear_desc_annotations)
         self.technical_columns_action = menu.addAction("Hiện cột mã hóa và phân cách")
         self.technical_columns_action.setCheckable(True)
         self.technical_columns_action.toggled.connect(self._toggle_technical_columns)
@@ -328,10 +338,10 @@ class MainWindow(QMainWindow):
         self._toggle_technical_columns(bool(self.settings.ui_show_technical_columns))
 
         target_row = QHBoxLayout()
-        target_row.addWidget(QLabel("Sheet đích"))
+        target_row.addWidget(QLabel("Bảng tính"))
         self.quick_sheet_url_edit = self.sheet_url_edit
         self.target_form.findChild(QLabel, "sheetUrlLabel").hide()
-        self.sheet_url_edit.setPlaceholderText("Dán link Google Sheet")
+        self.sheet_url_edit.setPlaceholderText("Dán link chia sẻ bảng tính từ Drive hoặc Google Sheets")
         self.sheet_url_edit.setClearButtonEnabled(True)
         self.sheet_url_edit.setAccessibleName("Link Google Sheet đích")
         target_row.addWidget(self.sheet_url_edit, 1)
@@ -339,11 +349,11 @@ class MainWindow(QMainWindow):
         self.target_settings_button = QPushButton("Thiết lập đích…")
         self.target_settings_button.clicked.connect(lambda: self.show_settings(initial_tab="target"))
         target_row.addWidget(self.target_settings_button)
-        self.action_card_layout.insertLayout(1, target_row)
+        stack.insertLayout(0, target_row)
         self.sheet_title_label = QLabel()
         self.sheet_title_label.setTextFormat(Qt.TextFormat.PlainText)
         self.sheet_title_label.setWordWrap(True)
-        self.action_card_layout.insertWidget(2, self.sheet_title_label)
+        stack.insertWidget(1, self.sheet_title_label)
         self._title_results = SimpleQueue()
         self._lookup_running = False
         self._lookup_generation = 0
@@ -356,7 +366,7 @@ class MainWindow(QMainWindow):
         self.target_summary = QLabel()
         self.target_summary.setProperty("muted", True)
         self.target_summary.setWordWrap(True)
-        self.action_card_layout.insertWidget(3, self.target_summary)
+        self.action_card_layout.insertWidget(1, self.target_summary)
         self.target_mode_combo.currentIndexChanged.connect(self._update_target_summary)
         self.single_sheet_name_edit.textChanged.connect(self._update_target_summary)
         self.value_input_combo.currentIndexChanged.connect(self._update_target_summary)
@@ -373,11 +383,37 @@ class MainWindow(QMainWindow):
         self._toggle_log(self.log_toggle.isChecked())
         self.progress_bar.hide()
 
+    @property
+    def desc_annotations(self) -> DescAnnotations:
+        """Keep review decisions separate for each spreadsheet during this session."""
+        key = sheet_id_from_link(self.sheet_url_edit.text()) or ""
+        if key not in self._sheet_annotations:
+            if key and set(self._sheet_annotations) == {""}:
+                # Bind an offline review to its first chosen destination.
+                self._sheet_annotations[key] = self._sheet_annotations.pop("")
+            else:
+                self._sheet_annotations[key] = DescAnnotations()
+        return self._sheet_annotations[key]
+
+    def _refresh_desc_count(self):
+        key = sheet_id_from_link(self.sheet_url_edit.text()) or ""
+        marks = self._sheet_annotations.get(key)
+        if marks is None and set(self._sheet_annotations) == {""}:
+            marks = self._sheet_annotations[""]
+        count = len(marks) if marks else 0
+        self.clear_desc_action.setEnabled(bool(count))
+        self.csv_tools_button.setText(f"Kiểm tra · {count} dấu Desc" if count else "Kiểm tra CSV")
+        self.clear_desc_action.setToolTip(f"{count} cặp key/ngôn ngữ đã đánh dấu để xuất")
+
+    def clear_desc_annotations(self):
+        self.desc_annotations.clear()
+        self._refresh_desc_count()
+
     def _schedule_title(self, *_args):
         self._lookup_generation += 1
-        url = QUrl(self.sheet_url_edit.text().strip())
-        valid = (url.scheme() == "https" and url.host() == "docs.google.com"
-                 and "/spreadsheets/d/" in url.path() and bool(url.path().split("/spreadsheets/d/", 1)[1].split("/")[0]))
+        self._refresh_desc_count()
+        spreadsheet_id = sheet_id_from_link(self.sheet_url_edit.text())
+        valid = spreadsheet_id is not None
         self.open_sheet_button.setEnabled(valid)
         self.sheet_title_label.setText("Đang đọc tên bảng tính…" if valid else "Link Google Sheet chưa hợp lệ.")
         self.sheet_title_label.setVisible(bool(self.sheet_url_edit.text().strip()))
@@ -476,9 +512,6 @@ class MainWindow(QMainWindow):
         self.clear_files_button.clicked.connect(self.clear_files)
         self.open_sheet_button.clicked.connect(self.open_sheet)
         self.start_button.clicked.connect(self.start_import)
-        self.fill_translate_data_button.clicked.connect(
-            self.start_fill_translate_data
-        )
         self.download_export_tabs_button.clicked.connect(
             self.start_download_export_tabs
         )
@@ -514,9 +547,6 @@ class MainWindow(QMainWindow):
         self._update_reorder_buttons()
 
     def _restore_settings(self) -> None:
-        self.hide_fill_checkbox.setChecked(self.settings.hide_translate_fill)
-        self.fill_translate_data_button.setHidden(self.settings.hide_translate_fill)
-        self.hide_fill_checkbox.toggled.connect(self.fill_translate_data_button.setHidden)
         self.sheet_url_edit.setText(self.settings.sheet_url)
         self.target_mode_combo.setCurrentIndex(
             1 if self.settings.target_mode == "single" else 0
@@ -736,12 +766,32 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
         self._schedule_title()
 
-    def show_unity_locale(self) -> None:
-        paths = [Path(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
-                 for row in range(self.file_table.rowCount())]
-        dialog = UnityLocaleDialog(self.settings, paths, self)
+    def show_direct_upload(self):
+        self._show_transfer("upload")
+
+    def show_direct_download(self):
+        self._show_transfer("download")
+
+    def _show_transfer(self, direction):
+        if not self._validate_sheet_action():
+            return
+        from .direct_sheet_dialog import DirectSheetDialog
+        self.save_settings()
+        dialog = DirectSheetDialog(self.settings, direction, self, annotations=self.desc_annotations)
         dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
+        self._refresh_desc_count()
+        self.save_settings()
+        dialog.deleteLater()
+
+    def show_unity_locale(self) -> None:
+        self.save_settings()
+        paths = [Path(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
+                 for row in range(self.file_table.rowCount())]
+        dialog = UnityLocaleDialog(self.settings, paths, self, annotations=self.desc_annotations)
+        dialog.setStyleSheet(self.styleSheet())
+        dialog.exec()
+        self._refresh_desc_count()
         self.save_settings()
         dialog.deleteLater()
 
@@ -1005,9 +1055,10 @@ class MainWindow(QMainWindow):
         rows = sorted(index.row() for index in self.file_table.selectionModel().selectedRows())
         paths = [self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                  for row in (rows or range(self.file_table.rowCount()))]
-        dialog = CsvLanguageDialog(paths, self)
+        dialog = CsvLanguageDialog(paths, self, annotations=self.desc_annotations)
         dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
+        self._refresh_desc_count()
         dialog.deleteLater()
 
     def check_mapping(self) -> None:
@@ -1017,9 +1068,10 @@ class MainWindow(QMainWindow):
         self.save_settings()
         paths = [self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                  for row in range(self.file_table.rowCount())]
-        dialog = MappingDialog(self.settings, paths, self)
+        dialog = MappingDialog(self.settings, paths, self, annotations=self.desc_annotations)
         dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
+        self._refresh_desc_count()
         self.save_settings()
         dialog.deleteLater()
 
@@ -1089,7 +1141,7 @@ class MainWindow(QMainWindow):
             )
             return None
         url = self.sheet_url_edit.text().strip()
-        if "/spreadsheets/d/" not in url:
+        if not sheet_id_from_link(url):
             QMessageBox.warning(
                 self,
                 "Link không hợp lệ",
@@ -1197,7 +1249,7 @@ class MainWindow(QMainWindow):
         self._active_operation = "import"
         self.set_running(True)
 
-        worker = ImportWorker(job, self)
+        worker = ImportWorker(job, self, annotations=self.desc_annotations.snapshot())
         self.worker = worker
         worker.progress_changed.connect(self.on_progress)
         worker.log_emitted.connect(self.append_log)
@@ -1208,7 +1260,7 @@ class MainWindow(QMainWindow):
 
     def _validate_sheet_action(self) -> str | None:
         url = self.sheet_url_edit.text().strip()
-        if "/spreadsheets/d/" not in url:
+        if not sheet_id_from_link(url):
             QMessageBox.warning(
                 self,
                 "Link không hợp lệ",
@@ -1227,50 +1279,6 @@ class MainWindow(QMainWindow):
             self.show_settings()
             return None
         return url
-
-    def start_fill_translate_data(self) -> None:
-        if self.worker and self.worker.isRunning():
-            return
-        url = self._validate_sheet_action()
-        if not url:
-            return
-
-        initial_options = FillOptions(
-            sheet_name=self.settings.fill_sheet_name or "Translate_Data",
-            source_row=max(1, int(self.settings.fill_source_row or 2)),
-            columns=self.settings.fill_columns or "D:I",
-        )
-        dialog = FillDataDialog(initial_options, self)
-        dialog.setStyleSheet(self.styleSheet())
-        if not dialog.exec():
-            return
-        options = dialog.options
-
-        self.settings.fill_sheet_name = options.sheet_name
-        self.settings.fill_source_row = options.source_row
-        self.settings.fill_columns = options.columns
-        self.save_settings()
-
-        self._begin_log_section("FILL DỮ LIỆU")
-        self.append_log(
-            "INFO",
-            f"Bắt đầu Fill độc lập trên tab '{options.sheet_name}': "
-            f"hàng nguồn {options.source_row}, cột {options.columns}; "
-            "fill xuống toàn bộ số hàng hiện có của tab, không đọc cột tham chiếu.",
-        )
-        self._active_operation = "fill"
-        self.set_running(True)
-        self.progress_bar.setValue(0)
-        self.progress_label.setText(f"Đang chuẩn bị Fill tab {options.sheet_name}")
-
-        worker = TranslateFillWorker(url, options, self)
-        self.worker = worker
-        worker.progress_changed.connect(self.on_progress)
-        worker.log_emitted.connect(self.append_log)
-        worker.completed.connect(self.on_completed)
-        worker.finished.connect(self.on_worker_finished)
-        worker.finished.connect(worker.deleteLater)
-        worker.start()
 
     def start_download_export_tabs(self) -> None:
         if self.worker and self.worker.isRunning():
@@ -1303,7 +1311,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.progress_label.setText("Đang chuẩn bị tải các tab export_*")
 
-        worker = ExportTabsWorker(url, output_dir, self)
+        worker = ExportTabsWorker(url, output_dir, self, annotations=self.desc_annotations.snapshot())
         self.worker = worker
         worker.progress_changed.connect(self.on_progress)
         worker.log_emitted.connect(self.append_log)
@@ -1330,12 +1338,12 @@ class MainWindow(QMainWindow):
         ):
             button.setEnabled(not running)
             button.setVisible(not running)
-        self.fill_translate_data_button.setEnabled(not running)
-        self.fill_translate_data_button.setVisible(not running and not self.hide_fill_checkbox.isChecked())
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(running)
         self.settings_button.setEnabled(not running)
         self.unity_locale_button.setEnabled(not running)
+        self.direct_upload_button.setEnabled(not running)
+        self.direct_download_button.setEnabled(not running)
         self.mapping_check_button.setEnabled(not running)
         self.add_files_button.setEnabled(not running)
         self.remove_files_button.setEnabled(not running)
@@ -1368,17 +1376,13 @@ class MainWindow(QMainWindow):
         )
         if success:
             self.progress_bar.setValue(100)
-            if operation == "fill":
-                title = "Fill dữ liệu hoàn tất"
-            elif operation == "download":
+            if operation == "download":
                 title = "Tải CSV hoàn tất"
             else:
                 title = "Import hoàn tất"
             QMessageBox.information(self, title, message)
         elif "dừng" not in message.casefold():
-            if operation == "fill":
-                title = "Fill dữ liệu thất bại"
-            elif operation == "download":
+            if operation == "download":
                 title = "Tải CSV thất bại"
             else:
                 title = "Import thất bại"
@@ -1402,7 +1406,6 @@ class MainWindow(QMainWindow):
             self.log_toggle.setChecked(True)
 
     def save_settings(self) -> None:
-        self.settings.hide_translate_fill = self.hide_fill_checkbox.isChecked()
         self.settings.sheet_url = self.sheet_url_edit.text().strip()
         self.settings.sheet_name = self.single_sheet_name_edit.text().strip()
         self.settings.target_mode = "single" if self._is_single_mode() else "multiple"

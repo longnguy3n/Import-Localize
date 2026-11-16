@@ -54,3 +54,24 @@ def test_link_change_discards_pending_title(app, tmp_path, monkeypatch):
     finally:
         done.set()
         window.close()
+
+
+def test_drive_links_resolve_to_same_target_and_marks(app, tmp_path, monkeypatch):
+    from import_localize.services.sheet_link import sheet_id_from_link
+    repo = SettingsRepository(tmp_path / "config.json")
+    repo.save(AppSettings(auto_check_updates=False))
+    monkeypatch.setattr(main_window, "SettingsRepository", lambda: repo)
+    window = main_window.MainWindow()
+    try:
+        window.sheet_url_edit.setText("https://drive.google.com/open?id=file-one")
+        window.desc_annotations.set_mark("vi", "skill", "Wrong mapping")
+        for link in ("https://docs.google.com/spreadsheets/d/file-one/edit#gid=19",
+                     "https://drive.google.com/file/d/file-one/view?usp=sharing"):
+            window.sheet_url_edit.setText(link)
+            assert window.open_sheet_button.isEnabled()
+            assert window.desc_annotations.has("vi", "skill", "Wrong mapping")
+        window.sheet_url_edit.setText("https://drive.google.com/open?id=file-two")
+        assert not window.desc_annotations.has("vi", "skill", "Wrong mapping")
+        assert sheet_id_from_link("https://drive.google.com/drive/folders/file-one") is None
+    finally:
+        window.close()

@@ -1,19 +1,16 @@
-"""Offline mapping audit and explicit, sparse Google Sheet status updates."""
+"""Offline mapping audit and review decisions for outgoing Desc fields."""
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
 from collections import defaultdict
 from pathlib import Path
-from import_localize.config.mapping_history import (
-    COMPLETE_STATES, MappingHistoryRepository, result_records, sheet_identity,
-)
+from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAPPING
 
 from PySide6.QtCore import QItemSelectionModel, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit,
     QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
     QWidget,
 )
@@ -31,48 +28,25 @@ def snapshots(paths):
 
 class MappingWorker(QThread):
     progress = Signal(int, int, str)
-    mark_result = Signal(str, object)
 
-    def __init__(self, mapping, paths, *, keys=None, sheet_url="", snapshot=None, parent=None):
+    def __init__(self, mapping, paths, *, sources=None, parent=None):
         super().__init__(parent)
         self.mapping, self.paths = Path(mapping), list(map(Path, paths))
-        self.keys, self.sheet_url = keys, sheet_url
-        self.snapshot = snapshot
+        self.sources = sources
+        self.snapshot = None
         self.result = None
         self.error = ""
 
     def run(self):
         try:
-            inputs = [self.mapping, *self.paths]
-            if self.keys is None:
-                from import_localize.services.mapping_audit_service import audit_mapping
-                before = snapshots(inputs)
-                self.result = audit_mapping(self.mapping, self.paths,
-                    progress_callback=self.progress.emit, cancel_callback=self.isInterruptionRequested)
-                if snapshots(inputs) != before:
-                    raise ValueError("File đã thay đổi trong lúc kiểm tra. Hãy kiểm tra lại.")
-                self.snapshot = before
-            else:
-                from import_localize.services.google_service import connect_to_spreadsheet
-                from import_localize.services.mapping_sheet_service import mark_wrong_mapping
-                if snapshots(inputs) != self.snapshot:
-                    raise ValueError("Mapping hoặc CSV đã thay đổi. Hãy kiểm tra lại trước khi ghi Sheet.")
-                self.progress.emit(0, 0, "Đang kết nối Google…")
-                connection = connect_to_spreadsheet(self.sheet_url,
-                    progress_callback=lambda n, text: self.progress.emit(0, 0, text),
-                    cancel_callback=self.isInterruptionRequested)
-                if snapshots(inputs) != self.snapshot:
-                    raise ValueError("Mapping hoặc CSV đã thay đổi. Hãy kiểm tra lại trước khi ghi Sheet.")
-                last_progress = 0
-                def report_mark_progress(n, text):
-                    nonlocal last_progress
-                    last_progress = n
-                    self.progress.emit(n, 100, text)
-                self.result = mark_wrong_mapping(connection, self.keys,
-                    progress_callback=report_mark_progress,
-                    log_callback=lambda text: self.progress.emit(last_progress, 100, text),
-                    result_callback=lambda result: self.mark_result.emit(self.sheet_url, result),
-                    cancel_callback=self.isInterruptionRequested)
+            from import_localize.services.mapping_audit_service import audit_mapping
+            inputs = [self.mapping] if self.sources is not None else [self.mapping, *self.paths]
+            before = snapshots(inputs)
+            self.result = audit_mapping(self.mapping, self.paths, sources=self.sources,
+                progress_callback=self.progress.emit, cancel_callback=self.isInterruptionRequested)
+            if snapshots(inputs) != before:
+                raise ValueError("Dữ liệu đã thay đổi trong lúc kiểm tra. Hãy kiểm tra lại.")
+            self.snapshot = before
         except Exception as exc:
             self.error = str(exc) or type(exc).__name__
 
@@ -156,13 +130,12 @@ class MappingTable(QTableWidget):
 
 
 class MappingDialog(QDialog):
-    def __init__(self, settings, paths=(), parent=None, *, history_repository=None):
+    def __init__(self, settings, paths=(), parent=None, *, annotations=None, sources=None):
         super().__init__(parent)
         self.settings = settings
-        self.history_repository = history_repository or MappingHistoryRepository()
-        self.mark_history = self.history_repository.load()
-        self.history_error = ""
-        self.paths = list(dict.fromkeys(Path(p) for p in (settings.mapping_csv_files or paths)))
+        self.annotations = annotations if annotations is not None else DescAnnotations()
+        self.sources = sources
+        self.paths = list(sources) if sources is not None else list(dict.fromkeys(Path(p) for p in (paths or settings.mapping_csv_files)))
         self.report = None
         self.snapshot = None
         self.worker = None
@@ -175,7 +148,7 @@ class MappingDialog(QDialog):
         self._busy = False
         self.focus_mode = False
         self._normal_geometry = None
-        self.setWindowTitle("Kiểm tra mapping — CSV → Translate_Data")
+        self.setWindowTitle("Kiểm tra mapping")
         self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(1180, 800)
         layout = QVBoxLayout(self)
@@ -183,13 +156,13 @@ class MappingDialog(QDialog):
         setup_layout = QVBoxLayout(self.setup_panel)
         setup_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.setup_panel)
-        intro = QLabel("Đối chiếu thuật ngữ trong CSV, sau đó chọn key để ghi Wrong mapping lên Sheet.")
+        intro = QLabel("Chọn key để đánh dấu Wrong mapping trong Desc khi xuất CSV hoặc lên Sheet.")
         intro.setWordWrap(True)
         intro.setProperty("muted", True)
         setup_layout.addWidget(intro)
         source_bar = QHBoxLayout()
         self.source_toggle = QToolButton()
-        self.source_toggle.setText("Nguồn CSV và Sheet đích")
+        self.source_toggle.setText("Nguồn kiểm tra")
         self.source_toggle.setCheckable(True)
         self.source_toggle.setChecked(True)
         self.source_toggle.setArrowType(Qt.ArrowType.DownArrow)
@@ -222,15 +195,15 @@ class MappingDialog(QDialog):
         path_row.addWidget(self.mapping_edit, 1)
         path_row.addWidget(self.mapping_button)
         form.addRow("Mapping", path_row)
-        self.sheet_edit = QLineEdit(settings.sheet_url)
-        self.sheet_edit.setPlaceholderText("Link Google Sheet để cập nhật Translate_Data")
-        form.addRow("Sheet đích", self.sheet_edit)
         source_layout.addLayout(form)
         actions = QHBoxLayout()
         self.folder_button = QPushButton("Chọn thư mục DG…")
         self.files_button = QPushButton("Chọn nhiều CSV…")
         for button in (self.folder_button, self.files_button):
             actions.addWidget(button)
+        if self.sources is not None:
+            self.folder_button.hide()
+            self.files_button.hide()
         actions.addStretch()
         source_layout.addLayout(actions)
         setup_layout.addWidget(self.source_panel)
@@ -264,13 +237,16 @@ class MappingDialog(QDialog):
         self.clear_selection_button = QPushButton("Bỏ chọn hết")
         self.selection_label = QLabel("Đã chọn 0 key")
         self.selection_label.setWordWrap(True)
-        self.mark_button = QPushButton("Ghi Wrong mapping (0)")
+        self.mark_button = QPushButton("Đánh dấu Desc (0)")
+        self.unmark_button = QPushButton("Gỡ dấu Desc")
+        self.unmark_button.clicked.connect(self.unmark)
         self.mark_button.setProperty("primaryAction", True)
-        self.focus_stop_button = QPushButton("Dừng ghi")
+        self.focus_stop_button = QPushButton("Dừng kiểm tra")
         self.focus_stop_button.hide()
         for widget in (self.select_visible_button, self.clear_selection_button, self.selection_label):
             selection_actions.addWidget(widget, 1 if widget is self.selection_label else 0)
         selection_actions.addWidget(self.focus_stop_button)
+        selection_actions.addWidget(self.unmark_button)
         selection_actions.addWidget(self.mark_button)
         layout.addLayout(selection_actions)
         self.focus_status = QLabel()
@@ -283,7 +259,7 @@ class MappingDialog(QDialog):
         splitter.setChildrenCollapsible(False)
         self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
         self.files_table.setProperty("summaryTable", True)
-        self.issues_table = self._table(["Chọn", "Trạng thái", "Key", "Ghi trên Sheet", "Mapping chuẩn / Lý do"])
+        self.issues_table = self._table(["Chọn", "Trạng thái", "Key", "Desc khi xuất", "Mapping chuẩn / Lý do"])
         self.issues_table.setProperty("keyCheckboxes", True)
         self.issues_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.issues_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -323,7 +299,6 @@ class MappingDialog(QDialog):
         self.select_visible_button.clicked.connect(self.select_visible)
         self.clear_selection_button.clicked.connect(self.clear_key_selection)
         self.mapping_edit.textChanged.connect(self.invalidate)
-        self.sheet_edit.textChanged.connect(self.filter_rows)
         self.files_table.itemSelectionChanged.connect(self.filter_rows)
         self.filter_combo.currentIndexChanged.connect(self.filter_rows)
         self.search.textChanged.connect(self.filter_rows)
@@ -414,7 +389,7 @@ class MappingDialog(QDialog):
     def set_busy(self, busy):
         self._busy = busy
         for widget in (self.mapping_edit, self.mapping_button, self.folder_button,
-                       self.files_button, self.scan_button, self.sheet_edit):
+                       self.files_button, self.scan_button):
             widget.setEnabled(not busy)
         self.stop_button.setEnabled(busy)
         self.stop_button.setVisible(busy)
@@ -429,69 +404,25 @@ class MappingDialog(QDialog):
 
     def update_selection_ui(self):
         hidden = len(self.selected_keys - set(self.visible_keys))
-        history = self.current_mark_history()
-        completed = sum(history.get(key, {}).get("status") in COMPLETE_STATES for key in self.key_issues)
-        self.selection_label.setText(f"Đã chọn {len(self.selected_keys)} key" + (f" · {hidden} đang ẩn bởi bộ lọc" if hidden else "")
-                                    + f" · Đã ghi/có sẵn: {completed} key")
-        self.mark_button.setText(f"Ghi Wrong mapping ({len(self.selected_keys)})")
+        self.selection_label.setText(f"Đã chọn {len(self.selected_keys)} key" + (f" · {hidden} đang ẩn bởi bộ lọc" if hidden else ""))
+        self.mark_button.setText(f"Đánh dấu Desc ({len(self.selected_keys)})")
+        self.mark_button.setToolTip("Thêm Wrong mapping cho tất cả ngôn ngữ có phát hiện ở các key đã chọn.")
         self.mark_button.setEnabled(not self._busy and bool(self.report and self.selected_keys))
+        self.unmark_button.setEnabled(self.mark_button.isEnabled())
         self.select_visible_button.setEnabled(not self._busy and bool(self.report and self.visible_keys))
         self.clear_selection_button.setEnabled(not self._busy and bool(self.selected_keys))
 
-    def current_mark_history(self):
-        return self.mark_history.get(sheet_identity(self.sheet_edit.text()), {})
-
     def mark_description(self, key):
-        record = self.current_mark_history().get(key)
-        if not record:
-            return "Chưa kiểm tra", "Chưa có kết quả ghi cho key này trên Sheet đích."
-        labels = {"written": "Đã ghi", "already": "Đã có sẵn", "pending": "Chưa ghi",
-                  "partial": "Đã ghi một phần", "uncertain": "Chưa rõ kết quả", "missing": "Không tìm thấy key"}
-        label = labels[record["status"]]
-        total, confirmed = record["total_rows"], record["confirmed_rows"]
-        if total:
-            label += f" · {confirmed}/{total} hàng"
-        try:
-            checked_at = datetime.fromisoformat(record["checked_at"]).astimezone().strftime("%d/%m/%Y %H:%M:%S")
-        except ValueError:
-            checked_at = record["checked_at"]
-        detail = (f"{label}\nGhi nhận: {checked_at}\n"
-                  f"Mới ghi: {record['updated_rows']} hàng; chưa xác nhận: {record['uncertain_rows']} hàng.\n"
-                  "Đây là kết quả lần kiểm tra/ghi gần nhất trên Sheet đích. App đọc lại Sheet khi ghi tiếp.")
-        return label, detail
-
-    @Slot(str, object)
-    def on_mark_result(self, sheet_url, result):
-        identity = sheet_identity(sheet_url)
-        if not identity:
-            return
-        self.mark_history.setdefault(identity, {}).update(result_records(result))
-        try:
-            self.history_repository.save(self.mark_history)
-            self.history_error = ""
-        except OSError:
-            self.history_error = "Không lưu được lịch sử ghi trên máy; kết quả hiện tại vẫn được hiển thị."
-        if identity == sheet_identity(self.sheet_edit.text()):
-            self.selected_keys.difference_update(item.key for item in result.key_results if item.status in COMPLETE_STATES)
-            # Update cells in place: no rebuilding rows or resetting scroll/width.
-            for row, key in enumerate(self.visible_keys):
-                self.set_mark_cell(row, key)
-            self.sync_key_selection()
-            self.issues_table.fit_content()
+        locales = sorted({issue.locale for issue in self.key_issues[key]
+                          if self.annotations.has(issue.locale, key, WRONG_MAPPING)})
+        if locales:
+            return ", ".join(locales), "Desc khi xuất: Wrong mapping (" + ", ".join(locales) + ")"
+        return "—", "Chưa đánh dấu Wrong mapping."
 
     def set_mark_cell(self, row, key):
         text, tooltip = self.mark_description(key)
         item = QTableWidgetItem(text)
         item.setToolTip(tooltip)
-        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        state = self.current_mark_history().get(key, {}).get("status")
-        dark = self.issues_table.palette().color(QPalette.ColorRole.Base).lightness() < 128
-        if state in COMPLETE_STATES:
-            item.setBackground(QColor("#173d2a" if dark else "#dcfce7"))
-            item.setForeground(QColor("#bbf7d0" if dark else "#166534"))
-        elif state in {"partial", "uncertain", "missing"}:
-            item.setBackground(QColor("#45371d" if dark else "#fef3c7"))
-            item.setForeground(QColor("#fde68a" if dark else "#92400e"))
         self.issues_table.setItem(row, 3, item)
 
     def sync_key_selection(self):
@@ -563,7 +494,6 @@ class MappingDialog(QDialog):
         self.set_busy(True)
         self.progress.setRange(0, 0)
         worker.progress.connect(self.on_progress)
-        worker.mark_result.connect(self.on_mark_result)
         worker.finished.connect(self.finished_work)
         worker.start()
 
@@ -574,12 +504,12 @@ class MappingDialog(QDialog):
             self.status.setText("Chọn mapping.json và ít nhất một file CSV trước khi kiểm tra.")
             return
         self.invalidate()
-        self.launch(MappingWorker(self.mapping_edit.text().strip(), self.paths, parent=self))
+        self.launch(MappingWorker(self.mapping_edit.text().strip(), self.paths, sources=self.sources, parent=self))
 
     def stop(self):
         if self.worker:
             self.worker.requestInterruption()
-            self.status.setText("Đang dừng… Nếu một lệnh ghi đã gửi, cần chờ Google trả kết quả.")
+            self.status.setText("Đang dừng kiểm tra…")
             self.focus_status.setText(self.status.text())
             self.stop_button.setEnabled(False)
             self.focus_stop_button.setEnabled(False)
@@ -601,20 +531,11 @@ class MappingDialog(QDialog):
         self.progress.setValue(1)
         if worker.error:
             self.status.setText(f"Không hoàn tất: {worker.error}")
-        elif worker.keys is None:
+        else:
             self.report, self.snapshot = worker.result, worker.snapshot
             self.render_report()
-        else:
-            result = worker.result
-            self.status.setText(f"Đã ghi Wrong mapping: {result.updated_rows} hàng; "
-                f"đã thay công thức riêng: {result.replaced_formula_rows} ô; "
-                f"đã có sẵn: {result.already_marked_rows} hàng; không tìm thấy: {len(result.missing_keys)} key.")
-            self.detail.setPlainText("Key không tìm thấy trong Translate_Data:\n" + "\n".join(sorted(result.missing_keys)))
-            self.detail.setVisible(bool(result.missing_keys) and not self.focus_mode)
         worker.deleteLater()
         self.set_busy(False)
-        if self.history_error:
-            self.status.setText(self.status.text() + "\n" + self.history_error)
         self.focus_status.setText(self.status.text())
         self.focus_status.setVisible(self.focus_mode)
 
@@ -635,7 +556,7 @@ class MappingDialog(QDialog):
             if reference not in self.references[issue.key][issue.locale]:
                 self.references[issue.key][issue.locale].append(reference)
         self.issues_table.setColumnCount(len(report.files) + 5)
-        self.issues_table.setHorizontalHeaderLabels(["Chọn", "Trạng thái", "Key", "Ghi trên Sheet", *[p.name for p in report.files], "Mapping chuẩn / Lý do"])
+        self.issues_table.setHorizontalHeaderLabels(["Chọn", "Trạng thái", "Key", "Desc khi xuất", *[p.name for p in report.files], "Mapping chuẩn / Lý do"])
         for col, path in enumerate(report.files, start=4):
             self.issues_table.horizontalHeaderItem(col).setToolTip(str(path))
         self.issues_table.columns_fitted = False
@@ -656,7 +577,7 @@ class MappingDialog(QDialog):
             f"{len(report.wrong_keys)} key sai mapping · {sum(i.status == 'review' for i in report.issues)} cần xem ngữ cảnh · "
             f"{report.unmapped_cells} ô chưa có mapping · {len(report.errors)} file lỗi.")
         self.status.setToolTip("Mỗi key một dòng; mỗi CSV một cột. Ctrl/Shift để chọn nhiều key. "
-                               "Shift + cuộn chuột để cuộn ngang. Chỉ các key đã chọn được ghi lên Sheet.")
+                               "Shift + cuộn chuột để cuộn ngang. Đánh dấu các key đã chọn cho những ngôn ngữ có phát hiện.")
         self.source_toggle.setChecked(False)
         self.filter_rows()
 
@@ -742,29 +663,30 @@ class MappingDialog(QDialog):
         self.detail.setVisible(not self.focus_mode)
 
     def mark(self):
+        self.set_desc_marks(True)
+
+    def unmark(self):
+        self.set_desc_marks(False)
+
+    def set_desc_marks(self, enabled):
         if self.worker or not self.report or not self.selected_keys:
             return
-        url = self.sheet_edit.text().strip()
-        if not url:
-            if self.focus_mode:
-                self.toggle_focus_mode()
-            self.source_toggle.setChecked(True)
-            self.status.setText("Nhập link Google Sheet đích trước khi ghi Wrong mapping.")
-            self.sheet_edit.setFocus()
+        if self.snapshot is not None and snapshots(self.snapshot) != self.snapshot:
+            self.status.setText("Mapping hoặc CSV đã thay đổi. Hãy kiểm tra lại.")
+            self.focus_status.setText(self.status.text())
+            self.focus_status.setVisible(self.focus_mode)
             return
-        keys = set(self.selected_keys) & set(self.key_issues)
-        review_count = len(keys - self.report.wrong_keys)
-        text = (f"Ghi Wrong mapping vào cột C (Custom(modified)) của Translate_Data cho {len(keys)} key đã chọn?\n\n"
-                f"Trong đó {review_count} key thuộc nhóm Cần xem ngữ cảnh do bạn chủ động chọn.\n"
-                f"{len(keys - set(self.visible_keys))} key đang ẩn bởi bộ lọc.\n\n"
-                f"Sheet: {url}\n\nCác trạng thái cũ ở đúng các key này sẽ được thay thế. "
-                "Công thức riêng tại các ô C tương ứng cũng sẽ được thay bằng giá trị cố định Wrong mapping. "
-                "Không sửa bản dịch hoặc các key chưa chọn. "
-                "Không sắp xếp hoặc chỉnh sửa tab trong lúc đang ghi.")
-        if QMessageBox.question(self, "Đánh dấu các key sai mapping", text) != QMessageBox.StandardButton.Yes:
-            return
-        self.launch(MappingWorker(self.mapping_edit.text().strip(), self.paths, keys=keys,
-            sheet_url=url, snapshot=self.snapshot, parent=self))
+        pairs = {(issue.locale, key) for key in self.selected_keys for issue in self.key_issues[key]}
+        for locale, key in pairs:
+            self.annotations.set_mark(locale, key, WRONG_MAPPING, enabled)
+        for row, key in enumerate(self.visible_keys):
+            if key in self.selected_keys:
+                self.set_mark_cell(row, key)
+        self.clear_key_selection()
+        verb = "Đã đánh dấu" if enabled else "Đã gỡ dấu"
+        self.status.setText(f"{verb} Wrong mapping cho {len(pairs)} cặp key/ngôn ngữ của bản xuất.")
+        self.focus_status.setText(self.status.text())
+        self.focus_status.setVisible(self.focus_mode)
 
     def reject(self):
         if self.focus_mode:
@@ -774,7 +696,8 @@ class MappingDialog(QDialog):
             self.stop()
             return
         self.settings.mapping_path = self.mapping_edit.text().strip()
-        self.settings.mapping_csv_files = [str(p) for p in self.paths]
+        if self.sources is None:
+            self.settings.mapping_csv_files = [str(p) for p in self.paths]
         super().reject()
 
     def closeEvent(self, event):

@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from .csv_service import CSV_READ_ENCODING, CsvImportError, _check_cancel, inspect_csv
+from .audit_csv_source import audit_reader
+from .csv_service import CsvImportError, _check_cancel
 
 # ISO codes from the bundled Lingua model; lookup does not load the native model.
 LANGUAGE_CODES = {'af': ('afr', 'Afrikaans'),
@@ -125,6 +126,8 @@ def declared_language(header):
     token = header.strip().removeprefix("$").strip()
     match = re.search(r"\[([^\]]+)\]\s*$", token)
     token = match[1] if match else token
+    if token.casefold() in {"portuguese/brazil", "portuguese (brazil)"}:
+        return "pt"
     # Compare language families: content cannot reliably distinguish pt-BR/pt-PT.
     normalized = _normalize(token)
     aliases = language_catalog()[1]
@@ -234,11 +237,9 @@ class LanguageReport:
     errors: list[str] = field(default_factory=list)
 
 
-def _read_columns(path, cancel):
-    info = inspect_csv(path)
+def _read_columns(path, cancel, data=None):
     columns = []
-    with info.path.open(encoding=CSV_READ_ENCODING, newline="") as stream:
-        reader = csv.reader(stream, delimiter=info.delimiter, strict=True)
+    with audit_reader(path, data) as reader:
         header = next((row for row in reader if any(cell.strip() for cell in row)), None)
         if not header:
             raise CsvImportError("CSV rỗng hoặc thiếu tiêu đề.")
@@ -249,7 +250,7 @@ def _read_columns(path, cancel):
         indices = [i for i, name in enumerate(normalized) if name not in METADATA]
         if not indices:
             raise CsvImportError("Không tìm thấy cột nội dung để nhận diện.")
-        columns = [LanguageColumn(info.path, header[i], declared_language(header[i])) for i in indices]
+        columns = [LanguageColumn(path, header[i], declared_language(header[i])) for i in indices]
         key_index = next((i for i, name in enumerate(normalized) if name in ("key", "term", "id")), None)
         while True:
             _check_cancel(cancel)
@@ -262,19 +263,20 @@ def _read_columns(path, cancel):
             if len(row) != len(header):
                 raise CsvImportError(f"Dòng {line}: có {len(row)} cột, cần {len(header)}.")
             for i, column in zip(indices, columns):
-                column.cells.append(LanguageCell(info.path, column.column, line,
+                column.cells.append(LanguageCell(path, column.column, line,
                     row[key_index] if key_index is not None else "", row[i], column.expected, Prediction(None), "short"))
     return columns
 
 
-def audit_csv_languages(paths, *, cancel_callback=None, progress=None, detector=None):
+def audit_csv_languages(paths, *, cancel_callback=None, progress=None, detector=None, sources=None):
     report = LanguageReport()
-    for path in dict.fromkeys(Path(p).resolve() for p in paths):
+    inputs = sources if sources is not None else dict.fromkeys(Path(p).resolve() for p in paths)
+    for path in inputs:
         _check_cancel(cancel_callback)
         if progress:
             progress(0, 0, f"Đang đọc {path.name}…")
         try:
-            report.columns.extend(_read_columns(path, cancel_callback))
+            report.columns.extend(_read_columns(path, cancel_callback, sources[path] if sources is not None else None))
         except (OSError, UnicodeError, csv.Error, CsvImportError) as exc:
             report.errors.append(f"{path.name}: {exc}")
     total = sum(len(col.cells) for col in report.columns)

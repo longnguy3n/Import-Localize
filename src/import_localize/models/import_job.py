@@ -38,13 +38,6 @@ class ImportJob:
     add_source_column: bool = False
 
 
-@dataclass(slots=True, frozen=True)
-class FillOptions:
-    sheet_name: str = "Translate_Data"
-    source_row: int = 2
-    columns: str = "D:I"
-
-
 @dataclass(slots=True)
 class CsvBundle:
     header: list[str] = field(default_factory=list)

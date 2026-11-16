@@ -22,8 +22,9 @@ class ExportTabsWorker(QThread):
     log_emitted = Signal(str, str)
     completed = Signal(bool, str)
 
-    def __init__(self, spreadsheet_url: str, output_dir: str, parent=None):
+    def __init__(self, spreadsheet_url: str, output_dir: str, parent=None, *, annotations=None):
         super().__init__(parent)
+        self.annotations = annotations
         self.spreadsheet_url = spreadsheet_url
         self.output_dir = output_dir
         self._cancel_event = Event()
@@ -55,6 +56,7 @@ class ExportTabsWorker(QThread):
             created_files = download_export_tabs_as_csv(
                 connection,
                 self.output_dir,
+                annotations=self.annotations,
                 progress_callback=lambda value, text: self.progress_changed.emit(
                     min(100, 25 + round(value * 0.75)), text
                 ),

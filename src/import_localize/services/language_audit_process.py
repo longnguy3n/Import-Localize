@@ -31,7 +31,10 @@ def run_audit_process(directory):
                 stream.flush()
             with patch("socket.socket.connect", side_effect=RuntimeError("Offline audit cannot access the network")), \
                  patch("socket.socket.connect_ex", side_effect=RuntimeError("Offline audit cannot access the network")):
-                report = audit_csv_languages(request["paths"], progress=progress,
+                sources = request.get("sources")
+                if sources is not None:
+                    sources = {Path(name): content.encode("utf-8") for name, content in sources.items()}
+                report = audit_csv_languages(request["paths"], sources=sources, progress=progress,
                     cancel_callback=lambda: (folder / "cancel").exists())
             response = {"report": asdict(report)}
     except CancelledError:

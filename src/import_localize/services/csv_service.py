@@ -194,20 +194,9 @@ def _read_csv_rows(
     *,
     cancel_callback: CancelCallback = None,
 ) -> list[list[str]]:
-    rows: list[list[str]] = []
     try:
-        with info.path.open(
-            "r",
-            encoding=CSV_READ_ENCODING,
-            newline="",
-        ) as handle:
-            reader = csv.reader(handle, delimiter=info.delimiter)
-            for index, row in enumerate(reader):
-                if index % 500 == 0:
-                    _check_cancel(cancel_callback)
-                cleaned = _clean_row(row)
-                if cleaned and any(cell != "" for cell in cleaned):
-                    rows.append(cleaned)
+        with info.path.open("r", encoding=CSV_READ_ENCODING, newline="") as handle:
+            return _clean_rows(csv.reader(handle, delimiter=info.delimiter), cancel_callback)
     except UnicodeDecodeError as exc:
         raise CsvImportError(
             f"{info.path.name} không phải UTF-8 hợp lệ tại byte khoảng {exc.start + 1}. "
@@ -215,6 +204,16 @@ def _read_csv_rows(
         ) from exc
     except (OSError, csv.Error) as exc:
         raise CsvImportError(f"Không thể đọc {info.path.name}: {exc}") from exc
+
+
+def _clean_rows(source, cancel_callback):
+    rows = []
+    for index, row in enumerate(source):
+        if index % 500 == 0:
+            _check_cancel(cancel_callback)
+        cleaned = _clean_row(row)
+        if any(cleaned):
+            rows.append(cleaned)
     return rows
 
 
@@ -231,10 +230,28 @@ def load_csv_bundle(
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
     info_lookup: dict[str, CsvFileInfo] | None = None,
+    annotations=None,
 ) -> CsvBundle:
     if not job.file_paths:
         raise CsvImportError("Chưa chọn file CSV.")
 
+    def inputs():
+        for raw_path in job.file_paths:
+            _check_cancel(cancel_callback)
+            resolved = str(Path(raw_path).expanduser().resolve())
+            info = (info_lookup or {}).get(resolved) or inspect_csv(resolved)
+            yield info, _read_csv_rows(info, cancel_callback=cancel_callback)
+
+    return _build_bundle(job, inputs(), progress_callback, log_callback, cancel_callback, annotations)
+
+
+def bundle_from_asset_rows(job, asset_path, rows, *, cancel_callback=None):
+    info = CsvFileInfo(asset_path, 0, CSV_DISPLAY_ENCODING, ",")
+    return _build_bundle(job, [(info, _clean_rows(rows, cancel_callback))],
+                         None, None, cancel_callback, None)
+
+
+def _build_bundle(job, inputs, progress_callback, log_callback, cancel_callback, annotations):
     bundle = CsvBundle()
     canonical_header: list[str] = []
     canonical_keys: list[str] = []
@@ -242,12 +259,7 @@ def load_csv_bundle(
     no_header_width = 0
     total_files = len(job.file_paths)
 
-    for file_index, raw_path in enumerate(job.file_paths, start=1):
-        _check_cancel(cancel_callback)
-        resolved_path = str(Path(raw_path).expanduser().resolve())
-        info = (info_lookup or {}).get(resolved_path)
-        if info is None:
-            info = inspect_csv(resolved_path)
+    for file_index, (info, rows) in enumerate(inputs, start=1):
         bundle.source_files.append(str(info.path))
         bundle.encodings[info.path.name] = info.encoding
         bundle.delimiters[info.path.name] = info.delimiter
@@ -256,10 +268,14 @@ def load_csv_bundle(
             f"Đang đọc {info.path.name} — {info.encoding}, "
             f"phân cách {info.display_delimiter}.",
         )
-        rows = _read_csv_rows(info, cancel_callback=cancel_callback)
         if not rows:
             _log(log_callback, f"Bỏ qua {info.path.name}: file không có dữ liệu.")
             continue
+
+        if job.first_row_is_header and annotations:
+            from import_localize.services.desc_annotations import locales_for_table
+            locales = locales_for_table(rows[0], info.target_sheet_name or job.sheet_name)
+            rows = annotations.apply_rows(rows, locales)
 
         if job.first_row_is_header:
             file_header = _make_unique_header(rows[0])

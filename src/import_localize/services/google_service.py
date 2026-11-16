@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import codecs
+import csv
+import io
 import json
 import os
 import re
@@ -38,11 +41,6 @@ from import_localize.app.constants import (
     GOOGLE_CANCEL_POLL_SECONDS,
     GOOGLE_REQUEST_RETRY_ATTEMPTS,
     GOOGLE_REQUEST_RETRY_BASE_DELAY_SECONDS,
-    FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
-    FILL_REQUEST_READ_TIMEOUT_SECONDS,
-    FILL_VERIFY_READ_TIMEOUT_SECONDS,
-    FILL_VERIFY_ATTEMPTS,
-    FILL_VERIFY_POLL_SECONDS,
     GOOGLE_STRUCTURE_BATCH_SIZE,
     GOOGLE_CLEAR_BATCH_SIZE,
     GOOGLE_CONNECTION_CACHE_TTL_SECONDS,
@@ -60,15 +58,7 @@ from import_localize.app.paths import (
     application_dir,
 )
 from import_localize.models.import_job import CsvBundle, ImportJob
-from import_localize.services.fill_service import (
-    FillSelectionError,
-    build_fill_copy_requests,
-    column_letters_to_number,
-    column_number_to_letters,
-    group_consecutive_columns,
-    normalize_column_selection,
-    parse_column_selection,
-)
+from import_localize.services.sheet_link import sheet_id_from_link
 from import_localize.services.session_permission_cache import (
     EditorPermissionSessionCache,
 )
@@ -587,12 +577,10 @@ def clear_saved_oauth_token() -> tuple[bool, str]:
 
 
 def extract_spreadsheet_id(url: str) -> str:
-    match = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", url or "")
-    if not match:
-        raise GoogleServiceError(
-            "Link Google Sheet không hợp lệ. Link phải chứa /spreadsheets/d/<ID>."
-        )
-    return match.group(1)
+    spreadsheet_id = sheet_id_from_link(url)
+    if not spreadsheet_id:
+        raise GoogleServiceError("Hãy dán link chia sẻ của một bảng tính Google Sheets hoặc Google Drive.")
+    return spreadsheet_id
 
 
 def _authorize(credentials: Credentials) -> gspread.Client:
@@ -651,6 +639,8 @@ def _check_editor_permission(
     payload = response.json()
     if payload.get("trashed"):
         raise SheetPermissionError("Google Sheet đang nằm trong Thùng rác.")
+    if payload.get("mimeType") != "application/vnd.google-apps.spreadsheet":
+        raise GoogleServiceError("Link Drive cần trỏ tới một bảng tính Google Sheets.")
     if not (payload.get("capabilities") or {}).get("canEdit", False):
         raise SheetPermissionError(
             "Tài khoản đang đăng nhập chỉ có quyền xem. Hãy cấp quyền Editor hoặc đổi tài khoản."
@@ -664,6 +654,8 @@ def _read_sheet_title(credentials, spreadsheet_id: str) -> str:
             f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}",
             params={"fields": "properties/title"}, timeout=(5, 10),
         )
+        if response.status_code == 400:
+            raise GoogleServiceError("Không đọc được bảng tính. Hãy kiểm tra link Drive có trỏ đến Google Sheets.")
         if response.status_code in (401, 403, 404):
             raise GoogleServiceError("Kiểm tra tài khoản và quyền truy cập bảng tính.")
         response.raise_for_status()
@@ -784,11 +776,77 @@ def _csv_export_error_detail(response) -> str:
     return f"HTTP {response.status_code}"
 
 
+def read_worksheet_csv(connection, worksheet, *, log_callback=None, cancel_callback=None) -> bytes:
+    """Read exactly the CSV representation exported by Google for this tab gid."""
+    _check_cancel(cancel_callback)
+    export_url = (
+        "https://docs.google.com/spreadsheets/d/"
+        f"{connection.spreadsheet_id}/export"
+    )
+
+    session = AuthorizedSession(connection.credentials)
+    try:
+        response = _request_with_retry(
+            session,
+            "GET",
+            export_url,
+            action=f"Tải CSV tab {worksheet.title}",
+            log_callback=log_callback,
+            cancel_callback=cancel_callback,
+            timeout=CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
+            params={"format": "csv", "gid": str(worksheet.id)},
+            headers={"Accept": "text/csv,*/*;q=0.8"},
+        )
+        _check_cancel(cancel_callback)
+        if response.status_code < 200 or response.status_code >= 300:
+            detail = _csv_export_error_detail(response)
+            if response.status_code in (401, 403):
+                raise SheetPermissionError(
+                    "Phiên Google không có quyền xuất CSV của bảng tính này. "
+                    f"Chi tiết: {detail}"
+                )
+            raise GoogleServiceError(
+                f"Google Sheets không thể tạo CSV cho tab '{worksheet.title}' "
+                f"(HTTP {response.status_code}): {detail}"
+            )
+
+        content = bytes(response.content)
+        content_type = str(response.headers.get("Content-Type", "")).casefold()
+        preview = content[:300].lstrip().lower()
+        if "text/html" in content_type or preview.startswith(b"<!doctype html"):
+            raise GoogleServiceError(
+                f"Google trả về trang HTML thay vì CSV cho tab '{worksheet.title}'. "
+                "Hãy đăng xuất Google trong Cài đặt rồi đăng nhập lại."
+            )
+
+        return content
+    finally:
+        if hasattr(session, "close"):
+            session.close()
+
+
+def _annotated_export(content, title, annotations):
+    if not annotations:
+        return content
+    from import_localize.services.desc_annotations import locales_for_table
+    rows = list(csv.reader(io.StringIO(content.decode("utf-8-sig"), newline="")))
+    if not rows:
+        return content
+    marked = annotations.apply_rows(rows, locales_for_table(rows[0], title))
+    if marked is rows:
+        return content
+    stream = io.StringIO(newline="")
+    csv.writer(stream).writerows(marked)
+    encoding = "utf-8-sig" if content.startswith(codecs.BOM_UTF8) else "utf-8"
+    return stream.getvalue().encode(encoding)
+
+
 def download_export_tabs_as_csv(
     connection: SheetConnection,
     output_dir: str | Path,
     *,
     prefix: str = EXPORT_SHEET_PREFIX,
+    annotations=None,
     progress_callback: ProgressCallback = None,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
@@ -825,11 +883,6 @@ def download_export_tabs_as_csv(
         f"Đã tìm thấy {total} tab bắt đầu bằng '{prefix}'. "
         f"Tải song song tối đa {max_workers} file.",
     )
-    export_url = (
-        "https://docs.google.com/spreadsheets/d/"
-        f"{connection.spreadsheet_id}/export"
-    )
-
     def download_one(index: int, worksheet) -> tuple[int, Path, int, str]:
         _check_cancel(cancel_callback)
         filename = build_csv_export_filename(
@@ -838,41 +891,10 @@ def download_export_tabs_as_csv(
         )
         output_path = destination / filename
         partial_path = output_path.with_name(output_path.name + ".part")
-        session = AuthorizedSession(connection.credentials)
         try:
-            response = _request_with_retry(
-                session,
-                "GET",
-                export_url,
-                action=f"Tải CSV tab {worksheet.title}",
-                log_callback=log_callback,
-                cancel_callback=cancel_callback,
-                timeout=CSV_EXPORT_REQUEST_TIMEOUT_SECONDS,
-                params={"format": "csv", "gid": str(worksheet.id)},
-                headers={"Accept": "text/csv,*/*;q=0.8"},
-            )
-            _check_cancel(cancel_callback)
-            if response.status_code < 200 or response.status_code >= 300:
-                detail = _csv_export_error_detail(response)
-                if response.status_code in (401, 403):
-                    raise SheetPermissionError(
-                        "Phiên Google không có quyền xuất CSV của bảng tính này. "
-                        f"Chi tiết: {detail}"
-                    )
-                raise GoogleServiceError(
-                    f"Google Sheets không thể tạo CSV cho tab '{worksheet.title}' "
-                    f"(HTTP {response.status_code}): {detail}"
-                )
-
-            content = bytes(response.content)
-            content_type = str(response.headers.get("Content-Type", "")).casefold()
-            preview = content[:300].lstrip().lower()
-            if "text/html" in content_type or preview.startswith(b"<!doctype html"):
-                raise GoogleServiceError(
-                    f"Google trả về trang HTML thay vì CSV cho tab '{worksheet.title}'. "
-                    "Hãy đăng xuất Google trong Cài đặt rồi đăng nhập lại."
-                )
-
+            content = read_worksheet_csv(connection, worksheet, log_callback=log_callback,
+                                         cancel_callback=cancel_callback)
+            content = _annotated_export(content, worksheet.title, annotations)
             partial_path.write_bytes(content)
             _check_cancel(cancel_callback)
             partial_path.replace(output_path)
@@ -926,10 +948,6 @@ def download_export_tabs_as_csv(
     _progress(progress_callback, 100, f"Đã tải xong {total} file CSV")
     return created_files
 
-def _normalize_header(values: list[object]) -> list[str]:
-    return [" ".join(str(value or "").split()).casefold() for value in values]
-
-
 def _format_api_error(exc: gspread.exceptions.APIError) -> str:
     message = str(exc)
     lowered = message.casefold()
@@ -942,16 +960,6 @@ def _format_api_error(exc: gspread.exceptions.APIError) -> str:
     return f"Lỗi Google Sheets API: {message}"
 
 
-def _last_populated_row(values: list[list[object]]) -> int:
-    """Return the 1-based index of the last non-empty row."""
-    last_row = 0
-    for row_index, row in enumerate(values, start=1):
-        if any(str(value).strip() for value in row if value is not None):
-            last_row = row_index
-    return last_row
-
-
-
 def _request_in_background(
     credentials: Credentials,
     method: str,
@@ -959,8 +967,8 @@ def _request_in_background(
     *,
     cancel_callback: CancelCallback = None,
     timeout: tuple[float, float] | float = (
-        FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
-        FILL_REQUEST_READ_TIMEOUT_SECONDS,
+        GOOGLE_CONNECT_TIMEOUT_SECONDS,
+        GOOGLE_REQUEST_TIMEOUT_SECONDS,
     ),
     **kwargs,
 ):
@@ -1012,457 +1020,6 @@ def _request_in_background(
             raise payload
         return payload
 
-
-# Keep the existing Fill call sites and test hooks stable.
-_request_in_background_for_fill = _request_in_background
-
-
-def _fill_verification_ranges(
-    sheet_title: str,
-    source_row: int,
-    last_row: int,
-    selected_columns: tuple[int, ...],
-) -> list[str]:
-    """Build a tiny set of destination cells used to confirm Fill."""
-    if last_row <= source_row:
-        return []
-    quoted_title = _quote_sheet_title(sheet_title)
-    sample_rows = [source_row + 1]
-    if last_row != source_row + 1:
-        sample_rows.append(last_row)
-
-    sample_columns: list[int] = []
-    for start_column, end_column in group_consecutive_columns(selected_columns):
-        sample_columns.append(start_column)
-        if end_column != start_column:
-            sample_columns.append(end_column)
-
-    ranges: list[str] = []
-    seen: set[tuple[int, int]] = set()
-    for row_number in sample_rows:
-        for column_number in sample_columns:
-            key = (row_number, column_number)
-            if key in seen:
-                continue
-            seen.add(key)
-            column_name = column_number_to_letters(column_number)
-            ranges.append(f"{quoted_title}!{column_name}{row_number}")
-    return ranges
-
-
-def _read_fill_verification_values(
-    connection: SheetConnection,
-    ranges: list[str],
-    *,
-    cancel_callback: CancelCallback = None,
-) -> dict[str, str]:
-    """Read only a few destination cells using FORMULA render mode."""
-    if not ranges:
-        return {}
-    spreadsheet_base = (
-        "https://sheets.googleapis.com/v4/spreadsheets/"
-        f"{connection.spreadsheet_id}"
-    )
-    params: list[tuple[str, str]] = [("ranges", item) for item in ranges]
-    params.extend(
-        [
-            ("majorDimension", "ROWS"),
-            ("valueRenderOption", "FORMULA"),
-        ]
-    )
-    response = _request_in_background_for_fill(
-        connection.credentials,
-        "GET",
-        f"{spreadsheet_base}/values:batchGet",
-        cancel_callback=cancel_callback,
-        timeout=(
-            FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
-            FILL_VERIFY_READ_TIMEOUT_SECONDS,
-        ),
-        params=params,
-    )
-    _raise_for_response(response, "Xác minh kết quả Fill")
-    payload = response.json()
-    value_ranges = payload.get("valueRanges", [])
-    result: dict[str, str] = {}
-    for index, requested_range in enumerate(ranges):
-        entry = value_ranges[index] if index < len(value_ranges) else {}
-        values = entry.get("values", []) or []
-        value = ""
-        if values and values[0]:
-            value = str(values[0][0] if values[0][0] is not None else "").strip()
-        result[requested_range] = value
-    return result
-
-
-def _verification_is_complete(values: dict[str, str], ranges: list[str]) -> bool:
-    return bool(ranges) and all(str(values.get(item, "")).strip() for item in ranges)
-
-
-def _verify_fill_result(
-    connection: SheetConnection,
-    ranges: list[str],
-    *,
-    cancel_callback: CancelCallback = None,
-    log_callback: LogCallback = None,
-) -> dict[str, str]:
-    """Poll a few cells until the copied formulas/values are observable."""
-    last_values: dict[str, str] = {}
-    for attempt in range(1, FILL_VERIFY_ATTEMPTS + 1):
-        _check_cancel(cancel_callback)
-        try:
-            last_values = _read_fill_verification_values(
-                connection,
-                ranges,
-                cancel_callback=cancel_callback,
-            )
-        except CancelledError:
-            raise
-        except Exception as exc:
-            if attempt >= FILL_VERIFY_ATTEMPTS:
-                raise GoogleServiceError(
-                    f"Không thể xác minh kết quả Fill: {exc}"
-                ) from exc
-            _log(
-                log_callback,
-                f"Xác minh Fill chưa phản hồi (lần {attempt}/"
-                f"{FILL_VERIFY_ATTEMPTS}); thử lại.",
-            )
-        else:
-            if _verification_is_complete(last_values, ranges):
-                return last_values
-        if attempt < FILL_VERIFY_ATTEMPTS:
-            _sleep_with_cancel(FILL_VERIFY_POLL_SECONDS, cancel_callback)
-    return last_values
-
-
-def _execute_fill_batch_update(
-    connection: SheetConnection,
-    *,
-    spreadsheet_base: str,
-    actual_title: str,
-    requests_payload: list[dict[str, object]],
-    verification_ranges: list[str],
-    before_values: dict[str, str],
-    log_callback: LogCallback = None,
-    cancel_callback: CancelCallback = None,
-):
-    """Execute the heavy Fill request with long timeout and safe recovery."""
-    max_attempts = 2
-    last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        _check_cancel(cancel_callback)
-        try:
-            response = _request_in_background_for_fill(
-                connection.credentials,
-                "POST",
-                f"{spreadsheet_base}:batchUpdate",
-                cancel_callback=cancel_callback,
-                timeout=(
-                    FILL_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                    FILL_REQUEST_READ_TIMEOUT_SECONDS,
-                ),
-                json={"requests": requests_payload},
-            )
-        except CancelledError:
-            _log(
-                log_callback,
-                "Đã dừng chờ Fill ngay. Nếu Google đã nhận request trước khi "
-                "bấm Dừng, thay đổi phía server vẫn có thể hoàn tất sau đó.",
-            )
-            raise
-        except (ReadTimeout, RequestsTimeout, RequestsConnectionError) as exc:
-            last_error = exc
-            _log(
-                log_callback,
-                f"Fill {actual_title}: phản hồi mạng bị timeout; đang kiểm tra "
-                "trực tiếp các ô đích trước khi quyết định gửi lại.",
-            )
-            try:
-                after_values = _verify_fill_result(
-                    connection,
-                    verification_ranges,
-                    cancel_callback=cancel_callback,
-                    log_callback=log_callback,
-                )
-            except GoogleServiceError:
-                after_values = {}
-            if (
-                _verification_is_complete(after_values, verification_ranges)
-                and after_values != before_values
-            ):
-                _log(
-                    log_callback,
-                    "Google đã áp dụng Fill dù response trước đó bị timeout; "
-                    "đã xác minh trực tiếp trên ô đích.",
-                )
-                return None
-            if attempt < max_attempts:
-                _log(
-                    log_callback,
-                    "Chưa thấy kết quả Fill trên ô đích; gửi lại request một lần "
-                    "với timeout dài.",
-                )
-                _sleep_with_cancel(1.0, cancel_callback)
-                continue
-            break
-
-        if _is_transient_http_status(response.status_code) and attempt < max_attempts:
-            last_error = GoogleServiceError(
-                f"HTTP {response.status_code}: {_response_error_detail(response)}"
-            )
-            _log(
-                log_callback,
-                f"Fill {actual_title}: Google trả HTTP {response.status_code}; "
-                "thử lại một lần.",
-            )
-            _sleep_with_cancel(_retry_delay_seconds(attempt, response), cancel_callback)
-            continue
-
-        _raise_for_response(response, f"Fill dữ liệu tab {actual_title}")
-        return response
-
-    raise GoogleServiceError(
-        f"Fill dữ liệu tab {actual_title} không nhận được phản hồi ổn định từ "
-        "Google Sheets. Lỗi cuối: {last_error}"
-    ) from last_error
-
-
-def fill_translate_data_columns(
-    connection: SheetConnection,
-    *,
-    sheet_name: str = "Translate_Data",
-    source_row: int = 2,
-    columns: str = "D:I",
-    progress_callback: ProgressCallback = None,
-    log_callback: LogCallback = None,
-    cancel_callback: CancelCallback = None,
-) -> tuple[bool, str, int]:
-    """Fill selected cells to the tab's current grid row count.
-
-    No reference column is read. The destination limit comes from lightweight
-    worksheet metadata (``gridProperties.rowCount``), which is independent of
-    formula calculation and imported values. Only the small source row is read
-    to validate that selected source cells are populated and are not
-    ARRAYFORMULA cells.
-    """
-    cleaned_sheet_name = str(sheet_name or "").strip()
-    if not cleaned_sheet_name:
-        raise GoogleServiceError("Tên tab cần fill không được để trống.")
-    try:
-        source_row = int(source_row)
-    except (TypeError, ValueError) as exc:
-        raise GoogleServiceError("Hàng nguồn phải là số nguyên lớn hơn hoặc bằng 1.") from exc
-    if source_row < 1:
-        raise GoogleServiceError("Hàng nguồn phải là số nguyên lớn hơn hoặc bằng 1.")
-
-    try:
-        selected_columns = parse_column_selection(columns)
-        normalized_columns = normalize_column_selection(columns)
-    except FillSelectionError as exc:
-        raise GoogleServiceError(str(exc)) from exc
-
-    _check_cancel(cancel_callback)
-    _progress(progress_callback, 8, f"Đang đọc cấu trúc tab {cleaned_sheet_name}")
-
-    # Chỉ đọc metadata cấu trúc; includeGridData=false nên không chờ công thức,
-    # dữ liệu import hoặc giá trị hiển thị trong bất kỳ cột nào.
-    try:
-        sheet_properties = _fetch_sheet_properties_fast(
-            connection,
-            log_callback=log_callback,
-            cancel_callback=cancel_callback,
-        )
-    except Exception as exc:
-        if isinstance(exc, (GoogleServiceError, CancelledError)):
-            raise
-        raise GoogleServiceError(f"Không thể đọc cấu trúc tab phục vụ Fill: {exc}") from exc
-
-    properties = sheet_properties.get(cleaned_sheet_name.casefold())
-    if properties is None:
-        return False, f"Không tìm thấy tab '{cleaned_sheet_name}'.", 0
-
-    actual_title = str(properties.get("title") or cleaned_sheet_name)
-    sheet_id = int(properties.get("sheetId") or 0)
-    grid = properties.get("gridProperties", {}) or {}
-    last_row = int(grid.get("rowCount") or 0)
-    column_count = int(grid.get("columnCount") or 0)
-
-    if last_row < 1:
-        raise GoogleServiceError(f"Không xác định được số hàng hiện có của tab '{actual_title}'.")
-    if source_row > last_row:
-        raise GoogleServiceError(
-            f"Hàng nguồn {source_row} vượt quá số hàng hiện có của tab ({last_row})."
-        )
-    if source_row == last_row:
-        return (
-            False,
-            f"Hàng nguồn {source_row} đang là hàng cuối hiện có của tab; "
-            "không có hàng bên dưới để fill.",
-            source_row,
-        )
-
-    max_selected_column = max(selected_columns)
-    if max_selected_column > column_count:
-        invalid = column_number_to_letters(max_selected_column)
-        raise GoogleServiceError(
-            f"Tab '{actual_title}' chưa có cột {invalid}. "
-            f"Số cột hiện tại: {column_count}."
-        )
-
-    _check_cancel(cancel_callback)
-    spreadsheet_base = (
-        "https://sheets.googleapis.com/v4/spreadsheets/"
-        f"{connection.spreadsheet_id}"
-    )
-    quoted_title = _quote_sheet_title(actual_title)
-    column_groups = group_consecutive_columns(selected_columns)
-    source_ranges = [
-        f"{quoted_title}!{column_number_to_letters(start)}{source_row}:"
-        f"{column_number_to_letters(end)}{source_row}"
-        for start, end in column_groups
-    ]
-    source_params: list[tuple[str, str]] = [
-        ("ranges", item) for item in source_ranges
-    ]
-    source_params.extend(
-        [
-            ("majorDimension", "ROWS"),
-            ("valueRenderOption", "FORMULA"),
-        ]
-    )
-
-    _progress(progress_callback, 26, f"Đang kiểm tra nhanh hàng nguồn {source_row}")
-    try:
-        source_response = _request_with_retry(
-            connection.authorized_session,
-            "GET",
-            f"{spreadsheet_base}/values:batchGet",
-            action=f"Đọc hàng nguồn {source_row}",
-            log_callback=log_callback,
-            cancel_callback=cancel_callback,
-            params=source_params,
-        )
-    except CancelledError:
-        raise
-    except Exception as exc:
-        raise GoogleServiceError(
-            f"Không thể đọc hàng nguồn phục vụ Fill: {exc}"
-        ) from exc
-
-    _raise_for_response(source_response, f"Đọc hàng nguồn {source_row}")
-    _check_cancel(cancel_callback)
-
-    source_value_ranges = source_response.json().get("valueRanges", [])
-    missing_cells: list[str] = []
-    array_formula_cells: list[str] = []
-    for range_index, (start_column, end_column) in enumerate(column_groups):
-        expected_width = end_column - start_column + 1
-        values = (
-            source_value_ranges[range_index].get("values", [])
-            if range_index < len(source_value_ranges)
-            else []
-        )
-        row_values = list(values[0]) if values else []
-        row_values.extend([""] * (expected_width - len(row_values)))
-        for offset, cell_value in enumerate(row_values[:expected_width]):
-            column_number = start_column + offset
-            cell_name = f"{column_number_to_letters(column_number)}{source_row}"
-            text_value = str(cell_value or "").strip()
-            if not text_value:
-                missing_cells.append(cell_name)
-            elif re.match(r"^=\s*ARRAYFORMULA\s*\(", text_value, re.IGNORECASE):
-                array_formula_cells.append(cell_name)
-
-    if missing_cells:
-        return (
-            False,
-            "Các ô nguồn sau đang trống nên không thể fill: "
-            + ", ".join(missing_cells),
-            last_row,
-        )
-    if array_formula_cells:
-        return (
-            False,
-            "Không fill ARRAYFORMULA tại: " + ", ".join(array_formula_cells)
-            + ". ARRAYFORMULA tự mở rộng xuống dưới.",
-            last_row,
-        )
-
-    verification_ranges = _fill_verification_ranges(
-        actual_title,
-        source_row,
-        last_row,
-        selected_columns,
-    )
-    try:
-        before_values = _read_fill_verification_values(
-            connection,
-            verification_ranges,
-            cancel_callback=cancel_callback,
-        )
-    except CancelledError:
-        raise
-    except Exception as exc:
-        _log(
-            log_callback,
-            f"Không đọc được mẫu ô đích trước Fill ({exc}); vẫn tiếp tục và "
-            "sẽ xác minh sau khi Google xử lý xong.",
-        )
-        before_values = {}
-
-    _progress(
-        progress_callback,
-        58,
-        f"Đang fill {normalized_columns} đến hàng {last_row}",
-    )
-    fill_requests = build_fill_copy_requests(
-        sheet_id,
-        source_row,
-        last_row,
-        selected_columns,
-    )
-    _execute_fill_batch_update(
-        connection,
-        spreadsheet_base=spreadsheet_base,
-        actual_title=actual_title,
-        requests_payload=fill_requests,
-        verification_ranges=verification_ranges,
-        before_values=before_values,
-        log_callback=log_callback,
-        cancel_callback=cancel_callback,
-    )
-
-    _check_cancel(cancel_callback)
-    _progress(progress_callback, 88, "Đang xác minh kết quả Fill trên Google Sheet")
-    after_values = _verify_fill_result(
-        connection,
-        verification_ranges,
-        cancel_callback=cancel_callback,
-        log_callback=log_callback,
-    )
-    if not _verification_is_complete(after_values, verification_ranges):
-        missing = [
-            item for item in verification_ranges
-            if not str(after_values.get(item, "")).strip()
-        ]
-        raise GoogleServiceError(
-            "Google đã nhận request Fill nhưng ứng dụng chưa xác minh được dữ "
-            "liệu/công thức tại các ô đích: " + ", ".join(missing)
-        )
-
-    _check_cancel(cancel_callback)
-    _progress(progress_callback, 100, f"Đã fill và xác minh xong tab {actual_title}")
-
-    added_rows = max(0, last_row - source_row)
-    filled_cells = added_rows * len(selected_columns)
-    return (
-        True,
-        f"Đã fill {actual_title}!{normalized_columns} từ hàng {source_row} "
-        f"đến hàng cuối hiện có của tab ({last_row}) "
-        f"({added_rows} hàng, {filled_cells} ô đích).",
-        last_row,
-    )
 
 def _prepare_value(value: object, option: str) -> object:
     if value is None:
