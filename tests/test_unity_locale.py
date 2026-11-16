@@ -403,3 +403,32 @@ def test_export_stats_compare_existing_rows_and_report_unknown_csv(asset, tmp_pa
     target.write_text("Invalid CSV")
     stats = service.prepare_export_pairs([asset], [target]).changes[0].stats
     assert stats.before_count is None and stats.updated is None
+
+
+def test_named_transfers_check_file_role_yaml_and_csv_header(tmp_path):
+    asset = tmp_path / "locale_en.asset"
+    asset.write_text(ASSET)
+    upload = write_csv(tmp_path / "Test - upload_en.csv", [["Key", "Vietnamese"], ["k", "value"]])
+    export = write_csv(tmp_path / "Test - export_en.csv", [["Key", "English"], ["k", "value"]])
+    with pytest.raises(ValueError, match="upload_en"):
+        service.prepare_import_pairs([upload], [asset], match_languages=True)
+    with pytest.raises(ValueError, match="Vietnamese"):
+        service.prepare_export_pairs([asset], [upload], match_languages=True)
+    asset.write_text(ASSET.replace("Code: en", "Code: vi"))
+    with pytest.raises(ValueError, match="mLanguages.Code"):
+        service.prepare_import_pairs([export], [asset], match_languages=True)
+    assert "Vietnamese" in upload.read_text(encoding="utf-8-sig")
+
+
+def test_named_folder_apply_rechecks_all_members_before_writing(tmp_path):
+    asset = tmp_path / "locale_en.asset"
+    asset.write_text(ASSET)
+    upload = tmp_path / "Test - upload_en.csv"
+    source = [asset]
+    folders = (("unity", tmp_path, (asset,)), ("upload", tmp_path, ()))
+    plan = service.prepare_export_pairs(source, [upload], match_languages=True, folders=folders)
+    conflict = tmp_path / "locale_EN-us.asset"
+    conflict.write_text(ASSET)
+    with pytest.raises(ValueError, match="đã thay đổi"):
+        service.apply_plan(plan, tmp_path / "backup")
+    assert not upload.exists() and not (tmp_path / "backup").exists()

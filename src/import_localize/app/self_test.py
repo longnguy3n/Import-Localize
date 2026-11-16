@@ -104,17 +104,19 @@ def run_self_test(report_path: str) -> int:
             exports = prepare_export([locale], Path(directory))
             backup_root = Path(directory) / "backups"
             apply_plan(exports, backup_root)
-            imports = prepare_import_pairs([exports.changes[0].path], [locale])
+            translated = Path(directory) / "export_en.csv"
+            translated.write_bytes(exports.changes[0].path.read_bytes())
+            imports = prepare_import_pairs([translated], [locale], match_languages=True)
             apply_plan(imports, backup_root)
             assert read_asset(locale).terms[0]["Languages"] == ["Hello"]
-            window.settings.unity_import_csv_files = [str(exports.changes[0].path)]
+            window.settings.unity_import_csv_files = [str(translated)]
             unity_dialog = UnityLocaleDialog(window.settings, parent=window)
             unity_dialog.set_assets([locale])
-            assert unity_dialog.source_list.paths() == [exports.changes[0].path]
+            assert unity_dialog.source_list.paths() == [translated]
             assert unity_dialog.target_list.paths() == [locale]
             unity_dialog.ensurePolished()
             assert not unity_dialog.grab().isNull(), "Unity Locale could not render"
-            unity_dialog.plan = prepare_import_pairs([exports.changes[0].path], [locale])
+            unity_dialog.plan = prepare_import_pairs([translated], [locale], match_languages=True)
             unity_dialog.apply()
             deadline = time.monotonic() + 10
             while unity_dialog.worker and time.monotonic() < deadline:

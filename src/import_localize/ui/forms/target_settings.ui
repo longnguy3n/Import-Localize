@@ -191,7 +191,7 @@
                     </item>
                     <item>
                      <property name="text">
-                      <string>Một sheet (dùng file đầu tiên)</string>
+                      <string>Một tab (ghép theo mã ngôn ngữ)</string>
                      </property>
                     </item>
                    </widget>
@@ -221,7 +221,7 @@
                   <item row="2" column="1" colspan="2">
                    <widget class="QLineEdit" name="singleSheetNameEdit">
                     <property name="placeholderText">
-                     <string>Ví dụ: import_vi</string>
+                     <string>Ví dụ: upload_vi</string>
                     </property>
                    </widget>
                   </item>

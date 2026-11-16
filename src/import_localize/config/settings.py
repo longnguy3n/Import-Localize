@@ -20,6 +20,9 @@ class AppSettings:
     theme: str = "light"
     last_csv_dir: str = ""
     last_export_dir: str = ""
+    upload_folder: str = ""
+    export_folder: str = ""
+    unity_folder: str = ""
     csv_sheet_direction: str = "import"
     mapping_path: str = ""
     mapping_csv_files: list[str] = field(default_factory=list)
@@ -55,6 +58,9 @@ class SettingsRepository:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
             values = {key: payload[key] for key in allowed if key in payload}
+            for key in ("upload_folder", "export_folder", "unity_folder"):
+                value = values.get(key, "")
+                values[key] = value if isinstance(value, str) and "\0" not in value else ""
             for key in ("selected_csv_files", "mapping_csv_files", "unity_asset_files", "unity_import_csv_files",
                         "unity_export_csv_files", "unity_duplicate_files"):
                 if key in values and values[key] is not None:

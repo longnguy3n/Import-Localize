@@ -16,8 +16,7 @@ from test_unity_locale import ASSET
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
-    # Filename deliberately unrelated: pair by mLanguages.Code.
-    asset = tmp_path / "locale_first.asset"
+    asset = tmp_path / "locale_en.asset"
     asset.write_text(ASSET, encoding="utf-8")
     state = SimpleNamespace(tabs=[], payloads={}, writes=[], reads=[])
     spreadsheet = SimpleNamespace(worksheets=lambda: state.tabs)
@@ -120,6 +119,9 @@ def test_empty_or_mismatched_download_keeps_assets(world, payload):
 
 def test_region_pair_is_distinct_from_base_locale_and_ambiguous_alias_blocked(world):
     state, asset = world
+    renamed = asset.with_name("locale_pt-BR.asset")
+    asset.rename(renamed)
+    asset = renamed
     asset.write_text(ASSET.replace("Code: en", "Code: pt-BR").replace("Name: English", "Name: Portuguese/Brazil"))
     base = SimpleNamespace(id=8, title="export_pt")
     region = SimpleNamespace(id=9, title="export_pt_BR")
@@ -130,6 +132,28 @@ def test_region_pair_is_distinct_from_base_locale_and_ambiguous_alias_blocked(wo
     state.tabs.append(SimpleNamespace(id=10, title="export_pt-br"))
     with pytest.raises(UnityLocaleError, match="Nhiều tab"):
         direct.prepare_transfer("download", "url", [asset])
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+def test_mislabeled_asset_is_rejected_in_either_direction(world, direction):
+    state, asset = world
+    wrong = asset.with_name("locale_vi.asset")
+    asset.rename(wrong)
+    with pytest.raises(UnityLocaleError, match="mLanguages.Code"):
+        direct.prepare_transfer(direction, "url", [wrong])
+    assert not state.writes and not state.reads
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+def test_folder_change_since_preview_blocks_direct_transfer(world, direction, tmp_path):
+    state, asset = world
+    state.tabs = [SimpleNamespace(id=5, title="export_en")]
+    state.payloads[5] = b"Key,Type,Desc,en\nk,Text,,new\n"
+    plan = direct.prepare_transfer(direction, "url", [asset], asset_folder=tmp_path)
+    (tmp_path / "locale_vi.asset").write_text(ASSET.replace("Code: en", "Code: vi"))
+    with pytest.raises(UnityLocaleError, match="thay đổi"):
+        direct.apply_transfer(plan, tmp_path / "backups")
+    assert asset.read_text() == ASSET and not state.writes
 
 
 def test_empty_asset_will_not_clear_tab(world):

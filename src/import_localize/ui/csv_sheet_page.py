@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 class CsvSheetPage(QWidget):
     def __init__(self, files_card, export_dir):
         super().__init__()
+        self.setObjectName("csvSheetPage")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout()

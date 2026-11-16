@@ -5,41 +5,40 @@ Dùng thanh trên cùng để chọn cặp dữ liệu, rồi chọn chiều nh�
 | Nhóm | Chiều đi | Chiều về |
 |---|---|---|
 | **CSV ↔ Sheet** | Nhập các CSV upload vào những tab đích | Tải mỗi tab `export_*` thành một CSV trong thư mục đã chọn |
-| **CSV ↔ Unity** | Replace Import từ CSV đã dịch vào asset cùng hàng | Replace Export từ asset vào CSV cùng hàng |
+| **CSV ↔ Unity** | Nhập `export_<mã>.csv` vào `locale_<mã>.asset` | Xuất `locale_<mã>.asset` vào `upload_<mã>.csv` |
 | **Sheet ↔ Unity** | Ghi từng tab `export_<mã>` vào asset có cùng mã ngôn ngữ | Ghi trực tiếp từng asset vào tab `upload_<mã>` |
 
 Danh sách nguồn, đích, trạng thái và nút thực hiện đi cùng chiều đang chọn. **Cài đặt** truy cập được từ cả ba nhóm khi tác vụ đang rảnh. **Kiểm tra CSV** cho phép mở các công cụ đối chiếu và quay lại nhóm trước đó.
 
-Mở **Tệp dùng chung…** để chọn trước CSV upload và Unity locale, sắp thứ tự rồi bấm **Lưu lựa chọn**. Hai nhóm có Unity dùng chung danh sách asset. CSV upload dùng cho chiều **CSV → Sheet**. Trong **Unity → CSV**, chọn **CSV upload / CSV mới… → Dùng danh sách CSV upload** nếu muốn dùng đúng thứ tự đó làm đích. Chiều **CSV → Unity** có danh sách CSV đã dịch riêng.
+## Chọn thư mục truyền dữ liệu
 
-**Ctrl+O** mở bộ chọn CSV khi đang ở **CSV → Sheet** và mở **Tệp dùng chung…** ở các màn hình làm việc khác.
+Trong card **Thư mục truyền dữ liệu**, bấm **Chọn…** cạnh từng vai trò cần dùng. App nhớ đường dẫn cho lần mở sau. CSV upload và CSV export có thể nằm chung một thư mục. App lọc theo tên các file ngay trong thư mục đã chọn và hiển thị danh sách qua nút số tệp. Bấm **Quét lại** sau khi thêm, đổi tên hoặc di chuyển file.
 
-Chuyển trực tiếp ghép theo mã ngôn ngữ bên trong asset. Xem trước toàn bộ cặp rồi áp dụng. Khi nhập vào Unity, ứng dụng ghi nội dung đã xem trước và sao lưu asset trước khi thay đổi. Nếu có nhiều asset cùng mã hoặc asset chứa nhiều ngôn ngữ, dùng luồng CSV để ghép đích thủ công.
+| Thư mục | Ví dụ file của DG | Dùng để |
+|---|---|---|
+| CSV upload | `DG_Localization - upload_pt-BR.csv` | Nhận dữ liệu xuất từ Unity và nhập dữ liệu lên Sheet |
+| CSV export | `DG_Localization - export_pt-BR.csv` | Nhận dữ liệu tải từ Sheet và nhập dữ liệu vào Unity |
+| Unity locale | `locale_pt-BR.asset` | Xuất sang CSV upload hoặc Sheet, nhận từ CSV export hoặc Sheet |
+
+Tên ngắn như `upload_vi.csv` và `export_vi.csv` cũng hợp lệ. Với đường truyền trực tiếp **Sheet ↔ Unity**, chỉ cần chọn bảng tính và các asset. Ví dụ `locale_pt-BR.asset` ghi vào tab `upload_pt-BR` và nhận từ tab `export_pt-BR`.
+
+App đối chiếu mã đầy đủ trong tên file hoặc tab, tiêu đề cột dịch và `mLanguages.Code` trong asset. Ví dụ `Portuguese (Brazil)` và `Portuguese (Brazil) [pt-BR]` đều nhận diện được là `pt-BR`. Các cách viết `pt_BR` và `pt-br` đại diện cùng mã. `pt`, `pt-BR` và `pt-PT` có đích riêng. Khi có nhiều file cùng vai trò và mã, bấm nút báo lỗi để xem tên các file cần sửa. Các thao tác với Unity có bước **Xem trước** để kiểm tra từng cặp trước khi ghi.
 
 ## Chế độ nhiều sheet
 
-Tên file phải có dạng:
+Mỗi CSV upload được ghép với một tab `upload_<mã>` trong bảng tính đã chọn. Ví dụ với bảng tính `DG_Localization`:
 
 ```text
-[Tên Google Sheet] - [Tên tab cần import].csv
+DG_Localization - upload_vi.csv
+DG_Localization - upload_pt-BR.csv
+upload_en.csv
 ```
 
-Ví dụ:
-
-```text
-DG_Localization - import_vi.csv
-DG_Localization - import_pt.csv
-DG_Localization - import_en.csv
-```
-
-Ứng dụng đối chiếu phần `[Tên Google Sheet]` trong tên file với tên Spreadsheet từ link. Mỗi tab đã có sẽ bị thay thế toàn bộ; tab chưa có được tạo mới.
+Khi tên CSV có tiền tố bảng tính, app kiểm tra tiền tố với tên bảng tính từ link. App kiểm tra tiêu đề cột dịch trước khi ghi đè tab đã có hoặc tạo tab mới.
 
 ## Chế độ một sheet
 
-- Nhập tên tab trong **Thiết lập đích… → Google Sheets**.
-- Chỉ file nằm trên cùng trong card **Tệp CSV** được sử dụng.
-- Các file phía dưới hiển thị `Không nhập` và không được upload.
-- Tên file không cần theo format của chế độ nhiều sheet.
+Nhập tên tab `upload_<mã>` trong **Thiết lập đích… → Google Sheets**. App chọn CSV upload có đúng mã ngôn ngữ của tab, bất kể vị trí trong danh sách. Ví dụ `upload_vi` sẽ lấy `DG_Localization - upload_vi.csv`. Nếu thiếu file đúng mã hoặc có nhiều file cùng mã, app báo lỗi trước khi ghi.
 
 ## Mặc định cố định
 
@@ -130,8 +129,7 @@ Trong **CSV ↔ Sheet**, chọn chiều **Sheet → CSV** và thư mục lưu, r
 [Tên Google Sheet] - [Tên tab].csv
 ```
 
-Các file trùng tên trong thư mục đích sẽ được thay thế. Những file đã tải xong
-được giữ lại nếu người dùng dừng giữa quá trình.
+Nếu thư mục đã có một CSV export hợp lệ của đúng bảng tính và mã ngôn ngữ, app dùng lại tên file đó. App kiểm tra các đích và tải cả đợt vào vùng tạm trước khi thay thế các file đích.
 
 ## So sánh CSV theo key
 
@@ -175,18 +173,12 @@ Tính năng chạy trực tiếp trên file của máy, không cần đăng nh�
 ### CSV → Unity
 
 1. Lưu asset trong Unity, thoát Play Mode, chọn **Replace Import** trong Import Localize.
-2. Chọn các `locale_*.asset` cần cập nhật, hoặc chọn thư mục `Assets/AssetBundle/Localization`.
-3. Chọn các CSV tương ứng, ví dụ `DG_Localization - export_en.csv`, `export_vi.csv`, `export_pt-BR.csv` đã tải từ Google Sheets.
+2. Chọn thư mục **Unity locale**, ví dụ `Assets/AssetBundle/Localization`.
+3. Chọn thư mục **CSV export** chứa các CSV tương ứng, ví dụ `DG_Localization - export_en.csv`, `export_vi.csv` và `export_pt-BR.csv`.
 4. Bấm **Xem trước** để kiểm tra file đích, số term thêm/xóa/thay thế và cảnh báo key trùng.
 5. Bấm **Thực hiện Replace Import**. Quay lại Unity, dùng **Assets → Refresh / Ctrl+R** nếu chưa thấy dữ liệu mới.
 
-Hai danh sách hiển thị tên file, đường dẫn và số hàng: **Nguồn** bên trái → **Nhận vào** bên phải. Hai file cùng hàng là một cặp chuyển dữ liệu.
-Ứng dụng nhớ danh sách CSV upload, asset, CSV đã dịch, CSV đích và chiều truyền đã chọn. Lần mở sau khôi phục thứ tự file, kể cả khi đã bỏ hết file trong một danh sách.
-Các đường dẫn bị thiếu trong Unity Locale vẫn giữ nguyên hàng và có nhãn **[Thiếu file]**, tránh làm lệch cặp. CSV đích mới chưa được tạo vẫn được nhớ. CSV không còn đọc được ở màn hình chính được bỏ qua và báo trong nhật ký. Khôi phục danh sách không tự chạy import/export; cần **Xem trước** lại trước khi ghi.
-Mỗi file chiếm một dòng: tên bên trái, vị trí bên phải (di chuột để xem đường dẫn đầy đủ). Ctrl/Shift để chọn nhiều file, Ctrl+A để chọn toàn bộ bên đang thao tác.
-Kéo thả trong từng bên hoặc dùng thanh nút chung **Lên/Xuống/Bỏ chọn/Xóa hết**. Thanh này tác động lên bên đang chọn, có nhãn chỉ rõ Nguồn hoặc Nhận vào; khi chuyển bên, lựa chọn bên cũ được bỏ. **Xóa hết** chỉ dọn danh sách của bên đó, không xóa file trên máy. Hai bên cuộn cùng nhau để giữ các hàng thẳng nhau.
-Mỗi CSV phải chứa đúng bộ ngôn ngữ của asset cùng hàng (`English`, `Vietnamese`, `Portuguese (Brazil) [pt-BR]`…). App báo lỗi đúng hàng nếu không khớp, không tự ghép sang asset khác.
-Có thể chọn nhiều asset cùng ngôn ngữ và tự xếp CSV tương ứng. Số file hai bên phải bằng nhau, file đích không được trùng. Đổi thứ tự sẽ hủy kết quả xem trước cũ.
+Hai danh sách hiển thị file **Nguồn** và file **Nhận vào**. App ghép theo mã ngôn ngữ đầy đủ dù thứ tự ban đầu khác nhau. Mỗi mã cần một CSV và một asset chứa đúng một ngôn ngữ. Khi số lượng khớp nhưng mã khác nhau, hãy kiểm tra tên file, cột dịch và mã khai báo trong asset.
 Phần xem trước hiển thị riêng nguồn → file nhận, lượng dữ liệu nguồn, đích trước/sau, và các cột màu **Thêm (xanh), Xóa (đỏ), Sửa (vàng), Giữ (xám)**. Khi nhập, nguồn tính theo dòng CSV và đích tính theo term; khi xuất thì ngược lại. Sửa chỉ tính key có nội dung dịch, loại hoặc mô tả khác trước, không tính mọi key đã tồn tại. Key trùng trong đích được báo riêng; dấu `—` cho biết không thể so sánh nội dung CSV cũ.
 CSV chỉ có header, sai ngôn ngữ, trùng cột ngôn ngữ hoặc sai số cột sẽ bị chặn trước khi ghi.
 
@@ -194,10 +186,9 @@ Khi bấm **Thực hiện Replace Import/Export**, popup hiển thị trạng th
 
 ### Unity → CSV
 
-1. Chọn **Replace Export** và các asset cần xuất.
-2. Bên nhận: **Chọn CSV nhận** để chọn file có sẵn hoặc **Thêm CSV mới** để đặt tên file mới. Có thể chọn thư mục, nhập tên bảng tính (mặc định `DG_Localization`) rồi bấm **Tạo danh sách CSV đích** để tạo nhanh các đường dẫn.
-3. Kéo thả đổi thứ tự độc lập ở mỗi bên để ghép asset và CSV theo hàng. Đường dẫn đích đã tạo không tự thay đổi khi di chuyển nguồn; đổi thư mục/tên bảng tính cần bấm **Tạo danh sách CSV đích** lại.
-4. Bấm **Xem trước**, sau đó **Thực hiện Replace Export**. Chọn/thêm/tạo danh sách chỉ chuẩn bị đường dẫn; file được ghi khi thực hiện Replace.
+1. Chọn thư mục **Unity locale** và **CSV upload**, rồi mở **CSV ↔ Unity → Replace Export**.
+2. Kiểm tra danh sách file nhận. App ghép mỗi asset với CSV upload cùng mã. Với mã chưa có CSV upload, app đề xuất đường dẫn mới trong thư mục upload.
+3. Bấm **Xem trước**, sau đó **Thực hiện Replace Export** để ghi các CSV đã xem trước.
 
 Ví dụ file đầu ra: `DG_Localization - upload_en.csv`. Có thể thêm các file này vào luồng upload nhiều sheet sẵn có của ứng dụng.
 CSV được ghi UTF-8 có BOM với các cột `Key,Type,Desc,<ngôn ngữ>`. Hỗ trợ dấu phẩy, chấm phẩy và tab;

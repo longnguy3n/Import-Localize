@@ -59,6 +59,7 @@ QPushButton#closeIconButton:hover {
     border-color: #315744;
 }
 
+QFrame#transferFoldersCard,
 QFrame#workflowFrame,
 QFrame#targetCard,
 QFrame#actionCard,
@@ -72,6 +73,7 @@ QFrame#workflowFrame QFrame#filesCard, QFrame#workflowFrame QFrame#actionCard {
     background: transparent;
     border: none;
 }
+QWidget#csvSheetPage { background: #17231e; }
 QFrame#workflowFrame QFrame#actionCard {
     border-top: 1px solid #304239;
     border-radius: 0;

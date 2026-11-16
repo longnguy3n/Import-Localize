@@ -32,6 +32,11 @@ class SharedFilesDialog(QDialog):
             "Unity locale", "Các asset dùng cho cả CSV ↔ Unity và Sheet ↔ Unity.",
             [Path(path) for path in asset_paths],
         )
+        self.csv_list.setEnabled(not settings.upload_folder)
+        self.asset_list.setEnabled(not settings.unity_folder)
+        for view, folder in ((self.csv_list, settings.upload_folder), (self.asset_list, settings.unity_folder)):
+            if folder:
+                view.setToolTip("Danh sách lấy từ Thư mục truyền dữ liệu: " + folder)
         controls = QHBoxLayout()
         self.add_button = QPushButton("Thêm tệp…")
         self.up_button = QPushButton("Lên")
@@ -82,10 +87,12 @@ class SharedFilesDialog(QDialog):
             self.tabs.setTabText(idx, f"{title} ({view.count()})")
         view = self.active_list()
         rows = [view.row(item) for item in view.selectedItems()]
-        self.up_button.setEnabled(bool(rows) and min(rows) > 0)
-        self.down_button.setEnabled(bool(rows) and max(rows) < view.count() - 1)
-        self.remove_button.setEnabled(bool(rows))
-        self.clear_button.setEnabled(bool(view.count()))
+        editable = view.isEnabled()
+        self.add_button.setEnabled(editable)
+        self.up_button.setEnabled(editable and bool(rows) and min(rows) > 0)
+        self.down_button.setEnabled(editable and bool(rows) and max(rows) < view.count() - 1)
+        self.remove_button.setEnabled(editable and bool(rows))
+        self.clear_button.setEnabled(editable and bool(view.count()))
 
     def choose_files(self):
         view = self.active_list()

@@ -4,7 +4,7 @@ from pathlib import Path
 from threading import Thread
 from queue import Empty, SimpleQueue
 
-from PySide6.QtCore import QItemSelectionModel, QTimer, QUrl, Qt, QSize
+from PySide6.QtCore import QFileSystemWatcher, QItemSelectionModel, QTimer, QUrl, Qt, QSize
 from PySide6.QtGui import (
     QColor,
     QCloseEvent,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -59,7 +60,6 @@ from import_localize.services.csv_service import (
     CsvImportError,
     format_size,
     inspect_csv,
-    validate_worksheet_title,
 )
 from import_localize.services.google_service import oauth_configuration_status, preview_sheet_title
 from import_localize.services.update_service import UpdateRelease, is_newer_version
@@ -78,6 +78,8 @@ from import_localize.workers.update_worker import UpdateCheckWorker
 
 from .feature_workspace import FeatureWorkspace
 from .csv_sheet_page import CsvSheetPage
+from .transfer_folders_card import TransferFoldersCard
+from import_localize.services.transfer_files import TransferFileError, parse_csv_filename, parse_tab_code, scan_folder
 
 
 class MainWindow(QMainWindow):
@@ -111,8 +113,9 @@ class MainWindow(QMainWindow):
         self._restore_settings()
         self.apply_theme(self.settings.theme)
         self._set_initial_geometry()
-        if self.settings.selected_csv_files:
+        if self.settings.selected_csv_files and not self.settings.upload_folder:
             self.add_csv_files(self.settings.selected_csv_files, restoring=True)
+        self.refresh_transfer_folders()
 
         self.append_log(
             "INFO",
@@ -285,12 +288,16 @@ class MainWindow(QMainWindow):
         self.action_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.csv_page = CsvSheetPage(self.files_card, self.settings.last_export_dir)
         self.csv_page.direction.setCurrentIndex(1 if self.settings.csv_sheet_direction == "download" else 0)
-        self.workspace.addWidget(self.csv_page)
+        csv_scroll = QScrollArea()
+        csv_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        csv_scroll.setWidgetResizable(True)
+        csv_scroll.setWidget(self.csv_page)
+        self.workspace.addWidget(csv_scroll)
         self.csv_page.choose_folder.clicked.connect(self._choose_export_folder)
         self.csv_page.direction.currentIndexChanged.connect(self._csv_direction_changed)
         self._csv_direction_changed()
         self._sync_feature_controls()
-        self.workspace.setMinimumHeight(200)
+        self.workspace.setMinimumHeight(72)
         self.files_card_layout.setStretch(1, 1)
         self.log_card_layout.setStretch(1, 1)
         self.action_card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -375,12 +382,22 @@ class MainWindow(QMainWindow):
         self.shared_files_button = QPushButton("Tệp dùng chung…")
         self.shared_files_button.setToolTip("Chọn trước các CSV upload và asset Unity cho các luồng nhập, xuất.")
         self.shared_files_button.clicked.connect(self.show_shared_files)
-        target_row.addWidget(self.shared_files_button)
         stack.insertLayout(0, target_row)
         self.sheet_title_label = QLabel()
         self.sheet_title_label.setTextFormat(Qt.TextFormat.PlainText)
         self.sheet_title_label.setWordWrap(True)
         stack.insertWidget(1, self.sheet_title_label)
+        self.folder_card = TransferFoldersCard(self.settings, self.shared_files_button)
+        stack.insertWidget(2, self.folder_card)
+        self.folder_card.changed.connect(self.set_transfer_folder)
+        self.folder_card.refresh_requested.connect(self.refresh_transfer_folders)
+        self.folder_watcher = QFileSystemWatcher(self)
+        self.folder_timer = QTimer(self)
+        self.folder_timer.setSingleShot(True)
+        self.folder_timer.setInterval(300)
+        self.folder_timer.timeout.connect(self.refresh_transfer_folders)
+        self.folder_watcher.directoryChanged.connect(lambda _: self.folder_timer.start())
+        self.folder_refresh_pending = False
         self._title_results = SimpleQueue()
         self._lookup_running = False
         self._lookup_generation = 0
@@ -855,8 +872,10 @@ class MainWindow(QMainWindow):
     def _sync_shared_controls(self, starting=False):
         editable = not starting and self.worker is None and all(page.worker is None for page in self.workspace.pages)
         for widget in (self.quick_sheet_url_edit, self.target_settings_button, self.settings_button,
-                       self.shared_files_button, self.csv_tools_button):
+                       self.shared_files_button, self.csv_tools_button, self.folder_card):
             widget.setEnabled(editable)
+        if editable and self.folder_refresh_pending:
+            self.folder_timer.start()
 
     def _sync_feature_controls(self):
         self._sync_action_title()
@@ -899,6 +918,10 @@ class MainWindow(QMainWindow):
             return
         self.save_settings()
         dialog = UnityLocaleDialog(self.settings, parent=self, annotations=self.desc_annotations)
+        for role, (paths, issues) in self.folder_card.results.items():
+            folder = getattr(self.settings, role + "_folder")
+            if folder:
+                dialog.set_folder_files(role, paths if not issues else (), folder, issues)
         dialog.direct_button.hide()
         dialog.close_button.hide()
         self.workspace.add_feature(dialog)
@@ -944,7 +967,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def add_files_from_main(self):
-        if self.files_card.isVisible():
+        if self.files_card.isVisible() and not self.settings.upload_folder:
             self.add_files_button.click()
         else:
             self.shared_files_button.click()
@@ -959,7 +982,7 @@ class MainWindow(QMainWindow):
         try:
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
-            if dialog.csv_infos is not None:
+            if dialog.csv_infos is not None and not self.settings.upload_folder:
                 self.file_table.setRowCount(0)
                 self.file_infos = {str(info.path): info for info in dialog.csv_infos}
                 for info in dialog.csv_infos:
@@ -968,12 +991,14 @@ class MainWindow(QMainWindow):
                 self._update_reorder_buttons()
             self.settings.last_csv_dir = dialog.csv_dir
             self.settings.unity_locale_dir = dialog.asset_dir
-            assets = dialog.asset_list.paths()
-            self.settings.unity_asset_files = [str(p) for p in assets]
+            assets = [Path(p) for p in self.settings.unity_asset_files] if self.settings.unity_folder else dialog.asset_list.paths()
+            if not self.settings.unity_folder:
+                self.settings.unity_asset_files = [str(p) for p in assets]
             for page in self.workspace.pages:
                 if isinstance(page, UnityLocaleDialog):
-                    page.set_upload_paths(dialog.csv_list.paths())
-                    if page.asset_paths != assets:
+                    if not self.settings.upload_folder:
+                        page.set_upload_paths(dialog.csv_list.paths())
+                    if not self.settings.unity_folder and page.asset_paths != assets:
                         page.set_assets(assets)
                 elif getattr(page, "direction", None) in ("upload", "download") and page.paths != assets:
                     page.paths = list(assets)
@@ -981,6 +1006,79 @@ class MainWindow(QMainWindow):
             self.save_settings()
         finally:
             dialog.deleteLater()
+
+    def set_transfer_folder(self, role, folder):
+        setattr(self.settings, role + "_folder", folder)
+        if role == "export":
+            self.settings.last_export_dir = folder
+            self.csv_page.folder.setText(folder)
+        self._scan_transfer_folder(role, force=True)
+        self._watch_transfer_folders()
+        self.save_settings()
+
+    def _watch_transfer_folders(self):
+        wanted = {Path(folder).resolve().as_posix() for role in self.folder_card.roles
+                  if (folder := getattr(self.settings, role + "_folder")) and Path(folder).is_dir()}
+        watched = set(self.folder_watcher.directories())
+        if watched - wanted:
+            self.folder_watcher.removePaths(list(watched - wanted))
+        if wanted - watched:
+            self.folder_watcher.addPaths(list(wanted - watched))
+
+    def refresh_transfer_folders(self):
+        if not self.folder_card.isEnabled():
+            self.folder_refresh_pending = True
+            return
+        self.folder_refresh_pending = False
+        changed = False
+        for role in self.folder_card.roles:
+            if getattr(self.settings, role + "_folder"):
+                changed |= self._scan_transfer_folder(role)
+        self._watch_transfer_folders()
+        if changed:
+            self.save_settings()
+
+    def _scan_transfer_folder(self, role, force=False):
+        folder = getattr(self.settings, role + "_folder")
+        paths, issues = (), ()
+        if folder:
+            result = scan_folder(folder, role)
+            paths, issues = tuple(result.paths), tuple(result.issues)
+        previous = self.folder_card.results[role]
+        selected = [] if issues else list(paths)
+        if role == "upload":
+            if len(selected) > MAX_CSV_FILES:
+                issues += (f"Chọn thư mục có tối đa {MAX_CSV_FILES} file upload.",)
+                selected = []
+            try:
+                infos = [inspect_csv(path) for path in selected]
+            except (CsvImportError, OSError) as exc:
+                issues += (str(exc),)
+                infos, selected = [], []
+            if force or list(self.file_infos.values()) != infos:
+                self.file_table.setRowCount(0)
+                self.file_infos = {str(info.path): info for info in infos}
+                for info in infos:
+                    self._append_file_row(info)
+                self.update_file_summary()
+            self.settings.selected_csv_files = [str(p) for p in selected]
+            self.settings.unity_export_csv_files = list(self.settings.selected_csv_files)
+            self.settings.unity_export_dir = folder
+            self._update_reorder_buttons()
+        elif role == "unity":
+            self.settings.unity_asset_files = [str(p) for p in selected]
+        else:
+            self.settings.unity_import_csv_files = [str(p) for p in selected]
+            self.csv_page.folder.setText(folder)
+        self.folder_card.set_result(role, paths, issues)
+        if force or previous != (paths, issues):
+            for page in self.workspace.pages:
+                if isinstance(page, UnityLocaleDialog):
+                    page.set_folder_files(role, selected, folder, issues)
+                elif role == "unity" and hasattr(page, "direction"):
+                    page.set_folder_files(selected, folder)
+            return True
+        return False
 
     def choose_csv_files(self) -> None:
         start_dir = self.settings.last_csv_dir or str(Path.home())
@@ -1064,7 +1162,7 @@ class MainWindow(QMainWindow):
         self.single_sheet_name_label.setVisible(single)
         self.single_sheet_name_edit.setVisible(single)
         self.target_subtitle_label.setText(
-            "Chỉ file đầu tiên được nhập vào tab đã nhập bên dưới"
+            "Nhập file upload có cùng mã ngôn ngữ với tab bên dưới"
             if single
             else "Mỗi file được nhập vào tab suy ra từ tên file"
         )
@@ -1079,29 +1177,18 @@ class MainWindow(QMainWindow):
             item = QTableWidgetItem("")
             self.file_table.setItem(row, 1, item)
 
-        if self._is_single_mode():
-            if row == 0:
-                target = self.single_sheet_name_edit.text().strip() or "(Nhập tên Sheet)"
-                item.setText(target)
-                item.setToolTip(f"File đầu tiên sẽ được nhập vào tab: {target}")
-            else:
-                item.setText("Không nhập")
-                item.setToolTip(
-                    "Chế độ một sheet chỉ sử dụng file nằm trên cùng trong danh sách."
-                )
-        else:
-            target = info.target_sheet_name or "Tên file không đúng mẫu"
-            item.setText(target)
-            if info.target_sheet_name:
-                item.setToolTip(
-                    f"Google Sheet: {info.source_spreadsheet_name}\n"
-                    f"Tab đích: {info.target_sheet_name}"
-                )
-            else:
-                item.setToolTip(
-                    "Chế độ nhiều sheet yêu cầu tên file dạng: "
-                    "[Tên Google Sheet] - [Tên tab].csv"
-                )
+        try:
+            prefix, code = parse_csv_filename(info.path, "upload")
+            tab = info.path.stem.rsplit(" - ", 1)[-1]
+            if self._is_single_mode():
+                tab = self.single_sheet_name_edit.text().strip()
+                if code != parse_tab_code(tab, "upload"):
+                    tab = "Không nhập"
+            item.setText(tab)
+            item.setToolTip(f"{prefix or 'Bảng tính đã chọn'} · {tab}")
+        except TransferFileError as exc:
+            item.setText("Kiểm tra tên")
+            item.setToolTip(str(exc))
 
     def _refresh_file_targets(self, _text: str | None = None) -> None:
         for row in range(self.file_table.rowCount()):
@@ -1134,7 +1221,7 @@ class MainWindow(QMainWindow):
 
     def move_selected_files(self, direction: int) -> None:
         """Move selected rows up/down while preserving their relative order."""
-        if self.worker and self.worker.isRunning():
+        if self.settings.upload_folder or (self.worker and self.worker.isRunning()):
             return
         rows = sorted(
             {index.row() for index in self.file_table.selectionModel().selectedRows()}
@@ -1171,7 +1258,7 @@ class MainWindow(QMainWindow):
         self._update_reorder_buttons()
         self.append_log(
             "INFO",
-            "Đã thay đổi thứ tự file. Chế độ một sheet luôn dùng file ở hàng đầu tiên.",
+            "Đã thay đổi thứ tự file.",
         )
 
     def _update_reorder_buttons(self) -> None:
@@ -1179,10 +1266,23 @@ class MainWindow(QMainWindow):
             {index.row() for index in self.file_table.selectionModel().selectedRows()}
         )
         running = bool(self.worker and self.worker.isRunning())
+        managed = bool(self.settings.upload_folder)
+        self.files_subtitle_label.setText(
+            "Tự chọn theo mã ngôn ngữ trong thư mục CSV upload." if managed else
+            "Kéo thả CSV hoặc thêm tệp. Giữ Ctrl/Shift để chọn nhiều."
+        )
+        for widget in (self.add_files_button, self.remove_files_button, self.clear_files_button,
+                       self.move_up_button, self.move_down_button):
+            widget.setVisible(not managed)
         self.language_check_button.setEnabled(bool(self.file_infos) and not running)
         self.compare_files_button.setEnabled(len(rows) == 2 and not running)
         self.remove_files_button.setEnabled(bool(rows) and not running)
         self.clear_files_button.setEnabled(bool(self.file_infos) and not running)
+        if managed:
+            for widget in (self.add_files_button, self.remove_files_button, self.clear_files_button):
+                widget.setEnabled(False)
+        else:
+            self.add_files_button.setEnabled(not running)
         self.start_button.setEnabled(bool(self.file_infos) and not running)
         self.move_up_button.setEnabled(
             bool(rows) and rows[0] > 0 and not running
@@ -1277,13 +1377,10 @@ class MainWindow(QMainWindow):
         if not count:
             detail = ""
         elif self._is_single_mode():
-            detail = f" • {format_size(total_size)} • dùng file đầu tiên"
+            detail = f" • {format_size(total_size)} • ghép theo mã tab"
         else:
-            valid_tabs = {
-                info.target_sheet_name.casefold()
-                for info in self.file_infos.values()
-                if info.target_sheet_name
-            }
+            valid_tabs = {self.file_table.item(row, 1).text().casefold() for row in range(self.file_table.rowCount())
+                          if self.file_table.item(row, 1).text() != "Kiểm tra tên"}
             detail = f" • {format_size(total_size)} • {len(valid_tabs)} tab"
         self.file_summary_label.setText(f"{count} file{detail}")
         self.files_launcher.setToolTip(f"{count} file CSV đã chọn")
@@ -1296,6 +1393,12 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl(url))
 
     def build_job(self) -> ImportJob | None:
+        if self.settings.upload_folder:
+            self._scan_transfer_folder("upload")
+            issues = self.folder_card.results["upload"][1]
+            if issues:
+                QMessageBox.warning(self, "Kiểm tra thư mục upload", "\n".join(issues))
+                return None
         if not self.file_infos:
             QMessageBox.warning(
                 self,
@@ -1313,56 +1416,23 @@ class MainWindow(QMainWindow):
             return None
 
         single_mode = self._is_single_mode()
-        if single_mode:
-            try:
-                sheet_name = validate_worksheet_title(
-                    self.single_sheet_name_edit.text()
-                )
-            except CsvImportError as exc:
-                QMessageBox.warning(self, "Tên Sheet không hợp lệ", str(exc))
-                self.show_settings(initial_tab="target")
-                return None
-            ordered_paths = self._ordered_file_paths()
-            if not ordered_paths:
-                QMessageBox.warning(self, "Chưa chọn file", "Danh sách file đang trống.")
-                return None
-            file_paths = (ordered_paths[0],)
-        else:
-            sheet_name = ""
-            file_paths = self._ordered_file_paths()
-            target_keys: dict[str, str] = {}
-            duplicates: list[str] = []
-            invalid_names: list[str] = []
-            for path in file_paths:
-                try:
-                    info = inspect_csv(path, require_localization_name=True)
-                except CsvImportError as exc:
-                    invalid_names.append(str(exc))
+        sheet_name = self.single_sheet_name_edit.text().strip() if single_mode else ""
+        try:
+            wanted = parse_tab_code(sheet_name, "upload") if single_mode else None
+            by_code = {}
+            for path in self._ordered_file_paths():
+                _, code = parse_csv_filename(path, "upload")
+                if wanted and code != wanted:
                     continue
-                key = info.target_sheet_name.casefold()
-                if key in target_keys:
-                    duplicates.append(
-                        f"{target_keys[key]} và {info.path.name} → {info.target_sheet_name}"
-                    )
-                else:
-                    target_keys[key] = info.path.name
-            if invalid_names:
-                QMessageBox.warning(
-                    self,
-                    "Tên file không hợp lệ",
-                    "Chế độ nhiều sheet yêu cầu tên file theo mẫu "
-                    "[Tên Google Sheet] - [Tên tab].csv:\n\n"
-                    + "\n".join(invalid_names[:10]),
-                )
-                return None
-            if duplicates:
-                QMessageBox.warning(
-                    self,
-                    "Trùng tab đích",
-                    "Mỗi tab chỉ được có một file trong một lượt import:\n"
-                    + "\n".join(duplicates),
-                )
-                return None
+                if code in by_code:
+                    raise TransferFileError(f"Hai file cùng mã {code}: {Path(by_code[code]).name}, {Path(path).name}")
+                by_code[code] = path
+            if not by_code:
+                raise TransferFileError(f"Không có file upload khớp với tab {sheet_name}.")
+            file_paths = tuple(by_code.values())
+        except TransferFileError as exc:
+            QMessageBox.warning(self, "Kiểm tra nguồn và tab đích", str(exc))
+            return None
 
         oauth_status = oauth_configuration_status()
         if not oauth_status["client_ready"]:
@@ -1376,6 +1446,7 @@ class MainWindow(QMainWindow):
 
         return ImportJob(
             file_paths=file_paths,
+            upload_folder=self.settings.upload_folder,
             spreadsheet_url=url,
             target_mode="single" if single_mode else "multiple",
             sheet_name=sheet_name,
@@ -1404,7 +1475,7 @@ class MainWindow(QMainWindow):
         if job.target_mode == "single":
             self.append_log(
                 "INFO",
-                f"Bắt đầu import file đầu tiên vào tab '{job.sheet_name}'.",
+                f"Nhập {Path(job.file_paths[0]).name} vào tab '{job.sheet_name}'.",
             )
         else:
             self.append_log(
@@ -1454,9 +1525,7 @@ class MainWindow(QMainWindow):
             QFileDialog.Option.ShowDirsOnly,
         )
         if output_dir:
-            self.csv_page.folder.setText(output_dir)
-            self.settings.last_export_dir = output_dir
-            self.save_settings()
+            self.set_transfer_folder("export", output_dir)
         return output_dir
 
     def start_download_export_tabs(self) -> None:
@@ -1466,10 +1535,16 @@ class MainWindow(QMainWindow):
         if not url:
             return
         output_dir = self.csv_page.folder.text()
-        if not output_dir or not Path(output_dir).is_dir():
+        if not self.settings.export_folder and (not output_dir or not Path(output_dir).is_dir()):
             output_dir = self._choose_export_folder()
         if not output_dir:
             return
+        if self.settings.export_folder:
+            self._scan_transfer_folder("export")
+            issues = self.folder_card.results["export"][1]
+            if issues:
+                QMessageBox.warning(self, "Kiểm tra thư mục export", "\n".join(issues))
+                return
         self.save_settings()
         self._begin_log_section("TẢI TAB EXPORT_*")
         self.append_log(
@@ -1601,7 +1676,7 @@ class MainWindow(QMainWindow):
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         urls = event.mimeData().urls()
-        if self.shared_files_button.isEnabled() and any(
+        if not self.settings.upload_folder and self.shared_files_button.isEnabled() and any(
             url.isLocalFile()
             and url.toLocalFile().casefold().endswith(".csv")
             for url in urls
@@ -1617,7 +1692,7 @@ class MainWindow(QMainWindow):
             if url.isLocalFile()
             and url.toLocalFile().casefold().endswith(".csv")
         ]
-        if paths and self.shared_files_button.isEnabled():
+        if paths and self.shared_files_button.isEnabled() and not self.settings.upload_folder:
             count = len(self.file_infos)
             self.add_csv_files(paths)
             added = len(self.file_infos) - count
@@ -1652,4 +1727,8 @@ class MainWindow(QMainWindow):
         if self.update_check_worker and self.update_check_worker.isRunning():
             self.update_check_worker.request_stop()
             self.update_check_worker.wait(1200)
+        self.folder_timer.stop()
+        watched = self.folder_watcher.directories()
+        if watched:
+            self.folder_watcher.removePaths(watched)
         event.accept()

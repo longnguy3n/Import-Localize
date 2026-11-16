@@ -14,13 +14,13 @@ def test_apply_popup_shows_real_steps_and_keeps_result_visible(app, tmp_path, mo
     monkeypatch.setattr(unity_locale_dialog, "USER_CONFIG_DIR", tmp_path / "config")
     asset = tmp_path / "locale_en.asset"
     asset.write_text(ASSET)
-    csv = tmp_path / "translated.csv"
+    csv = tmp_path / "export_en.csv"
     csv.write_text("Key,English\n001,Hello\n")
     dialog = UnityLocaleDialog(AppSettings(), [csv])
     dialog.set_assets([asset])
     if exporting:
         dialog.mode_combo.setCurrentIndex(1)
-        dialog.export_paths = [tmp_path / "output.csv"]
+        dialog.export_paths = [tmp_path / "upload_en.csv"]
         dialog._refresh_lists()
     dialog.show()
     dialog.preview()
@@ -64,7 +64,7 @@ def test_failed_apply_reports_error_without_success(app, tmp_path, monkeypatch):
     monkeypatch.setattr(unity_locale_dialog, "USER_CONFIG_DIR", tmp_path / "config")
     asset = tmp_path / "locale_en.asset"
     asset.write_text(ASSET)
-    csv = tmp_path / "translated.csv"
+    csv = tmp_path / "export_en.csv"
     csv.write_text("Key,English\n001,Hello\n")
     dialog = UnityLocaleDialog(AppSettings(), [csv])
     dialog.set_assets([asset])

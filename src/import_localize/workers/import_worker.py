@@ -4,21 +4,28 @@ import traceback
 import time
 from concurrent.futures import CancelledError
 from dataclasses import replace
+from pathlib import Path
 from threading import Event
 
 from PySide6.QtCore import QThread, Signal
 
-from import_localize.models.import_job import CsvFileInfo, ImportJob
+from import_localize.models.import_job import ImportJob
 from import_localize.services.csv_service import (
     CsvImportError,
     inspect_csv,
     load_csv_bundle,
-    normalize_spreadsheet_title,
 )
 from import_localize.services.google_service import (
     GoogleServiceError,
     connect_to_spreadsheet,
+    transfer_tabs,
+    sanitize_export_filename_part,
+    validate_upload_headers,
     upload_bundles_fast,
+)
+
+from import_localize.services.transfer_files import (
+    TransferFileError, parse_csv_filename, parse_tab_code, scan_folder, validate_csv_header,
 )
 
 
@@ -43,94 +50,37 @@ class ImportWorker(QThread):
     def _log(self, message: str, level: str = "INFO") -> None:
         self.log_emitted.emit(level, message)
 
-    def _inspect_multiple_targets(self, spreadsheet_name: str) -> list[CsvFileInfo]:
-        infos = [
-            inspect_csv(path, require_localization_name=True)
-            for path in self.job.file_paths
-        ]
-        expected = normalize_spreadsheet_title(spreadsheet_name)
-        mismatched = [
-            info.path.name
-            for info in infos
-            if normalize_spreadsheet_title(info.source_spreadsheet_name) != expected
-        ]
-        if mismatched:
-            preview = "\n- ".join(mismatched[:10])
-            raise CsvImportError(
-                "Tên Google Sheet ở đầu tên file không khớp bảng tính đang mở "
-                f"('{spreadsheet_name}'). File không khớp:\n- {preview}"
-            )
-
-        seen: dict[str, str] = {}
-        duplicates: list[str] = []
-        for info in infos:
-            key = info.target_sheet_name.casefold()
-            if key in seen:
-                duplicates.append(
-                    f"'{info.target_sheet_name}': {seen[key]} và {info.path.name}"
-                )
-            else:
-                seen[key] = info.path.name
-        if duplicates:
-            raise CsvImportError(
-                "Có nhiều file cùng trỏ tới một tab đích. Mỗi tab chỉ được có "
-                "một file trong một lượt import:\n- " + "\n- ".join(duplicates)
-            )
-        return infos
-
-    def _run_single(self, connection) -> tuple[int, list[str]]:
-        if not self.job.file_paths:
-            raise CsvImportError("Chưa chọn file CSV.")
-
-        first_path = self.job.file_paths[0]
-        info = inspect_csv(first_path, require_localization_name=False)
-        self._log(
-            f"Chế độ một sheet: dùng file đầu tiên '{info.path.name}' "
-            f"→ tab '{self.job.sheet_name}'."
-        )
-
-        file_job = replace(
-            self.job,
-            file_paths=(str(info.path),),
-            target_mode="single",
-            import_mode="overwrite",
-            first_row_is_header=True,
-            strict_headers=True,
-            add_source_column=False,
-        )
-        bundle = load_csv_bundle(
-            file_job,
-            progress_callback=lambda value, text: self.progress_changed.emit(
-                18 + round(value * 0.32), text
-            ),
-            log_callback=lambda message: self._log(message),
-            cancel_callback=self._is_cancelled,
-            annotations=self.annotations,
-            info_lookup={str(info.path.resolve()): info},
-        )
-        rows_written = upload_bundles_fast(
-            connection,
-            [(bundle, file_job)],
-            progress_callback=lambda value, text: self.progress_changed.emit(
-                min(98, 50 + round(value * 0.48)), text
-            ),
-            log_callback=lambda message: self._log(message),
-            cancel_callback=self._is_cancelled,
-        )
-        return rows_written, [self.job.sheet_name]
-
-    def _run_multiple(self, connection) -> tuple[int, list[str]]:
-        infos = self._inspect_multiple_targets(connection.spreadsheet_name)
-        info_lookup = {str(info.path.resolve()): info for info in infos}
+    def _run_upload(self, connection) -> tuple[int, list[str]]:
+        single = self.job.target_mode == "single"
+        paths = self.job.file_paths[:1] if single else self.job.file_paths
+        if not paths:
+            raise CsvImportError("Chưa chọn file CSV upload.")
+        infos = []
+        seen = {}
+        existing_targets = []
+        tabs = transfer_tabs(connection, "upload")
+        for path in paths:
+            info = inspect_csv(path)
+            prefix, code = parse_csv_filename(info.path, "upload")
+            if prefix and prefix.casefold() != sanitize_export_filename_part(connection.spreadsheet_name).casefold():
+                raise CsvImportError(f"{info.path.name}: tên bảng tính không khớp '{connection.spreadsheet_name}'.")
+            if code in seen:
+                raise CsvImportError(f"Hai file upload cùng mã {code}: {seen[code]} và {info.path.name}.")
+            seen[code] = info.path.name
+            # Preserve the spelling of the destination when creating a tab.
+            desired = self.job.sheet_name if single else info.path.stem.rsplit(" - ", 1)[-1]
+            if parse_tab_code(desired, "upload") != code:
+                raise CsvImportError(f"{info.path.name}: mã {code} không khớp tab nhận {desired}.")
+            matches = tabs.get(code, [])
+            if len(matches) > 1:
+                raise CsvImportError(f"Nhiều tab upload cùng mã {code}: " + ", ".join(t.title for t in matches))
+            target = matches[0].title if matches else desired
+            if matches:
+                existing_targets.append(target)
+            infos.append(replace(info, target_sheet_name=target))
         total_files = len(infos)
         imported_tabs = [info.target_sheet_name for info in infos]
         upload_plans = []
-
-        self._log(
-            f"Chế độ nhiều sheet: đã xác định {total_files} tab đích từ tên file. "
-            "Ứng dụng sẽ đọc toàn bộ CSV trước rồi ghi các tab theo lô để giảm "
-            "số lần gọi Google Sheets API."
-        )
 
         for file_index, info in enumerate(infos, start=1):
             if self._is_cancelled():
@@ -148,7 +98,6 @@ class ImportWorker(QThread):
             file_job = replace(
                 self.job,
                 file_paths=(str(info.path),),
-                target_mode="multiple",
                 sheet_name=info.target_sheet_name,
                 import_mode="overwrite",
                 first_row_is_header=True,
@@ -163,11 +112,23 @@ class ImportWorker(QThread):
                 log_callback=lambda message: self._log(message),
                 cancel_callback=self._is_cancelled,
                 annotations=self.annotations,
-                info_lookup=info_lookup,
+                info_lookup={str(info.path): info},
             )
+            validate_csv_header(bundle.header, parse_tab_code(file_job.sheet_name, "upload"), info.path.name)
             upload_plans.append((bundle, file_job))
 
         self.progress_changed.emit(53, "Đang ghi nhanh nhiều tab lên Google Sheets")
+        validate_upload_headers(connection, existing_targets, cancel_callback=self._is_cancelled)
+        if self.job.upload_folder:
+            scan = scan_folder(self.job.upload_folder, "upload")
+            if scan.issues:
+                raise CsvImportError("\n".join(scan.issues))
+            expected_paths = {Path(p) for p in paths}
+            scanned_paths = set(scan.paths)
+            if single:
+                scanned_paths = {p for p in scanned_paths if parse_csv_filename(p, "upload")[1] in seen}
+            if scanned_paths != expected_paths:
+                raise CsvImportError("Thư mục upload đã thay đổi. Quét lại danh sách trước khi ghi.")
         total_rows = upload_bundles_fast(
             connection,
             upload_plans,
@@ -192,10 +153,7 @@ class ImportWorker(QThread):
                 cancel_callback=self._is_cancelled,
             )
 
-            if self.job.target_mode == "single":
-                total_rows, imported_tabs = self._run_single(connection)
-            else:
-                total_rows, imported_tabs = self._run_multiple(connection)
+            total_rows, imported_tabs = self._run_upload(connection)
 
             self.progress_changed.emit(100, "Hoàn tất")
             tab_preview = ", ".join(imported_tabs[:8])
@@ -210,7 +168,7 @@ class ImportWorker(QThread):
             )
         except CancelledError:
             self.completed.emit(False, "Đã dừng thao tác theo yêu cầu.")
-        except (GoogleServiceError, CsvImportError) as exc:
+        except (GoogleServiceError, CsvImportError, TransferFileError) as exc:
             self._log(str(exc), "FAIL")
             self.completed.emit(False, f"Import thất bại: {exc}")
         except Exception as exc:

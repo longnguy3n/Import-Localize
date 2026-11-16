@@ -28,7 +28,7 @@ class ImportJob:
     file_paths: tuple[str, ...]
     spreadsheet_url: str
     # multiple: mỗi file vào một tab theo mẫu [Tên Google Sheet] - [Tên tab].csv.
-    # single: chỉ file đầu tiên trong danh sách được nhập vào ``sheet_name``.
+    # single: file có cùng mã ngôn ngữ được nhập vào ``sheet_name``.
     target_mode: str = "multiple"
     sheet_name: str = ""
     import_mode: str = "overwrite"
@@ -36,6 +36,7 @@ class ImportJob:
     first_row_is_header: bool = True
     strict_headers: bool = True
     add_source_column: bool = False
+    upload_folder: str = ""
 
 
 @dataclass(slots=True)

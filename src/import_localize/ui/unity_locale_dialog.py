@@ -19,7 +19,8 @@ from .locale_progress_dialog import LocaleProgressDialog
 from .unity_audit import asset_audit_sources, review_sources
 from import_localize.services.desc_annotations import DescAnnotations
 from import_localize.services.unity_locale_service import (
-    LocalePlan, apply_plan, prepare_export, prepare_export_pairs, prepare_import_pairs,
+    LocalePlan, apply_plan, match_locale_targets, prepare_export_pairs, prepare_import_pairs,
+    upload_destinations,
 )
 
 
@@ -192,6 +193,9 @@ class UnityLocaleDialog(QDialog):
                           if settings.unity_import_csv_files is not None else list(csv_paths or []))
         self.export_paths = [Path(p) for p in settings.unity_export_csv_files]
         self.upload_paths = [Path(p) for p in settings.selected_csv_files]
+        self.folders = {role: getattr(settings, role + "_folder", "") for role in ("upload", "export", "unity")}
+        self.folder_issues = {}
+        self.pair_error = ""
         self.plan: LocalePlan | None = None
         self.worker: LocaleWorker | None = None
         self.loading_dialog = None
@@ -202,7 +206,7 @@ class UnityLocaleDialog(QDialog):
         self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(1120, 850)
         layout = QVBoxLayout(self)
-        intro = QLabel("Ghép file nguồn với file nhận theo từng hàng, xem trước thay đổi rồi thực hiện.")
+        intro = QLabel("Ghép file theo mã ngôn ngữ. Xem trước để kiểm tra tên file, cột bản dịch và mã bên trong asset.")
         intro.setProperty("muted", True)
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -250,7 +254,7 @@ class UnityLocaleDialog(QDialog):
         self.export_controls = QWidget()
         export_layout = QHBoxLayout(self.export_controls)
         export_layout.setContentsMargins(0, 0, 0, 0)
-        self.output_edit = QLineEdit(settings.unity_export_dir)
+        self.output_edit = QLineEdit(self.folders["upload"] or settings.unity_export_dir)
         self.output_edit.setPlaceholderText("Thư mục tạo CSV mới")
         self.output_button = QPushButton("Thư mục…")
         self.prefix_edit = QLineEdit(settings.unity_export_prefix)
@@ -423,14 +427,14 @@ class UnityLocaleDialog(QDialog):
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
         self.delimiter_combo.currentIndexChanged.connect(self.invalidate)
         self.output_edit.textChanged.connect(self.invalidate)
-        self.prefix_edit.textChanged.connect(self.invalidate)
+        self.prefix_edit.textChanged.connect(self._refresh_lists)
         self.preview_button.clicked.connect(self.preview)
         self.apply_button.clicked.connect(self.apply)
         self.close_button.clicked.connect(self.reject)
         self.backup_button.clicked.connect(self.open_backup)
         self._mode_changed()
         if self.asset_paths or self.csv_paths or self.export_paths:
-            self.details.setPlainText("Đã nạp danh sách file và thứ tự ghép cặp. File bị thiếu được đánh dấu, không tự dồn hàng.\n"
+            self.details.setPlainText("Đã nạp danh sách file. Mỗi mã ngôn ngữ phải có một nguồn và một đích.\n"
                                       "Bấm Xem trước để kiểm tra dữ liệu hiện tại trước khi thực hiện.")
 
     def importing(self):
@@ -506,10 +510,10 @@ class UnityLocaleDialog(QDialog):
         self.review_button.setEnabled(bool(self.asset_paths))
         self.table.setRowCount(0)
         self.progress.setValue(0)
-        paired = bool(self.source_list.count()) and self.source_list.count() == self.target_list.count()
+        paired = bool(self.source_list.count()) and not self.pair_error
         self.preview_button.setEnabled(paired and self.worker is None)
-        self.preview_status.setText("Chưa ghi dữ liệu. Bấm Xem trước để kiểm tra các cặp file." if paired
-                                    else "Chọn đủ file ở hai bên để xem trước. Các file cùng hàng sẽ được ghép với nhau.")
+        self.preview_status.setText(self.pair_error or ("Bấm Xem trước để đối chiếu nội dung với mã trên tên file." if paired
+                                    else "Chọn thư mục hoặc file nguồn và đích."))
         self._update_action_emphasis()
         self.source_metric.setText("NGUỒN · chưa xem trước")
         self.before_metric.setText("ĐÍCH TRƯỚC · chưa xem trước")
@@ -532,7 +536,58 @@ class UnityLocaleDialog(QDialog):
             button.style().unpolish(button)
             button.style().polish(button)
 
+    def set_folder_files(self, role, paths, folder, issues=()):
+        previous_folder = self.folders[role]
+        self.folders[role] = str(folder) if folder else ""
+        self.folder_issues[role] = tuple(issues)
+        if role == "upload":
+            self.set_upload_paths(list(paths))
+            self.export_paths = list(paths)
+            if folder or previous_folder:
+                self.output_edit.setText(self.folders[role])
+        elif role == "export":
+            self.csv_paths = list(paths)
+        else:
+            self.asset_paths = list(paths)
+        self._refresh_lists()
+
+    def _roles(self):
+        return ("export", "unity") if self.importing() else ("unity", "upload")
+
+    def _match_paths(self, *, anchor_target=False):
+        source_role, target_role = self._roles()
+        self.pair_error = ""
+        try:
+            issues = [message for role in (source_role, target_role) for message in self.folder_issues.get(role, ())]
+            if issues:
+                raise ValueError("\n".join(issues))
+            if target_role == "upload" and self.folders["upload"]:
+                self.export_paths = upload_destinations(self.asset_paths, self.upload_paths, self.folders["upload"], "")
+            source = self.csv_paths if self.importing() else self.asset_paths
+            target = self.asset_paths if self.importing() else self.export_paths
+            matched_targets = match_locale_targets(source, target, source_role, target_role)
+            if anchor_target:
+                source[:] = match_locale_targets(target, source, target_role, source_role)
+            else:
+                target[:] = matched_targets
+        except ValueError as exc:
+            self.pair_error = str(exc)
+
     def _refresh_lists(self):
+        source_role, target_role = self._roles()
+        self._match_paths()
+        for role, buttons in ((source_role, (self.source_choose_button, self.source_extra_button)),
+                              (target_role, (self.target_choose_button, self.target_extra_button))):
+            for button in buttons:
+                button.setEnabled(not self.folders[role])
+                if self.folders[role]:
+                    button.setToolTip(f"Danh sách lấy từ thư mục {self.folders[role]}")
+                else:
+                    button.setToolTip("")
+        self.output_button.setEnabled(not self.folders["upload"])
+        self.output_edit.setReadOnly(bool(self.folders["upload"]))
+        self.prefix_edit.setVisible(not self.folders["upload"])
+        self.generate_button.setVisible(not self.folders["upload"])
         self._selection_sync = True
         try:
             self.source_list.set_paths(self.csv_paths if self.importing() else self.asset_paths)
@@ -548,6 +603,13 @@ class UnityLocaleDialog(QDialog):
             self.csv_paths, self.asset_paths = self.source_list.paths(), self.target_list.paths()
         else:
             self.asset_paths, self.export_paths = self.source_list.paths(), self.target_list.paths()
+        self._match_paths(anchor_target=self.sender() is self.target_list)
+        aligned = self.asset_paths if self.importing() else self.export_paths
+        source = self.csv_paths if self.importing() else self.asset_paths
+        if self.source_list.paths() != source:
+            self.source_list.set_paths(source)
+        if self.target_list.paths() != aligned:
+            self.target_list.set_paths(aligned, allow_new=not self.importing())
         self.settings.unity_asset_files = [str(p) for p in self.asset_paths]
         self._update_labels()
         self.invalidate()
@@ -563,7 +625,7 @@ class UnityLocaleDialog(QDialog):
         while self.arrow_layout.count():
             self.arrow_layout.takeAt(0).widget().deleteLater()
         for row in range(max(left, right)):
-            arrow = QLabel("→" if row < min(left, right) else "·")
+            arrow = QLabel("→" if not self.pair_error and row < min(left, right) else "·")
             arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
             arrow.setFixedHeight(FileOrderList.ROW_HEIGHT)
             self.arrow_layout.addWidget(arrow)
@@ -597,9 +659,13 @@ class UnityLocaleDialog(QDialog):
         self.selection_label.setText(f"Bên {side} · chọn {len(rows)}/{view.count()} file")
         self.up_button.setEnabled(bool(rows) and rows[0] > 0)
         self.down_button.setEnabled(bool(rows) and rows[-1] < view.count() - 1)
-        self.remove_button.setEnabled(bool(rows))
-        self.clear_button.setEnabled(view.count() > 0)
-        if len(rows) == 1:
+        source_role, target_role = self._roles()
+        role = source_role if view is self.source_list else target_role
+        self.remove_button.setEnabled(bool(rows) and not self.folders[role])
+        self.clear_button.setEnabled(view.count() > 0 and not self.folders[role])
+        if self.pair_error:
+            self.pair_status.setText(self.pair_error)
+        elif len(rows) == 1:
             row = rows[0]
             source = self.source_list.paths()
             target = self.target_list.paths()
@@ -609,9 +675,9 @@ class UnityLocaleDialog(QDialog):
         else:
             left, right = self.source_list.count(), self.target_list.count()
             if left == right and left:
-                self.pair_status.setText(f"{left} cặp theo hàng · bên trái → bên phải. Đổi thứ tự một bên sẽ đổi file nhận dữ liệu.")
+                self.pair_status.setText(f"{left} cặp theo mã ngôn ngữ · bên trái → bên phải.")
             else:
-                self.pair_status.setText(f"Chưa đủ cặp: {left} nguồn / {right} đích. Hai bên phải có cùng số file để thực hiện.")
+                self.pair_status.setText(f"{left} nguồn / {right} đích.")
 
     @staticmethod
     def _append_unique(existing, added):
@@ -701,7 +767,7 @@ class UnityLocaleDialog(QDialog):
             return
         assets, folder, prefix = list(self.asset_paths), Path(self.output_edit.text()), self.prefix_edit.text()
         self.details.setPlainText("Đang tạo danh sách đường dẫn CSV đích…")
-        self._run(lambda: [c.path for c in prepare_export(assets, folder, prefix).changes], False, generating=True)
+        self._run(lambda: upload_destinations(assets, [], folder, prefix), False, generating=True)
 
     def _run(self, task: Callable, applying: bool, *, generating: bool = False, reports_progress: bool = False):
         if self.worker:
@@ -736,12 +802,22 @@ class UnityLocaleDialog(QDialog):
         self.invalidate()
         source, target = self.source_list.paths(), self.target_list.paths()
         delimiter = self.delimiter_combo.currentData()
-        self.details.setPlainText("Đang kiểm tra từng cặp file theo thứ tự hàng…")
+        if self.pair_error:
+            self.details.setPlainText("LỖI: " + self.pair_error)
+            self.details_button.setChecked(True)
+            return
+        folders = []
+        for role, paths in zip(self._roles(), (source, target)):
+            if self.folders[role]:
+                expected = self.upload_paths if role == "upload" else paths
+                folders.append((role, Path(self.folders[role]), tuple(expected)))
+        self.details.setPlainText("Đang kiểm tra ngôn ngữ trong từng cặp file…")
         if self.importing():
-            task = lambda: prepare_import_pairs(source, target, delimiter)
+            task = lambda: prepare_import_pairs(source, target, delimiter, match_languages=True, folders=tuple(folders))
         else:
             annotations = self.desc_annotations.snapshot()
-            task = lambda: prepare_export_pairs(source, target, "," if delimiter == "auto" else delimiter, annotations=annotations)
+            task = lambda: prepare_export_pairs(source, target, "," if delimiter == "auto" else delimiter,
+                                                annotations=annotations, match_languages=True, folders=tuple(folders))
         self._run(task, False)
 
     def apply(self):
@@ -775,7 +851,7 @@ class UnityLocaleDialog(QDialog):
         elif self._generating:
             self.export_paths = worker.result
             self._refresh_lists()
-            self.details.setPlainText("Đã tạo danh sách CSV đích, chưa ghi file. Kéo thả để chỉnh cặp nếu cần, rồi bấm Xem trước.\n"
+            self.details.setPlainText("Đã tạo danh sách CSV đích theo mã ngôn ngữ, chưa ghi file. Bấm Xem trước để kiểm tra.\n"
                                       "Đổi thư mục/tên bảng tính chỉ áp dụng khi bấm Tạo danh sách CSV đích lại.")
         elif self._applying:
             self.plan = None

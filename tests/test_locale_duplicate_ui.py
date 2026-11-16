@@ -80,7 +80,7 @@ def test_entry_invalidates_import_preview_after_cleanup(app, tmp_path, monkeypat
     monkeypatch.setattr(locale_duplicate_dialog, "USER_CONFIG_DIR", tmp_path / "config")
     path = tmp_path / "locale_en.asset"
     duplicate_asset(path)
-    csv = tmp_path / "translated.csv"
+    csv = tmp_path / "export_en.csv"
     csv.write_text("Key,English\n001,new\n")
     parent = UnityLocaleDialog(AppSettings(), [csv])
     parent.set_assets([path])

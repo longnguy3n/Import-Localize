@@ -40,7 +40,7 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
     monkeypatch.setattr(unity_locale_dialog, "USER_CONFIG_DIR", tmp_path / "config")
     asset = tmp_path / "locale_en.asset"
     asset.write_text(ASSET)
-    source = tmp_path / "input.csv"
+    source = tmp_path / "export_en.csv"
     source.write_text("Key,Type,Desc,English\nhello,Text,,World\n", encoding="utf-8")
     settings = AppSettings(auto_check_updates=False)
     dialog = UnityLocaleDialog(settings, [source])
@@ -87,7 +87,7 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
 def test_csv_options_and_preview_errors_remain_findable(app, tmp_path):
     asset = tmp_path / "locale_en.asset"
     asset.write_text(ASSET)
-    csv = tmp_path / "invalid.csv"
+    csv = tmp_path / "export_en.csv"
     csv.write_text("Key,Unknown\nhello,World\n", encoding="utf-8")
     dialog = UnityLocaleDialog(AppSettings())
     dialog.show()
@@ -160,7 +160,7 @@ def test_shared_toolbar_multi_selection_and_compact_rows(app, tmp_path):
 def test_preview_shows_source_destination_and_real_change_counts(app, tmp_path):
     asset = tmp_path / "locale_en.asset"
     asset.write_text(ASSET)
-    source = tmp_path / "translated.csv"
+    source = tmp_path / "export_en.csv"
     source.write_text("Key,Type,Desc,English\n001,Text,old description,yes\nnew,Text,,new value\n")
     dialog = UnityLocaleDialog(AppSettings(), [source])
     dialog.set_assets([asset])
@@ -207,13 +207,13 @@ def test_main_entry_and_busy_state(app, tmp_path, monkeypatch):
     window.close()
 
 
-def test_row_order_controls_import_destination_and_invalidates_preview(app, tmp_path, monkeypatch):
+def test_reordering_targets_keeps_matching_import_language_and_invalidates_preview(app, tmp_path, monkeypatch):
     monkeypatch.setattr(unity_locale_dialog, "USER_CONFIG_DIR", tmp_path / "config")
-    assets = [tmp_path / f"locale_en_{i}.asset" for i in range(2)]
-    csvs = [tmp_path / f"translated_{i}.csv" for i in range(2)]
-    for i, (asset, csv) in enumerate(zip(assets, csvs)):
-        asset.write_text(ASSET)
-        csv.write_text(f"Key,English\nkey,translation {i}\n")
+    assets = [tmp_path / f"locale_{code}.asset" for code in ("en", "vi")]
+    csvs = [tmp_path / f"export_{code}.csv" for code in ("en", "vi")]
+    for i, (code, name) in enumerate((("en", "English"), ("vi", "Vietnamese"))):
+        assets[i].write_text(ASSET.replace("English", name).replace("Code: en", "Code: " + code))
+        csvs[i].write_text(f"Key,{name}\nkey,translation {i}\n")
     dialog = UnityLocaleDialog(AppSettings(), csvs)
     dialog.set_assets(assets)
     dialog.show()
@@ -226,7 +226,7 @@ def test_row_order_controls_import_destination_and_invalidates_preview(app, tmp_
     view = dialog.target_list
     assert view.model().moveRow(view.rootIndex(), 1, view.rootIndex(), 0)
     assert dialog.asset_paths == assets[::-1]
-    assert dialog.source_list.paths() == csvs
+    assert dialog.source_list.paths() == csvs[::-1]
     assert dialog.plan is None and not dialog.apply_button.isEnabled()
     assert view.item(0).text().startswith("01.")
     dialog.preview()
@@ -234,8 +234,8 @@ def test_row_order_controls_import_destination_and_invalidates_preview(app, tmp_
     assert [c.path for c in dialog.plan.changes] == assets[::-1]
     dialog.apply()
     drain(app, dialog)
-    assert read_asset(assets[1]).terms[0]["Languages"] == ["translation 0"]
-    assert read_asset(assets[0]).terms[0]["Languages"] == ["translation 1"]
+    assert read_asset(assets[0]).terms[0]["Languages"] == ["translation 0"]
+    assert read_asset(assets[1]).terms[0]["Languages"] == ["translation 1"]
     dialog.reject()
 
 
@@ -255,22 +255,50 @@ def test_export_order_and_destinations_survive_source_moves_and_mode_switch(app,
     dialog.source_list.setCurrentRow(1)
     dialog.source_list.move_selected(-1)
     assert dialog.source_list.paths() == assets[::-1]
-    assert dialog.target_list.paths() == targets  # no automatic rematching
+    assert dialog.target_list.paths() == targets[::-1]
     dialog.mode_combo.setCurrentIndex(0)
     dialog.mode_combo.setCurrentIndex(1)
-    assert dialog.target_list.paths() == targets
+    assert dialog.target_list.paths() == targets[::-1]
     assert dialog.source_list.paths() == assets[::-1]
     dialog.preview()
     drain(app, dialog)
     dialog.apply()
     drain(app, dialog)
-    assert "Vietnamese" in targets[0].read_text(encoding="utf-8-sig").splitlines()[0]
-    assert "English" in targets[1].read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "English" in targets[0].read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "Vietnamese" in targets[1].read_text(encoding="utf-8-sig").splitlines()[0]
     dialog.target_list.setCurrentRow(0)
     dialog.target_list.remove_selected()
     assert len(dialog.export_paths) == 1
     assert dialog.source_list.height() == dialog.target_list.height()
     dialog.preview()
     drain(app, dialog)
-    assert dialog.plan is None and "cùng số file" in dialog.details.toPlainText()
+    assert dialog.plan is None and "thiếu file đích" in dialog.details.toPlainText()
     dialog.reject()
+
+
+def test_folder_roles_generate_missing_targets_and_require_clean_scan(app, tmp_path):
+    asset = tmp_path / "locale_pt_BR.asset"
+    asset.write_text(ASSET.replace("English", "Portuguese/Brazil").replace("Code: en", "Code: pt-BR"))
+    dialog = UnityLocaleDialog(AppSettings(unity_mode="export", unity_export_prefix="Test"))
+    try:
+        dialog.set_folder_files("unity", [asset], tmp_path)
+        dialog.set_folder_files("upload", [], tmp_path, issues=("Trùng mã pt-br",))
+        assert not dialog.preview_button.isEnabled()
+        assert "Trùng mã" in dialog.pair_status.text()
+        dialog.set_folder_files("upload", [], tmp_path)
+        target = tmp_path / "upload_pt-BR.csv"
+        assert dialog.target_list.paths() == [target] and not target.exists()
+        assert dialog.output_edit.isReadOnly() and not dialog.target_choose_button.isEnabled()
+        dialog.preview_button.click()
+        drain(app, dialog)
+        assert dialog.plan.changes[0].path == target
+        source = tmp_path / "Test - export_pt-BR.csv"
+        source.write_text("Key,Portuguese (Brazil)\na,Oi\n")
+        dialog.set_folder_files("export", [source], tmp_path)
+        dialog.mode_combo.setCurrentIndex(0)
+        dialog.preview_button.click()
+        drain(app, dialog)
+        assert dialog.plan and dialog.plan.changes[0].path == asset
+        assert b"Portuguese/Brazil" in dialog.plan.changes[0].after
+    finally:
+        dialog.reject()

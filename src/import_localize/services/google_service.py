@@ -9,6 +9,7 @@ import re
 import shutil
 import stat
 import sys
+import tempfile
 import time
 import webbrowser
 from concurrent.futures import CancelledError, FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -58,7 +59,11 @@ from import_localize.app.paths import (
     application_dir,
 )
 from import_localize.models.import_job import CsvBundle, ImportJob
+from import_localize.services.csv_service import CsvImportError, inspect_csv
 from import_localize.services.sheet_link import sheet_id_from_link
+from import_localize.services.transfer_files import (
+    TransferFileError, parse_csv_filename, parse_tab_code, scan_folder, validate_csv_header,
+)
 from import_localize.services.session_permission_cache import (
     EditorPermissionSessionCache,
 )
@@ -759,6 +764,36 @@ def build_csv_export_filename(spreadsheet_name: str, sheet_name: str) -> str:
     )
 
 
+def transfer_tabs(connection, role):
+    """Index live tab names by full locale, without silently merging aliases."""
+    result = {}
+    for worksheet in _get_worksheets(connection, force=True):
+        if worksheet.title.casefold().startswith(role + "_"):
+            key = parse_tab_code(worksheet.title, role)
+            result.setdefault(key, []).append(worksheet)
+    return result
+
+
+def validate_upload_headers(connection, targets, *, cancel_callback=None):
+    """Check existing destinations in batches before any resizing, clear or write."""
+    for names in _chunked(list(targets), 40):
+        _check_cancel(cancel_callback)
+        response = _request_with_retry(
+            connection.authorized_session, "GET",
+            f"https://sheets.googleapis.com/v4/spreadsheets/{connection.spreadsheet_id}/values:batchGet",
+            action="Kiểm tra cột ngôn ngữ của các tab nhận", cancel_callback=cancel_callback,
+            params={"ranges": [f"{_quote_sheet_title(name)}!1:1" for name in names]},
+        )
+        _raise_for_response(response, "Đọc tiêu đề các tab nhận")
+        ranges = response.json().get("valueRanges", ())
+        if len(ranges) != len(names):
+            raise GoogleServiceError("Google Sheets chưa trả đủ tiêu đề của các tab nhận.")
+        for name, value_range in zip(names, ranges):
+            values = value_range.get("values", [])
+            if values and any(values[0]):
+                validate_csv_header(values[0], parse_tab_code(name, "upload"), name)
+
+
 def _csv_export_error_detail(response) -> str:
     """Extract a compact message from an export endpoint response."""
     content_type = str(response.headers.get("Content-Type", "")).casefold()
@@ -841,6 +876,90 @@ def _annotated_export(content, title, annotations):
     return stream.getvalue().encode(encoding)
 
 
+def _validate_export_bytes(content: bytes, code: str, name: str) -> None:
+    try:
+        stream = io.TextIOWrapper(io.BytesIO(content), encoding="utf-8-sig", newline="")
+        header = next(csv.reader(stream, strict=True), [])
+        validate_csv_header(header, code, name)
+    except (TransferFileError, csv.Error, UnicodeError) as exc:
+        raise GoogleServiceError(f"{name}: {exc}") from exc
+
+
+def _file_version(path: Path):
+    try:
+        info = path.stat()
+    except FileNotFoundError:
+        return None
+    return info.st_ino, info.st_mtime_ns, info.st_size
+
+
+def _export_destinations(folder, spreadsheet_name, tabs):
+    existing = {}
+    expected_prefix = sanitize_export_filename_part(spreadsheet_name).casefold()
+    scan = scan_folder(folder, "export")
+    if scan.issues:
+        raise GoogleServiceError("\n".join(scan.issues))
+    for path in scan.paths:
+        prefix, code = parse_csv_filename(path, "export")
+        existing[code] = prefix, path
+
+    outputs = []
+    for code, matches in tabs.items():
+        if len(matches) != 1:
+            raise GoogleServiceError(f"Nhiều tab export cùng mã {code}: " + ", ".join(t.title for t in matches))
+        tab = matches[0]
+        prefix, path = existing.get(code, ("", folder / build_csv_export_filename(spreadsheet_name, tab.title)))
+        if prefix and prefix.casefold() != expected_prefix:
+            raise GoogleServiceError(f"{tab.title}: file nhận {path.name} thuộc bảng tính khác.")
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise GoogleServiceError(f"{path}: đường dẫn nhận phải là file CSV trong thư mục export.")
+        version = _file_version(path)
+        if version and version[2] > 0:
+            with path.open(encoding="utf-8-sig", newline="") as stream:
+                try:
+                    delimiter = inspect_csv(path).delimiter
+                    validate_csv_header(next(csv.reader(stream, delimiter=delimiter, strict=True), []), code, path.name)
+                except (CsvImportError, TransferFileError, csv.Error, UnicodeError) as exc:
+                    raise GoogleServiceError(f"{path.name}: {exc}") from exc
+        outputs.append((tab, code, path, version))
+    return outputs
+
+
+def _commit_export_files(outputs, staging):
+    """Publish only after the complete batch passes validation, restore on I/O errors."""
+    replaced = []
+    backup_folder = staging / "backups"
+    backup_folder.mkdir()
+    try:
+        for index, (_, _, target, version) in enumerate(outputs):
+            backup = backup_folder / target.name if version is not None else None
+            if backup is not None:
+                shutil.copy2(target, backup)
+            if _file_version(target) != version:
+                raise GoogleServiceError(f"{target.name} đã thay đổi trong lúc tải. Hãy kiểm tra lại.")
+            staged = staging / f"{index}.csv"
+            written_version = _file_version(staged)
+            staged.replace(target)
+            replaced.append((target, backup, written_version))
+    except (OSError, GoogleServiceError) as exc:
+        failures = []
+        for target, backup, written_version in reversed(replaced):
+            try:
+                if _file_version(target) != written_version:
+                    failures.append(target.name)
+                elif backup is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    backup.replace(target)
+            except OSError:
+                failures.append(target.name)
+        if failures:
+            recovery = staging.with_name(staging.name + "-backups")
+            backup_folder.rename(recovery)
+            raise GoogleServiceError(f"Không khôi phục được {', '.join(failures)}. Bản sao lưu: {recovery}") from exc
+        raise
+
+
 def download_export_tabs_as_csv(
     connection: SheetConnection,
     output_dir: str | Path,
@@ -864,87 +983,54 @@ def download_export_tabs_as_csv(
         raise GoogleServiceError(f"Đường dẫn lưu không phải thư mục: {destination}")
 
     _progress(progress_callback, 5, "Đang quét các tab export_*")
+    if prefix != EXPORT_SHEET_PREFIX:
+        raise GoogleServiceError("Chỉ tải các tab export_<mã ngôn ngữ>.")
     try:
-        worksheets = _get_worksheets(connection)
+        tabs = transfer_tabs(connection, "export")
+        outputs = _export_destinations(destination, connection.spreadsheet_name, tabs)
+    except TransferFileError as exc:
+        raise GoogleServiceError(str(exc)) from exc
     except gspread.exceptions.APIError as exc:
         _invalidate_worksheet_cache(connection)
         raise GoogleServiceError(_format_api_error(exc)) from exc
+    if not outputs:
+        raise GoogleServiceError(f"Không tìm thấy tab nào có tên bắt đầu bằng '{prefix}'.")
 
-    export_sheets = [sheet for sheet in worksheets if sheet.title.startswith(prefix)]
-    if not export_sheets:
-        raise GoogleServiceError(
-            f"Không tìm thấy tab nào có tên bắt đầu bằng '{prefix}'."
-        )
-
-    total = len(export_sheets)
-    max_workers = max(1, min(MAX_PARALLEL_EXPORT_DOWNLOADS, total))
-    _log(
-        log_callback,
-        f"Đã tìm thấy {total} tab bắt đầu bằng '{prefix}'. "
-        f"Tải song song tối đa {max_workers} file.",
-    )
-    def download_one(index: int, worksheet) -> tuple[int, Path, int, str]:
-        _check_cancel(cancel_callback)
-        filename = build_csv_export_filename(
-            connection.spreadsheet_name,
-            worksheet.title,
-        )
-        output_path = destination / filename
-        partial_path = output_path.with_name(output_path.name + ".part")
+    total = len(outputs)
+    max_workers = min(MAX_PARALLEL_EXPORT_DOWNLOADS, total)
+    _log(log_callback, f"Đã tìm thấy {total} tab export. Đang tải và kiểm tra {total} file CSV.")
+    # Download concurrently, stage validated responses on the caller thread. A
+    # cancelled request can finish in the background without touching the disk.
+    with tempfile.TemporaryDirectory(prefix=".locale-export-", dir=destination) as temp_dir:
+        staging = Path(temp_dir)
+        executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="csv-export")
+        futures = {
+            executor.submit(read_worksheet_csv, connection, tab, log_callback=log_callback,
+                            cancel_callback=cancel_callback): (index, tab, code)
+            for index, (tab, code, _, _) in enumerate(outputs)
+        }
         try:
-            content = read_worksheet_csv(connection, worksheet, log_callback=log_callback,
-                                         cancel_callback=cancel_callback)
-            content = _annotated_export(content, worksheet.title, annotations)
-            partial_path.write_bytes(content)
-            _check_cancel(cancel_callback)
-            partial_path.replace(output_path)
-            return index, output_path, len(content), worksheet.title
-        except Exception:
-            partial_path.unlink(missing_ok=True)
-            raise
-
-    results: dict[int, Path] = {}
-    executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="csv-export")
-    futures = {
-        executor.submit(download_one, index, worksheet): (index, worksheet.title)
-        for index, worksheet in enumerate(export_sheets, start=1)
-    }
-    completed_count = 0
-    pending = set(futures)
-    try:
-        # Không dùng as_completed() vì nó có thể block đến khi một request mạng
-        # hoàn thành. Poll rất ngắn để nút Dừng phản hồi gần như tức thời.
-        while pending:
-            _check_cancel(cancel_callback)
-            done, pending = wait(
-                pending,
-                timeout=GOOGLE_CANCEL_POLL_SECONDS,
-                return_when=FIRST_COMPLETED,
-            )
-            if not done:
-                continue
-            for future in done:
+            count = 0
+            while futures:
                 _check_cancel(cancel_callback)
-                index, output_path, size_bytes, title = future.result()
-                results[index] = output_path
-                completed_count += 1
-                _log(
-                    log_callback,
-                    f"Đã lưu {output_path.name} ({size_bytes:,} byte).",
-                )
-                _progress(
-                    progress_callback,
-                    8 + round(completed_count / total * 92),
-                    f"Đã tải {completed_count}/{total}: {title}",
-                )
-    except Exception:
-        for future in futures:
-            future.cancel()
-        raise
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
-
-    created_files = [results[index] for index in sorted(results)]
+                done, _ = wait(futures, timeout=GOOGLE_CANCEL_POLL_SECONDS, return_when=FIRST_COMPLETED)
+                for future in done:
+                    index, tab, code = futures.pop(future)
+                    content = future.result()
+                    _validate_export_bytes(content, code, tab.title)
+                    (staging / f"{index}.csv").write_bytes(_annotated_export(content, tab.title, annotations))
+                    count += 1
+                    _progress(progress_callback, 8 + round(count / total * 84),
+                              f"Đã kiểm tra {count}/{total}: {tab.title}")
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+        _check_cancel(cancel_callback)
+        if _export_destinations(destination, connection.spreadsheet_name, tabs) != outputs:
+            raise GoogleServiceError("Các file nhận trong thư mục export đã thay đổi. Quét lại trước khi tải.")
+        _commit_export_files(outputs, staging)
+    created_files = [path for _, _, path, _ in outputs]
+    for path in created_files:
+        _log(log_callback, f"Đã lưu {path.name}.")
     _progress(progress_callback, 100, f"Đã tải xong {total} file CSV")
     return created_files
 

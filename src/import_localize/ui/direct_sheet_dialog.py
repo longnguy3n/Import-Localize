@@ -42,6 +42,7 @@ class DirectSheetDialog(QDialog):
         self.annotations = annotations if annotations is not None else DescAnnotations()
         self.url = settings.sheet_url.strip()
         self.paths = [Path(p) for p in settings.unity_asset_files]
+        self.asset_folder = settings.unity_folder
         self.plan = None
         self.backup_path = None
         self.worker = None
@@ -152,6 +153,11 @@ class DirectSheetDialog(QDialog):
             self.annotations = annotations
             self.invalidate()
 
+    def set_folder_files(self, paths, folder):
+        self.asset_folder = str(folder or "")
+        self.paths = [Path(path) for path in paths]
+        self.invalidate()
+
     def invalidate(self):
         self.plan = None
         self.backup_button.hide()
@@ -171,10 +177,11 @@ class DirectSheetDialog(QDialog):
         busy = self.worker is not None
         if hasattr(self, "workspace"):
             self.workspace.owner._sync_feature_controls()
-        self.add_button.setEnabled(not busy)
+        edit_files = not busy and not self.asset_folder
+        self.add_button.setEnabled(edit_files)
         self.direction_combo.setEnabled(not busy)
-        self.folder_button.setEnabled(not busy)
-        self.remove_button.setEnabled(not busy and bool(self.table.selectionModel().selectedRows()))
+        self.folder_button.setEnabled(edit_files)
+        self.remove_button.setEnabled(edit_files and bool(self.table.selectionModel().selectedRows()))
         self.audit_button.setEnabled(not busy and bool(self.paths))
         self.preview_button.setEnabled(not busy and bool(self.paths) and bool(self.url))
         self.apply_button.setEnabled(not busy and self.plan is not None)
@@ -189,7 +196,7 @@ class DirectSheetDialog(QDialog):
                 button.style().polish(button)
 
     def add_paths(self, added):
-        if not added:
+        if not added or self.asset_folder:
             return
         self.paths = list(dict.fromkeys([*self.paths, *(Path(p).resolve() for p in added)]))
         self.settings.unity_asset_files = [str(p) for p in self.paths]
@@ -211,6 +218,8 @@ class DirectSheetDialog(QDialog):
                 self.status.setText("Thư mục này không có file locale*.asset.")
 
     def remove_selected(self):
+        if self.asset_folder:
+            return
         selected = {i.row() for i in self.table.selectionModel().selectedRows()}
         self.paths = [p for i, p in enumerate(self.paths) if i not in selected]
         self.settings.unity_asset_files = [str(p) for p in self.paths]
@@ -235,12 +244,13 @@ class DirectSheetDialog(QDialog):
     def preview(self):
         self.invalidate()
         direction, url, paths = self.direction, self.url, list(self.paths)
+        asset_folder = self.asset_folder
         option = self.settings.value_input_option
         annotations = self.annotations.snapshot()
         self.status.setText("Đang xác định bảng tính và ghép các tab…")
         self.start_task("preview", lambda progress, cancel: prepare_transfer(
             direction, url, paths, value_input_option=option, progress_callback=progress,
-            cancel_callback=cancel, annotations=annotations,
+            cancel_callback=cancel, annotations=annotations, asset_folder=asset_folder,
         ))
 
     def apply(self):

@@ -19,6 +19,10 @@ from typing import Callable
 
 import yaml
 
+from .transfer_files import (
+    parse_asset_filename, parse_csv_filename, scan_folder, validate_asset_language, validate_csv_header,
+)
+
 
 class UnityLocaleError(ValueError):
     pass
@@ -76,6 +80,7 @@ class FileChange:
 class LocalePlan:
     changes: list[FileChange]
     sources: dict[Path, bytes]
+    folder_selections: tuple[tuple[str, Path, tuple[Path, ...]], ...] = ()
 
 
 def read_asset(path: Path) -> LocaleAsset:
@@ -190,7 +195,7 @@ def parse_locale_csv(raw: bytes, source_name: str, delimiter: str) -> list[list[
         raise UnityLocaleError(f"{source_name}: CSV UTF-8 không hợp lệ: {exc}") from exc
 
 
-def _columns(header: list[str], asset: LocaleAsset) -> tuple[dict, list[tuple[int, dict]]]:
+def _columns(header: list[str], asset: LocaleAsset, *, matched_language=None) -> tuple[dict, list[tuple[int, dict]]]:
     metadata, start = {}, 1
     for i in (1, 2):
         if i < len(header) - 1 and header[i].casefold() in ("type", "desc", "description"):
@@ -208,7 +213,12 @@ def _columns(header: list[str], asset: LocaleAsset) -> tuple[dict, list[tuple[in
         token = token.removeprefix("$")
         match = re.fullmatch(r"(.+?)\s*\[([^\]]+)\]", token)
         name, code = (match[1].strip(), match[2]) if match else (token, "")
-        candidates = [x for x in asset.languages if (x["Code"].casefold() == code.casefold() if code else x["Name"] == name)]
+        if matched_language is not None:
+            # The validated header can use an alias or a bare code (e.g. pt-BR).
+            candidates = [matched_language]
+            name = matched_language["Name"]
+        else:
+            candidates = [x for x in asset.languages if (x["Code"].casefold() == code.casefold() if code else x["Name"] == name)]
         if len(candidates) != 1:
             raise UnityLocaleError(f"Ngôn ngữ '{token}' không khớp {asset.path.name}.")
         languages.append((i, {"Name": name, "Code": candidates[0]["Code"], "Flags": int(disabled)}))
@@ -304,8 +314,8 @@ def _replace_section(asset: LocaleAsset, name: str, items: list[dict], newline: 
     return (header if old_records else new_header) + "".join(result)
 
 
-def import_change(asset: LocaleAsset, rows: list[list[str]]) -> FileChange:
-    metadata, columns = _columns(rows[0], asset)
+def import_change(asset: LocaleAsset, rows: list[list[str]], *, matched_language=None) -> FileChange:
+    metadata, columns = _columns(rows[0], asset, matched_language=matched_language)
     terms, repeated, normalized = {}, 0, 0
     for number, row in enumerate(rows[1:], 2):
         if len(row) != len(rows[0]):
@@ -412,38 +422,124 @@ def _validate_pairs(source_paths: list[Path], target_paths: list[Path], target_s
             raise UnityLocaleError(f"Hàng {index}: thư mục đích không tồn tại: {path.parent}")
 
 
-def prepare_import_pairs(csv_paths: list[Path], asset_paths: list[Path], delimiter: str = "auto") -> LocalePlan:
-    """Use exactly the displayed row pairs; never silently rematch languages."""
+def _paths_by_code(paths, role):
+    result = {}
+    prefixes = set()
+    for selected in paths:
+        path = Path(selected)
+        if role == "unity":
+            code = parse_asset_filename(path)
+        else:
+            prefix, code = parse_csv_filename(path, role)
+            if prefix:
+                prefixes.add(prefix.casefold())
+        if code in result:
+            raise UnityLocaleError(f"Trùng mã {code}: {result[code].name} và {path.name}.")
+        result[code] = path
+    if len(prefixes) > 1:
+        raise UnityLocaleError("Các tên file CSV thuộc nhiều bảng tính: " + ", ".join(sorted(prefixes)))
+    return result
+
+
+def match_locale_targets(sources, targets, source_role, target_role):
+    source = _paths_by_code(sources, source_role)
+    target = _paths_by_code(targets, target_role)
+    missing = sorted(source.keys() - target.keys())
+    extra = sorted(target.keys() - source.keys())
+    if missing or extra:
+        messages = []
+        if missing:
+            messages.append("thiếu file đích cho " + ", ".join(missing))
+        if extra:
+            messages.append("thiếu file nguồn cho " + ", ".join(extra))
+        raise UnityLocaleError("Chưa ghép đủ mã ngôn ngữ: " + "; ".join(messages) + ".")
+    return [target[code] for code in source]
+
+
+def upload_destinations(asset_paths, existing, folder, default_prefix):
+    """Suggest missing language targets without creating files or replacing an existing alias."""
+    if not Path(folder).is_dir():
+        raise UnityLocaleError(f"Thư mục CSV đầu ra không tồn tại: {folder}")
+    by_language = _paths_by_code(existing, "upload")
+    prefixes = [parse_csv_filename(path, "upload")[0] for path in existing]
+    prefix = next((name for name in prefixes if name), "" if existing else default_prefix.strip())
+    if re.search(r'[<>:"/\\|?*\x00-\x1f]', prefix):
+        raise UnityLocaleError("Tên bảng tính chứa ký tự không thể dùng trong tên file CSV.")
+    paths = list(existing)
+    for code in _paths_by_code(asset_paths, "unity"):
+        if code not in by_language:
+            base, *subtags = code.split("-")
+            spelling = "-".join([base, *(tag.title() if len(tag) == 4 else tag.upper() for tag in subtags)])
+            name = f"upload_{spelling}.csv"
+            paths.append(Path(folder) / (f"{prefix} - {name}" if prefix else name))
+    return paths
+
+
+def check_folder_selections(selections):
+    for role, folder, expected in selections:
+        scan = scan_folder(folder, role)
+        if scan.issues:
+            raise UnityLocaleError("\n".join(scan.issues))
+        if set(scan.paths) != set(expected):
+            raise UnityLocaleError(f"Danh sách file trong {folder} đã thay đổi. Quét lại thư mục rồi xem trước.")
+
+
+def _validate_pair_identity(asset, csv_path, role):
+    """Check identities of the actual files as well as the names selected in the UI."""
+    code = validate_asset_language(asset.path, asset.languages)
+    prefix, csv_code = parse_csv_filename(csv_path, role)
+    actual_prefix, actual_code = parse_csv_filename(Path(csv_path).resolve(), role)
+    if csv_code != code or (prefix.casefold(), csv_code) != (actual_prefix.casefold(), actual_code):
+        raise UnityLocaleError(f"{Path(csv_path).name} không trỏ tới đúng file {role} cho {asset.path.name}.")
+    return code
+
+
+def prepare_import_pairs(csv_paths: list[Path], asset_paths: list[Path], delimiter: str = "auto",
+                         *, match_languages=False, folders=()) -> LocalePlan:
+    """Build an import snapshot; named transfers additionally match and verify locale identities."""
+    if match_languages:
+        asset_paths = match_locale_targets(csv_paths, asset_paths, "export", "unity")
+    check_folder_selections(folders)
     _validate_pairs(csv_paths, asset_paths, ".asset")
     changes, sources = [], {}
     for index, (csv_path, asset_path) in enumerate(zip(csv_paths, asset_paths), 1):
         path = Path(csv_path).resolve()
         try:
             raw, rows = _read_csv(path, delimiter)
-            change = import_change(read_asset(asset_path), rows)
+            asset = read_asset(asset_path)
+            if match_languages:
+                code = _validate_pair_identity(asset, csv_path, "export")
+                validate_csv_header(rows[0], code, path.name, language_name=asset.languages[0]["Name"])
+            change = import_change(asset, rows, matched_language=asset.languages[0] if match_languages else None)
         except (OSError, ValueError) as exc:
             raise UnityLocaleError(f"Hàng {index}: {path.name} → {Path(asset_path).name}: {exc}") from exc
         sources[path] = raw
         change.source_path = path
         change.summary = f"{path.name} → {change.summary}"
         changes.append(change)
-    return LocalePlan(changes, sources)
+    return LocalePlan(changes, sources, folders)
 
 
-def prepare_export_pairs(asset_paths: list[Path], csv_paths: list[Path], delimiter: str = ",", *, annotations=None) -> LocalePlan:
-    """Export each asset into the explicit CSV destination on the same row."""
+def prepare_export_pairs(asset_paths: list[Path], csv_paths: list[Path], delimiter: str = ",",
+                         *, annotations=None, match_languages=False, folders=()) -> LocalePlan:
+    """Build an export snapshot, optionally validating names and the receiving CSV's header."""
+    if match_languages:
+        csv_paths = match_locale_targets(asset_paths, csv_paths, "unity", "upload")
+    check_folder_selections(folders)
     _validate_pairs(asset_paths, csv_paths, ".csv")
     changes, sources = [], {}
     for index, (asset_path, csv_path) in enumerate(zip(asset_paths, csv_paths), 1):
         target = Path(csv_path).resolve()
         try:
             asset = read_asset(asset_path)
-            change = _export_change(asset, target, delimiter, annotations=annotations)
+            if match_languages:
+                _validate_pair_identity(asset, csv_path, "upload")
+            change = _export_change(asset, target, delimiter, annotations=annotations, check_header=match_languages)
         except (OSError, ValueError) as exc:
             raise UnityLocaleError(f"Hàng {index}: {Path(asset_path).name} → {target.name}: {exc}") from exc
         sources[asset.path] = asset.original
         changes.append(change)
-    return LocalePlan(changes, sources)
+    return LocalePlan(changes, sources, folders)
 
 
 def export_rows(asset: LocaleAsset, *, annotations=None) -> list[list[str]]:
@@ -476,7 +572,7 @@ def export_csv(asset: LocaleAsset, delimiter: str = ",", *, annotations=None) ->
     return stream.getvalue().encode("utf-8-sig")
 
 
-def _export_change(asset: LocaleAsset, target: Path, delimiter: str, *, annotations=None) -> FileChange:
+def _export_change(asset: LocaleAsset, target: Path, delimiter: str, *, annotations=None, check_header=False) -> FileChange:
     duplicates = len(asset.terms) - len({t["Term"] for t in asset.terms})
     warnings = (f"Asset có {duplicates} term trùng; Export giữ lại như I2.",) if duplicates else ()
     before = target.read_bytes() if target.exists() else None
@@ -495,9 +591,14 @@ def _export_change(asset: LocaleAsset, target: Path, delimiter: str, *, annotati
         old_rows = [new_rows[0]]
     else:
         try:
-            _, old_rows = _read_csv(target, "auto")
+            old_rows = parse_locale_csv(before, target.name, "auto")
+            if check_header:
+                validate_csv_header(old_rows[0], asset.languages[0]["Code"], target.name,
+                                    language_name=asset.languages[0]["Name"])
             records(old_rows)
         except (ValueError, OSError):
+            if check_header:
+                raise
             old_rows = None
             warnings += ("CSV đích không đọc được theo mẫu Key: chưa xác định số liệu cũ; Replace vẫn ghi đè toàn bộ.",)
     stats = ChangeStats(len(asset.terms), None, len(new_rows) - 1, None, None, None, None, "term", "dòng CSV")
@@ -545,6 +646,7 @@ def apply_plan(plan: LocalePlan, backup_root: Path, *, progress: Callable[[int, 
     """Preflight all files, back up, stage, then replace. Roll back our writes on failure."""
     if not plan.changes or len({c.path for c in plan.changes}) != len(plan.changes):
         raise UnityLocaleError("Kế hoạch rỗng hoặc có đường dẫn đích trùng nhau.")
+    check_folder_selections(plan.folder_selections)
     expected = dict(plan.sources)
     expected.update({c.path: c.before for c in plan.changes})
     completed, total = 0, 2 * len(expected) + 3 * len(plan.changes) + 2
@@ -585,6 +687,7 @@ def apply_plan(plan: LocalePlan, backup_root: Path, *, progress: Callable[[int, 
         report("Đang lưu thông tin khôi phục…")
         (backup / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         report("Đã lưu thông tin khôi phục.", done=True)
+        check_folder_selections(plan.folder_selections)
         for path, raw in expected.items():
             report(f"Đang kiểm tra lại: {path.name}")
             if not _unchanged(path, raw):
