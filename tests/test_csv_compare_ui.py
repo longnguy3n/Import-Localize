@@ -87,6 +87,9 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         window.show()
         for _ in range(10):
             app.processEvents()
+        assert not window.file_table.isVisible()
+        window.import_csv_launcher.click()
+        assert window.file_table.isVisible()
         assert window.target_form.isHidden()
         assert window.cards_splitter.indexOf(window.target_card) == -1
         assert window.file_table.minimumHeight() >= 100
@@ -102,6 +105,7 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         assert not window.compare_files_button.isEnabled()
         selection.select(window.file_table.model().index(1, 0), flags)
         assert window.compare_files_button.isEnabled()
+        window.csv_popup.reject()
         for attempt in range(2):
             observed = []
             def edit_settings():
@@ -138,6 +142,7 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         window.show()
         for _ in range(10):
             app.processEvents()
+        window.import_csv_launcher.click()
         splitter = window.cards_splitter
         assert splitter.count() == 3
         # Actual divider movement may not collapse either adjacent card.
@@ -156,6 +161,7 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         window.close()
         reopened = MainWindow()
         reopened.show()
+        reopened.import_csv_launcher.click()
         for _ in range(10):
             app.processEvents()
         assert all(abs(a - b) <= 2 for a, b in zip(saved, reopened.cards_splitter.sizes()))
@@ -173,6 +179,7 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         reopened.close()
         small_reopened = MainWindow()
         small_reopened.show()
+        small_reopened.import_csv_launcher.click()
         for _ in range(10):
             app.processEvents()
         assert small_reopened.height() == small_height

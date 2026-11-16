@@ -9,6 +9,8 @@ Dán link chia sẻ bảng tính từ Google Sheets hoặc Drive ở đầu màn
 | Unity ↔ CSV | Replace Export hoặc Replace Import qua các cặp file đã chọn |
 | CSV ↔ Sheet | Nhập CSV lên Sheet hoặc tải các tab `export_*` ra CSV |
 
+Màn hình chính hiển thị link bảng tính và các nút mở công cụ. Chọn **CSV → Sheet…** để thêm, sắp xếp và nhập file; **Sheet → CSV…** để tải tab; **Kiểm tra CSV → So sánh hai CSV…** để chọn cặp file. Nút **Nhật ký…** mở lịch sử xử lý.
+
 Chuyển trực tiếp ghép theo mã ngôn ngữ bên trong asset. Xem trước toàn bộ cặp rồi áp dụng. Khi nhập vào Unity, ứng dụng ghi nội dung đã xem trước và sao lưu asset trước khi thay đổi. Nếu có nhiều asset cùng mã hoặc asset chứa nhiều ngôn ngữ, dùng luồng CSV để ghép đích thủ công.
 
 ## Chế độ nhiều sheet
