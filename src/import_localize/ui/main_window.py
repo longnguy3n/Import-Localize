@@ -18,6 +18,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -167,6 +168,7 @@ class MainWindow(QMainWindow):
         self.clear_files_button = require_object(root, "clearFilesButton", QPushButton)
         self.file_summary_label = require_object(root, "fileSummaryLabel", QLabel)
 
+        self.hide_fill_checkbox = require_object(target, "hideTranslateFillCheckBox", QCheckBox)
         self.sheet_url_edit = require_object(target, "sheetUrlEdit", QLineEdit)
         self.open_sheet_button = require_object(target, "openSheetButton", QPushButton)
         self.target_mode_combo = require_object(target, "targetModeCombo", QComboBox)
@@ -512,6 +514,9 @@ class MainWindow(QMainWindow):
         self._update_reorder_buttons()
 
     def _restore_settings(self) -> None:
+        self.hide_fill_checkbox.setChecked(self.settings.hide_translate_fill)
+        self.fill_translate_data_button.setHidden(self.settings.hide_translate_fill)
+        self.hide_fill_checkbox.toggled.connect(self.fill_translate_data_button.setHidden)
         self.sheet_url_edit.setText(self.settings.sheet_url)
         self.target_mode_combo.setCurrentIndex(
             1 if self.settings.target_mode == "single" else 0
@@ -1321,11 +1326,12 @@ class MainWindow(QMainWindow):
         self.csv_tools_button.setEnabled(not running)
         for button in (
             self.start_button,
-            self.fill_translate_data_button,
             self.download_export_tabs_button,
         ):
             button.setEnabled(not running)
             button.setVisible(not running)
+        self.fill_translate_data_button.setEnabled(not running)
+        self.fill_translate_data_button.setVisible(not running and not self.hide_fill_checkbox.isChecked())
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(running)
         self.settings_button.setEnabled(not running)
@@ -1396,6 +1402,7 @@ class MainWindow(QMainWindow):
             self.log_toggle.setChecked(True)
 
     def save_settings(self) -> None:
+        self.settings.hide_translate_fill = self.hide_fill_checkbox.isChecked()
         self.settings.sheet_url = self.sheet_url_edit.text().strip()
         self.settings.sheet_name = self.single_sheet_name_edit.text().strip()
         self.settings.target_mode = "single" if self._is_single_mode() else "multiple"

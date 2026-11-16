@@ -41,6 +41,7 @@ class AppSettings:
     card_sizes: list[int] = field(default_factory=list)
     update_repository: str = ""
     auto_check_updates: bool = True
+    hide_translate_fill: bool = False
     ui_log_expanded: bool = False
     ui_show_technical_columns: bool = False
 
