@@ -65,7 +65,7 @@ def test_start_and_finish_keep_current_tab(dialog, app, action, index):
     app.processEvents()
     assert dialog.settings_tabs.currentIndex() == index
     assert dialog.settings_tabs.isTabEnabled(index)
-    assert all(not dialog.settings_tabs.isTabEnabled(i) for i in range(3) if i != index)
+    assert all(not dialog.settings_tabs.isTabEnabled(i) for i in range(dialog.settings_tabs.count()) if i != index)
     assert not changes
     if action == "check":
         dialog.update_check_worker.completed.emit(True, release(), "OK")
@@ -75,7 +75,7 @@ def test_start_and_finish_keep_current_tab(dialog, app, action, index):
         dialog.oauth_worker.completed.emit(True, "OK")
     app.processEvents()
     assert dialog.settings_tabs.currentIndex() == index
-    assert all(dialog.settings_tabs.isTabEnabled(i) for i in range(3))
+    assert all(dialog.settings_tabs.isTabEnabled(i) for i in range(dialog.settings_tabs.count()))
     assert not changes
 
 
@@ -87,6 +87,6 @@ def test_update_inputs_and_switching_tabs_remain_available(dialog, app):
     app.processEvents()
     assert dialog.settings_tabs.currentIndex() == 1
     bar = dialog.settings_tabs.tabBar()
-    for index in (0, 2, 1):
+    for index in (0, 1):
         QTest.mouseClick(bar, Qt.MouseButton.LeftButton, pos=bar.tabRect(index).center())
         assert dialog.settings_tabs.currentIndex() == index

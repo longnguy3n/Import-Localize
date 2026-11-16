@@ -658,6 +658,26 @@ def _check_editor_permission(
     return payload.get("name") or spreadsheet_id
 
 
+def _read_sheet_title(credentials, spreadsheet_id: str) -> str:
+    with AuthorizedSession(credentials) as session:
+        response = session.get(
+            f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}",
+            params={"fields": "properties/title"}, timeout=(5, 10),
+        )
+        if response.status_code in (401, 403, 404):
+            raise GoogleServiceError("Kiểm tra tài khoản và quyền truy cập bảng tính.")
+        response.raise_for_status()
+        return response.json()["properties"]["title"]
+
+
+def preview_sheet_title(url: str) -> str:
+    spreadsheet_id = extract_spreadsheet_id(url)
+    credentials = _load_saved_credentials()
+    if credentials is None:
+        raise OAuthConfigurationError("Hãy đăng nhập Google trong Cài đặt.")
+    return _read_sheet_title(credentials, spreadsheet_id)
+
+
 def connect_to_spreadsheet(
     spreadsheet_url: str,
     *,
@@ -676,6 +696,9 @@ def connect_to_spreadsheet(
     name = _cached_editor_permission_name(credentials, spreadsheet_id)
 
     if cached_connection is not None and name is not None:
+        name = _read_sheet_title(credentials, spreadsheet_id)
+        _check_cancel(cancel_callback)
+        cached_connection.spreadsheet_name = name
         _progress(progress_callback, 100, f"Đã kết nối nhanh: {name}")
         _log(
             log_callback,
@@ -718,11 +741,11 @@ def connect_to_spreadsheet(
         client=client,
         spreadsheet=spreadsheet,
         spreadsheet_id=spreadsheet_id,
-        spreadsheet_name=name,
+        spreadsheet_name=spreadsheet.title,
         authorized_session=AuthorizedSession(credentials),
     )
     _remember_connection(connection)
-    _progress(progress_callback, 100, f"Đã kết nối: {name}")
+    _progress(progress_callback, 100, f"Đã kết nối: {connection.spreadsheet_name}")
     return connection
 
 

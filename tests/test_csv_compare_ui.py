@@ -108,7 +108,7 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
                 dialog = QApplication.activeModalWidget()
                 if not isinstance(dialog, SettingsDialog):
                     return
-                observed.append(dialog.settings_tabs.currentWidget() is window.target_form)
+                observed.append(dialog.settings_tabs.count() == 2 and dialog.settings_tabs.currentWidget().isAncestorOf(window.target_form))
                 window.sheet_url_edit.setText("https://docs.google.com/spreadsheets/d/example/edit")
                 window.target_mode_combo.setCurrentIndex(1)
                 window.single_sheet_name_edit.setText("import_vi")

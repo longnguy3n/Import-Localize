@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Thread
+from queue import Empty, SimpleQueue
 
 from PySide6.QtCore import QItemSelectionModel, QTimer, QUrl, Qt, QSize
 from PySide6.QtGui import (
@@ -57,7 +59,7 @@ from import_localize.services.csv_service import (
     inspect_csv,
     validate_worksheet_title,
 )
-from import_localize.services.google_service import oauth_configuration_status
+from import_localize.services.google_service import oauth_configuration_status, preview_sheet_title
 from import_localize.services.update_service import UpdateRelease, is_newer_version
 from import_localize.ui.assets import icon, load_logo, set_button_icon
 from import_localize.ui.csv_compare_dialog import CsvCompareDialog
@@ -325,21 +327,34 @@ class MainWindow(QMainWindow):
 
         target_row = QHBoxLayout()
         target_row.addWidget(QLabel("Sheet đích"))
-        self.quick_sheet_url_edit = QLineEdit()
-        self.quick_sheet_url_edit.setPlaceholderText("Dán link Google Sheet cần nhập dữ liệu")
-        self.quick_sheet_url_edit.setClearButtonEnabled(True)
-        self.quick_sheet_url_edit.setAccessibleName("Link Google Sheet đích")
-        self.quick_sheet_url_edit.textChanged.connect(self.sheet_url_edit.setText)
-        self.sheet_url_edit.textChanged.connect(self.quick_sheet_url_edit.setText)
-        target_row.addWidget(self.quick_sheet_url_edit, 1)
+        self.quick_sheet_url_edit = self.sheet_url_edit
+        self.target_form.findChild(QLabel, "sheetUrlLabel").hide()
+        self.sheet_url_edit.setPlaceholderText("Dán link Google Sheet")
+        self.sheet_url_edit.setClearButtonEnabled(True)
+        self.sheet_url_edit.setAccessibleName("Link Google Sheet đích")
+        target_row.addWidget(self.sheet_url_edit, 1)
+        target_row.addWidget(self.open_sheet_button)
         self.target_settings_button = QPushButton("Thiết lập đích…")
         self.target_settings_button.clicked.connect(lambda: self.show_settings(initial_tab="target"))
         target_row.addWidget(self.target_settings_button)
         self.action_card_layout.insertLayout(1, target_row)
+        self.sheet_title_label = QLabel()
+        self.sheet_title_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.sheet_title_label.setWordWrap(True)
+        self.action_card_layout.insertWidget(2, self.sheet_title_label)
+        self._title_results = SimpleQueue()
+        self._lookup_running = False
+        self._lookup_generation = 0
+        self._title_timer = QTimer(self)
+        self._title_timer.setSingleShot(True)
+        self._title_timer.timeout.connect(self._lookup_title)
+        self.sheet_url_edit.textChanged.connect(self._schedule_title)
+        self.sheet_url_edit.returnPressed.connect(self._schedule_title)
+        self._schedule_title()
         self.target_summary = QLabel()
         self.target_summary.setProperty("muted", True)
         self.target_summary.setWordWrap(True)
-        self.action_card_layout.insertWidget(2, self.target_summary)
+        self.action_card_layout.insertWidget(3, self.target_summary)
         self.target_mode_combo.currentIndexChanged.connect(self._update_target_summary)
         self.single_sheet_name_edit.textChanged.connect(self._update_target_summary)
         self.value_input_combo.currentIndexChanged.connect(self._update_target_summary)
@@ -355,6 +370,47 @@ class MainWindow(QMainWindow):
         self.log_toggle.setChecked(bool(self.settings.ui_log_expanded))
         self._toggle_log(self.log_toggle.isChecked())
         self.progress_bar.hide()
+
+    def _schedule_title(self, *_args):
+        self._lookup_generation += 1
+        url = QUrl(self.sheet_url_edit.text().strip())
+        valid = (url.scheme() == "https" and url.host() == "docs.google.com"
+                 and "/spreadsheets/d/" in url.path() and bool(url.path().split("/spreadsheets/d/", 1)[1].split("/")[0]))
+        self.open_sheet_button.setEnabled(valid)
+        self.sheet_title_label.setText("Đang đọc tên bảng tính…" if valid else "Link Google Sheet chưa hợp lệ.")
+        self.sheet_title_label.setVisible(bool(self.sheet_url_edit.text().strip()))
+        self.sheet_title_label.setToolTip("")
+        self._title_timer.start(350)
+
+    def _lookup_title(self):
+        if self._lookup_running:
+            try:
+                generation, title, error = self._title_results.get_nowait()
+            except Empty:
+                self._title_timer.start(100)
+                return
+            self._lookup_running = False
+            if generation == self._lookup_generation:
+                self.sheet_title_label.setToolTip(error)
+                self.sheet_title_label.setText("Tên bảng tính: " + title if title else "Chưa đọc được tên bảng tính. Kiểm tra đăng nhập, quyền truy cập và kết nối.")
+                return
+        if not self.open_sheet_button.isEnabled():
+            return
+        generation = self._lookup_generation
+        url = self.sheet_url_edit.text().strip()
+        results = self._title_results
+
+        def lookup():
+            try:
+                title = preview_sheet_title(url)
+            except Exception as exc:
+                results.put((generation, "", str(exc)))
+            else:
+                results.put((generation, title, ""))
+
+        self._lookup_running = True
+        Thread(target=lookup, daemon=True).start()
+        self._title_timer.start(100)
 
     def _toggle_technical_columns(self, visible: bool) -> None:
         self.settings.ui_show_technical_columns = visible
@@ -673,6 +729,7 @@ class MainWindow(QMainWindow):
         self.settings = self.settings_repository.load()
         self.save_settings()
         dialog.deleteLater()
+        self._schedule_title()
 
     def show_unity_locale(self) -> None:
         paths = [Path(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
@@ -1150,9 +1207,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Link không hợp lệ",
-                "Hãy nhập đúng link trong Cài đặt → Google Sheet đích trước khi chạy thao tác.",
+                "Dán link Google Sheet hợp lệ vào ô Sheet đích trên màn hình chính.",
             )
-            self.show_settings(initial_tab="target")
+            self.sheet_url_edit.setFocus()
             return None
 
         oauth_status = oauth_configuration_status()

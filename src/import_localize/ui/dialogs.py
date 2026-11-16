@@ -138,9 +138,9 @@ class SettingsDialog(_DesignerDialog):
             self.form, "closeIconButton", QPushButton
         )
         self.settings_tabs = require_object(self.form, "settingsTabs", QTabWidget)
-        self.target_tab_index = None
         if target_form is not None:
-            self.target_tab_index = self.settings_tabs.addTab(target_form, "Google Sheet đích")
+            self.settings_tabs.widget(0).layout().insertWidget(0, target_form)
+            target_form.show()
 
         self.oauth_client_icon_label = require_object(
             self.form, "oauthClientIconLabel", QLabel
@@ -250,8 +250,6 @@ class SettingsDialog(_DesignerDialog):
 
         self.refresh_status()
         self.settings_tabs.setCurrentIndex(1 if initial_tab == "update" else 0)
-        if initial_tab == "target" and self.target_tab_index is not None:
-            self.settings_tabs.setCurrentIndex(self.target_tab_index)
 
     def refresh_status(self) -> None:
         status = oauth_configuration_status()
