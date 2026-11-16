@@ -106,10 +106,14 @@ def test_entrypoints_pass_selected_files_and_unity_csvs(app, tmp_path, monkeypat
     main.add_csv_files(list(map(str, paths)))
     main.file_table.selectRow(1)
     main.language_check_button.click()
-    assert visits[-1] == [paths[1]]
+    assert main.workspace.pages[-1].paths == [paths[1]]
+    wait(app, main.workspace.pages[-1])
+    main.show_files()
     main.file_table.clearSelection()
     main.language_check_button.click()
-    assert visits[-1] == paths
+    assert main.workspace.pages[-1].paths == paths
+    wait(app, main.workspace.pages[-1])
+    main.show_files()
     unity = UnityLocaleDialog(main.settings, paths)
     unity.language_check_button.click()
     assert visits[-1] == paths

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
 )
 
+from .feature_workspace import open_child_feature
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.services.direct_transfer import apply_transfer, prepare_transfer
 from import_localize.services.desc_annotations import DescAnnotations
@@ -139,6 +140,8 @@ class DirectSheetDialog(QDialog):
 
     def update_controls(self):
         busy = self.worker is not None
+        if hasattr(self, "workspace"):
+            self.workspace.owner._sync_feature_controls()
         self.add_button.setEnabled(not busy)
         self.folder_button.setEnabled(not busy)
         self.remove_button.setEnabled(not busy and bool(self.table.selectionModel().selectedRows()))
@@ -237,10 +240,10 @@ class DirectSheetDialog(QDialog):
         dialog = LocaleDuplicateDialog(self.paths, self, settings=self.settings)
         if dialog.paths:
             dialog.scan()
-        dialog.exec()
-        if dialog.wrote_files:
-            self.invalidate()
-        dialog.deleteLater()
+        def after_review():
+            if dialog.wrote_files:
+                self.invalidate()
+        open_child_feature(self, dialog, after_review)
 
     @Slot(int, str)
     def show_progress(self, percent, message):

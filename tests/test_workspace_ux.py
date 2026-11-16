@@ -13,20 +13,29 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
     app.processEvents()
     try:
         assert window.log_placeholder.isHidden()
+        assert window.file_table.isVisible()
+        window.show_unity_locale()
+        tool = window.workspace.pages[-1]
+        assert tool.isVisible() and tool.window() is window
         assert not window.file_table.isVisible()
-        assert window.start_button.isVisible() and window.download_export_tabs_button.isVisible()
-        assert window.log_card.isVisible()
+        assert window.start_button.window() is window and window.log_card.isVisible()
         window.files_launcher.click()
-        assert window.files_popup.isVisible() and window.file_table.isVisible()
-        assert window.start_button.window() is window and window.log_card.window() is window
-        window.files_popup.accept()
-        assert not window.file_table.isVisible()
+        assert window.file_table.isVisible() and not window.workspace.pages
         assert window.file_table.isColumnHidden(3)
         assert not window.start_button.isEnabled()
         window.quick_sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/example/edit')
         assert window.sheet_url_edit.text() == window.quick_sheet_url_edit.text()
         window.sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/other/edit')
         assert window.quick_sheet_url_edit.text() == window.sheet_url_edit.text()
+        window.direct_download_button.click()
+        tool = window.workspace.pages[-1]
+        assert tool.window() is window and tool.direction == "download"
+        window.quick_sheet_url_edit.setText('https://drive.google.com/open?id=another')
+        assert tool.url == window.quick_sheet_url_edit.text()
+        window.direct_upload_button.click()
+        assert window.workspace.pages[-1].direction == "upload"
+        window.files_launcher.click()
+        window.sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/other/edit')
         first, second = tmp_path / 'en.csv', tmp_path / 'vi.csv'
         for path in (first, second):
             path.write_text('Key,English\na,Hello\n')

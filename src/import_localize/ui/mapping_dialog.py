@@ -322,9 +322,11 @@ class MappingDialog(QDialog):
             table.fit_content(reset=True)
 
     def toggle_focus_mode(self):
+        host = getattr(self, "workspace", None)
+        window = host.owner if host else self
         if not self.focus_mode:
-            self._normal_geometry = self.saveGeometry()
-            self._was_maximized = self.isMaximized()
+            self._normal_geometry = window.saveGeometry()
+            self._was_maximized = window.isMaximized()
             self._splitter_sizes = self.tables_splitter.sizes()
             self._scroll_position = (self.issues_table.horizontalScrollBar().value(),
                                      self.issues_table.verticalScrollBar().value())
@@ -332,17 +334,24 @@ class MappingDialog(QDialog):
             for widget in (self.setup_panel, self.files_table, self.detail, self.bottom_panel):
                 widget.hide()
             self.focus_button.setText("Thu gọn bảng (Esc)")
-            self.showFullScreen()
+            if host:
+                self._chrome = [w for w in (window.workspace_toolbar, window.action_card, window.log_card, window.top_bar) if not w.isHidden()]
+                for widget in self._chrome:
+                    widget.hide()
+            window.showFullScreen()
             self.focus_status.setVisible(bool(self.focus_status.text()))
         else:
             self.focus_mode = False
-            self.showNormal()
+            window.showNormal()
+            if host:
+                for widget in self._chrome:
+                    widget.show()
             for widget in (self.setup_panel, self.files_table, self.detail, self.bottom_panel):
                 widget.show()
             self.detail.setVisible(bool(self.detail.toPlainText()))
-            self.restoreGeometry(self._normal_geometry)
+            window.restoreGeometry(self._normal_geometry)
             if self._was_maximized:
-                self.showMaximized()
+                window.showMaximized()
             self.tables_splitter.setSizes(self._splitter_sizes)
             self.focus_button.setText("Phóng to bảng")
             self.issues_table.horizontalScrollBar().setValue(self._scroll_position[0])

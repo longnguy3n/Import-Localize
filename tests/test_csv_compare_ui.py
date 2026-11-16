@@ -103,7 +103,6 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         assert not window.compare_files_button.isEnabled()
         selection.select(window.file_table.model().index(1, 0), flags)
         assert window.compare_files_button.isEnabled()
-        window.files_popup.accept()
         for attempt in range(2):
             observed = []
             def edit_settings():
@@ -142,7 +141,7 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
             app.processEvents()
         splitter = window.cards_splitter
         assert splitter.count() == 3
-        assert splitter.widget(0) is window.files_launcher
+        assert splitter.widget(0) is window.workspace
         assert splitter.widget(1) is window.action_card and splitter.widget(2) is window.log_card
         splitter.moveSplitter(splitter.height(), 2)
         app.processEvents()
@@ -168,7 +167,6 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
                    reopened.remove_files_button, reopened.clear_files_button]
         assert max(button.geometry().center().y() for button in buttons) - min(button.geometry().center().y() for button in buttons) <= 1
         assert all(button.geometry().right() <= reopened.files_card.width() for button in buttons)
-        reopened.files_popup.accept()
         small_sizes = reopened.cards_splitter.sizes()
         small_height = reopened.height()
         reopened.close()

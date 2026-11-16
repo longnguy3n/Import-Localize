@@ -192,15 +192,18 @@ def test_duplicate_folder_saved_and_automatically_reused_after_restart(app, tmp_
         visits.append(True)
         dialog.reject()
         return 0
-    def unity_exec(dialog):
-        assert not dialog.asset_paths
-        dialog.check_duplicates()
-        dialog.reject()
-        return 0
-    monkeypatch.setattr(LocaleDuplicateDialog, "exec", duplicate_exec)
-    monkeypatch.setattr(UnityLocaleDialog, "exec", unity_exec)
+    def visit(window):
+        window.show_unity_locale()
+        unity = window.workspace.pages[-1]
+        assert not unity.asset_paths
+        unity.check_duplicates()
+        nested = window.workspace.pages[-1]
+        assert nested.window() is window
+        duplicate_exec(nested)
+        assert window.workspace.pages[-1] is unity
+        unity.reject()
     window = MainWindow()
-    window.show_unity_locale()
+    visit(window)
     window.close()
     assert repository.load().unity_locale_dir == str(folder)
     def unexpected_picker(*_):
@@ -208,7 +211,7 @@ def test_duplicate_folder_saved_and_automatically_reused_after_restart(app, tmp_
     monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getExistingDirectory", unexpected_picker)
     monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getOpenFileNames", unexpected_picker)
     reopened = MainWindow()
-    reopened.show_unity_locale()
+    visit(reopened)
     reopened.close()
     assert len(visits) == 2
 

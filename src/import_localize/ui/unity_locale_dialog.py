@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QToolButton,
 )
 
+from .feature_workspace import open_child_feature
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.config.settings import AppSettings
 from .locale_progress_dialog import LocaleProgressDialog
@@ -431,9 +432,7 @@ class UnityLocaleDialog(QDialog):
         self.settings.unity_asset_files = [str(p) for p in self.asset_paths]
         dialog = DirectSheetDialog(self.settings, "download" if self.importing() else "upload",
                                    self, annotations=self.desc_annotations)
-        dialog.exec()
-        dialog.deleteLater()
-        self.set_assets([Path(p) for p in self.settings.unity_asset_files])
+        open_child_feature(self, dialog, lambda: self.set_assets([Path(p) for p in self.settings.unity_asset_files]))
 
     def review_mapping(self):
         self.start_audit("mapping")
@@ -453,22 +452,21 @@ class UnityLocaleDialog(QDialog):
         from .csv_language_dialog import CsvLanguageDialog
         dialog = CsvLanguageDialog(self.csv_paths, self, annotations=self.desc_annotations)
         dialog.setStyleSheet(self.styleSheet())
-        dialog.exec()
-        dialog.deleteLater()
+        open_child_feature(self, dialog)
 
     def check_duplicates(self):
         from .locale_duplicate_dialog import LocaleDuplicateDialog
         dialog = LocaleDuplicateDialog(self.asset_paths, self, settings=self.settings)
         if dialog.paths:
             dialog.scan()
-        dialog.exec()
-        if dialog.wrote_files:
-            self.invalidate()
-            self.backup_path = dialog.backup_path
-            self.backup_button.setEnabled(True)
-            self.details.setPlainText("Đã xử lý duplicate key. Bấm Xem trước lại trước khi import/export.\n"
-                                      f"Bản sao lưu: {self.backup_path}")
-        dialog.deleteLater()
+        def after_review():
+            if dialog.wrote_files:
+                self.invalidate()
+                self.backup_path = dialog.backup_path
+                self.backup_button.setEnabled(True)
+                self.details.setPlainText("Đã xử lý duplicate key. Bấm Xem trước lại trước khi import/export.\n"
+                                          f"Bản sao lưu: {self.backup_path}")
+        open_child_feature(self, dialog, after_review)
 
     def _mode_changed(self):
         importing = self.importing()

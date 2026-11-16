@@ -1,6 +1,7 @@
 from pathlib import Path
 from concurrent.futures import CancelledError
 
+from .feature_workspace import open_child_feature
 from import_localize.services.unity_locale_service import export_csv, read_asset
 
 
@@ -28,7 +29,4 @@ def review_sources(kind, parent, settings, sources, annotations):
     else:
         from .csv_language_dialog import CsvLanguageDialog
         dialog = CsvLanguageDialog(parent=parent, sources=sources, annotations=annotations)
-    try:
-        dialog.exec()
-    finally:
-        dialog.deleteLater()
+    open_child_feature(parent, dialog)
