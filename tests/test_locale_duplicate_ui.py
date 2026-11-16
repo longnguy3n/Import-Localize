@@ -180,32 +180,24 @@ def test_duplicate_folder_saved_and_automatically_reused_after_restart(app, tmp_
     repository = SettingsRepository(tmp_path / "settings.json")
     repository.save(AppSettings(auto_check_updates=False))
     monkeypatch.setattr("import_localize.ui.main_window.SettingsRepository", lambda: repository)
-    monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getExistingDirectory", lambda *_: str(folder))
     visits = []
-    def duplicate_exec(dialog):
-        if not visits:
-            dialog.choose_folder()
-        drain(app, dialog)
-        assert dialog.paths == assets
-        assert str(folder) in dialog.folder_label.text()
-        assert dialog.scan_result is not None
-        visits.append(True)
-        dialog.reject()
-        return 0
     def visit(window):
         window.show_unity_locale()
         unity = window.workspace.pages[-1]
-        assert not unity.asset_paths
-        unity.check_duplicates()
-        nested = window.workspace.pages[-1]
-        assert nested.window() is window
-        duplicate_exec(nested)
-        assert window.workspace.pages[-1] is unity
-        unity.reject()
+        assert unity.asset_paths == assets
+        unity.duplicates_button.click()
+        dialog = unity.findChild(LocaleDuplicateDialog)
+        assert dialog.isWindow() and dialog.folder_button.isHidden() and dialog.choose_button.isHidden()
+        drain(app, dialog)
+        assert dialog.scan_result and dialog.paths == assets
+        visits.append(True)
+        dialog.reject()
+        assert window.workspace.pages == [unity]
     window = MainWindow()
+    window.set_transfer_folder("unity", str(folder))
     visit(window)
     window.close()
-    assert repository.load().unity_locale_dir == str(folder)
+    assert repository.load().unity_folder == str(folder)
     def unexpected_picker(*_):
         raise AssertionError("Should reuse the saved folder without asking")
     monkeypatch.setattr(locale_duplicate_dialog.QFileDialog, "getExistingDirectory", unexpected_picker)

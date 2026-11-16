@@ -173,7 +173,7 @@ class CsvLanguageDialog(QDialog):
         self.guidance.hide()
         layout.addWidget(self.guidance)
         self.files_label = QLabel()
-        self.files_label.setText("Chọn file CSV để bắt đầu nhận diện ngôn ngữ.")
+        self.files_label.setText("Chưa có CSV để kiểm tra. Kiểm tra thư mục CSV của chiều truyền đang dùng.")
         self.files_label.setWordWrap(True)
         layout.addWidget(self.files_label)
         self.summary = QTableWidget(0, 7)

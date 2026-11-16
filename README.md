@@ -8,7 +8,7 @@ Dùng thanh trên cùng để chọn cặp dữ liệu, rồi chọn chiều nh�
 | **CSV ↔ Unity** | Nhập `export_<mã>.csv` vào `locale_<mã>.asset` | Xuất `locale_<mã>.asset` vào `upload_<mã>.csv` |
 | **Sheet ↔ Unity** | Ghi từng tab `export_<mã>` vào asset có cùng mã ngôn ngữ | Ghi trực tiếp từng asset vào tab `upload_<mã>` |
 
-Danh sách nguồn, đích, trạng thái và nút thực hiện đi cùng chiều đang chọn. **Cài đặt** truy cập được từ cả ba nhóm khi tác vụ đang rảnh. **Kiểm tra CSV** cho phép mở các công cụ đối chiếu và quay lại nhóm trước đó.
+Trạng thái và nút thực hiện đi cùng chiều đang chọn. Kéo vạch giữa chức năng và nhật ký để chỉnh chiều cao. App nhớ kích thước theo chức năng và chiều chuyển. **Cài đặt** truy cập được từ cả ba nhóm khi tác vụ đang rảnh. **Kiểm tra CSV** mở từng công cụ trong cửa sổ riêng.
 
 ## Chọn thư mục truyền dữ liệu
 
@@ -20,7 +20,7 @@ Trong card **Thư mục truyền dữ liệu**, bấm **Chọn…** cạnh từn
 | CSV export | `DG_Localization - export_pt-BR.csv` | Nhận dữ liệu tải từ Sheet và nhập dữ liệu vào Unity |
 | Unity locale | `locale_pt-BR.asset` | Xuất sang CSV upload hoặc Sheet, nhận từ CSV export hoặc Sheet |
 
-Tên ngắn như `upload_vi.csv` và `export_vi.csv` cũng hợp lệ. Với đường truyền trực tiếp **Sheet ↔ Unity**, chỉ cần chọn bảng tính và các asset. Ví dụ `locale_pt-BR.asset` ghi vào tab `upload_pt-BR` và nhận từ tab `export_pt-BR`.
+Tên ngắn như `upload_vi.csv` và `export_vi.csv` cũng hợp lệ. Với đường truyền trực tiếp **Sheet ↔ Unity**, chỉ cần chọn bảng tính và thư mục Unity locale. Ví dụ `locale_pt-BR.asset` ghi vào tab `upload_pt-BR` và nhận từ tab `export_pt-BR`.
 
 App đối chiếu mã đầy đủ trong tên file hoặc tab, tiêu đề cột dịch và `mLanguages.Code` trong asset. Ví dụ `Portuguese (Brazil)` và `Portuguese (Brazil) [pt-BR]` đều nhận diện được là `pt-BR`. Các cách viết `pt_BR` và `pt-br` đại diện cùng mã. `pt`, `pt-BR` và `pt-PT` có đích riêng. Khi có nhiều file cùng vai trò và mã, bấm nút báo lỗi để xem tên các file cần sửa. Các thao tác với Unity có bước **Xem trước** để kiểm tra từng cặp trước khi ghi.
 
@@ -35,10 +35,6 @@ upload_en.csv
 ```
 
 Khi tên CSV có tiền tố bảng tính, app kiểm tra tiền tố với tên bảng tính từ link. App kiểm tra tiêu đề cột dịch trước khi ghi đè tab đã có hoặc tạo tab mới.
-
-## Chế độ một sheet
-
-Nhập tên tab `upload_<mã>` trong **Thiết lập đích… → Google Sheets**. App chọn CSV upload có đúng mã ngôn ngữ của tab, bất kể vị trí trong danh sách. Ví dụ `upload_vi` sẽ lấy `DG_Localization - upload_vi.csv`. Nếu thiếu file đúng mã hoặc có nhiều file cùng mã, app báo lỗi trước khi ghi.
 
 ## Mặc định cố định
 
@@ -133,11 +129,11 @@ Nếu thư mục đã có một CSV export hợp lệ của đúng bảng tính 
 
 ## So sánh CSV theo key
 
-Mở **Kiểm tra CSV → So sánh hai CSV…** từ bất kỳ nhóm nào. App dùng hai hàng đang chọn hoặc danh sách dùng chung nếu chỉ có hai tệp. Với các trường hợp còn lại, chọn hai CSV trong hộp chọn tệp. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
+Mở **Kiểm tra CSV → So sánh hai CSV…** từ bất kỳ nhóm nào. Chọn bản cũ và bản mới từ các CSV trong hai thư mục chung ngay trong cửa sổ so sánh. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
 
 ## Kiểm tra mapping DG
 
-Bấm **Kiểm tra CSV → Kiểm tra mapping…** → **Chọn thư mục DG…**. App lấy toàn bộ CSV ngay trong thư mục đó và `data/mapping.json`. Có thể chọn mapping khác hoặc chọn nhiều CSV riêng; đường dẫn và danh sách file được nhớ cho lần sau.
+Mở **Kiểm tra CSV → Kiểm tra mapping…**. App đối chiếu toàn bộ CSV upload với mapping.json đã chọn. Khi chưa có đường dẫn mapping đã lưu, app tìm data/mapping.json trong thư mục upload. Nút **Chọn mapping.json…** cho phép dùng bộ quy tắc khác.
 
 - Nhấn **Kiểm tra mapping** để chạy offline. Hỗ trợ hợp đồng DG v2 (`schema_version: 2.0.0`); schema được đóng gói cùng app. App chỉ đọc mapping hiện hành, không chạy script trong `support`/`code`, không dùng mapping pending hay báo cáo lịch sử làm quy tắc.
 - Bảng file hiển thị số phát hiện sai và số cần xem ngữ cảnh. Bấm file để lọc; bảng dưới chỉ rõ key, ngôn ngữ, mapping chuẩn và nội dung hiện tại. Chọn một dòng để xem đầy đủ nguồn và lý do. Có tìm kiếm, bộ lọc và nút hiện tất cả file.
@@ -154,7 +150,7 @@ Chọn các key cần xử lý để thêm nhãn `Wrong mapping` vào Desc của
 
 ## Nhận diện ngôn ngữ CSV offline
 
-Trong danh sách CSV upload, chọn các hàng cần kiểm tra rồi mở **Kiểm tra CSV → Nhận diện ngôn ngữ…**. Nếu chưa chọn hàng, app kiểm tra toàn bộ danh sách. Nhóm **CSV ↔ Unity** cũng có công cụ nhận diện cho CSV đã dịch hoặc dữ liệu chuẩn bị xuất. Trong màn hình kết quả CSV có thể chọn các tệp khác và bấm **Kiểm tra lại**.
+Mở **Kiểm tra CSV → Nhận diện ngôn ngữ…** để kiểm tra tất cả CSV upload. Nhóm **CSV ↔ Unity** cũng có công cụ nhận diện cho CSV đã dịch hoặc dữ liệu chuẩn bị xuất.
 
 - Mô hình **Lingua 2.2.0** được đóng gói cùng app, hỗ trợ 75 ngôn ngữ; không cần mạng, tài khoản Google hoặc tải mô hình khi sử dụng. Chạy trên luồng nền, có tiến độ theo số ô đã xử lý và nút **Dừng**. Lần phân tích đầu cần thêm thời gian nạp mô hình.
 - Nhận diện nội dung độc lập với tên cột, sau đó đối chiếu với `English`, `Vietnamese`, mã `en`, `vi`, dạng `Portuguese (Brazil) [pt-BR]`… Bỏ qua các cột key/type/desc/metadata. Cột không có tên/mã được hỗ trợ vẫn được nhận diện nhưng báo chưa thể đối chiếu; không suy đoán ngôn ngữ khai báo từ tên file.
@@ -178,8 +174,7 @@ Tính năng chạy trực tiếp trên file của máy, không cần đăng nh�
 4. Bấm **Xem trước** để kiểm tra file đích, số term thêm/xóa/thay thế và cảnh báo key trùng.
 5. Bấm **Thực hiện Replace Import**. Quay lại Unity, dùng **Assets → Refresh / Ctrl+R** nếu chưa thấy dữ liệu mới.
 
-Hai danh sách hiển thị file **Nguồn** và file **Nhận vào**. App ghép theo mã ngôn ngữ đầy đủ dù thứ tự ban đầu khác nhau. Mỗi mã cần một CSV và một asset chứa đúng một ngôn ngữ. Khi số lượng khớp nhưng mã khác nhau, hãy kiểm tra tên file, cột dịch và mã khai báo trong asset.
-Phần xem trước hiển thị riêng nguồn → file nhận, lượng dữ liệu nguồn, đích trước/sau, và các cột màu **Thêm (xanh), Xóa (đỏ), Sửa (vàng), Giữ (xám)**. Khi nhập, nguồn tính theo dòng CSV và đích tính theo term; khi xuất thì ngược lại. Sửa chỉ tính key có nội dung dịch, loại hoặc mô tả khác trước, không tính mọi key đã tồn tại. Key trùng trong đích được báo riêng; dấu `—` cho biết không thể so sánh nội dung CSV cũ.
+App tự ghép các file theo mã ngôn ngữ. Sau khi xem trước, bảng kết quả hiển thị tên nguồn → đích, số bản ghi đích trước và sau, cùng số key thêm, xóa, sửa và giữ. Sheet ↔ Unity dùng cùng bảng kết quả. Khi ghi lên Sheet, app đối chiếu dữ liệu chuẩn bị ghi với nội dung tab tại thời điểm xem trước.
 CSV chỉ có header, sai ngôn ngữ, trùng cột ngôn ngữ hoặc sai số cột sẽ bị chặn trước khi ghi.
 
 Khi bấm **Thực hiện Replace Import/Export**, popup hiển thị trạng thái và tên file đang kiểm tra, sao lưu, chuẩn bị hoặc ghi. Thanh tiến trình tính theo số bước đã hoàn thành thực tế, không phải thời gian ước lượng; không có trì hoãn hay chạy thanh giả. Nếu tác vụ nhanh, tiến trình hoàn thành ngay. Popup giữ kết quả thành công/lỗi để đọc và có nút mở bản sao lưu. Khi đang ghi, popup không thể đóng; nếu gặp lỗi ghi hàng loạt, trạng thái khôi phục cũng được hiển thị.
@@ -196,10 +191,7 @@ Import có chế độ tự nhận diện, Export mặc định dùng dấu ph�
 
 ### Kiểm tra và xóa duplicate key trong Unity locale
 
-Trong cửa sổ **Unity Locale**, chọn các asset rồi bấm **Kiểm tra duplicate key…**. Có thể chọn lại nhiều file ngay trong cửa sổ kiểm tra; chức năng này không cần CSV hoặc Google Sheets.
-Kiểm tra duplicate cũng nhớ chính xác danh sách file lần trước. Khi chưa chọn asset ở cửa sổ Import/Export, app dùng danh sách duplicate đã lưu; chỉ quét lại toàn bộ thư mục đã lưu nếu chưa có danh sách file trước đó.
-
-Thư mục asset được lưu chung với cài đặt Unity Locale khi chọn file hoặc **Chọn thư mục…**. Lần sau mở kiểm tra duplicate, nếu chưa chọn asset trong danh sách Import/Export, app tự nạp các `locale*.asset` trong thư mục đã lưu và kiểm tra ngay, kể cả sau khi mở lại ứng dụng. Thư mục hiện tại luôn được hiển thị để đối chiếu. Nếu thư mục đã bị chuyển/xóa hoặc không có asset, app thông báo để chọn lại.
+Chọn thư mục **Unity locale** trong card chung rồi bấm **Kiểm tra key trùng…** trong nhóm **CSV ↔ Unity**. Cửa sổ kiểm tra quét tất cả asset phù hợp trong thư mục đó.
 
 - Kiểm tra key giống chính xác, phân biệt hoa/thường, riêng trong từng asset. Key giống nhau ở các file ngôn ngữ khác nhau không bị coi là duplicate.
 - Bảng kết quả chỉ rõ file, key, số bản ghi và số bản dư sẽ xóa. Chỉ so sánh **Term (key)** và các chuỗi trong **Languages**; bỏ qua New/Flags, mô tả, loại term, Languages_Touch và các trường phụ. Key nằm ở tiêu đề; mỗi bản hiển thị nội dung theo tên ngôn ngữ, không dùng JSON.

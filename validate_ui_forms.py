@@ -9,13 +9,8 @@ FORMS = ROOT / "src" / "import_localize" / "ui" / "forms"
 REQUIRED = {
     "main_window.ui": {
         "logoLabel",
-        "filesCard",
+        "workflowFrame",
         "cardsSplitter",
-        "filesIconLabel",
-        "fileTable",
-        "compareFilesButton",
-        "moveUpButton",
-        "moveDownButton",
         "actionCard",
         "startButton",
         "stopButton",

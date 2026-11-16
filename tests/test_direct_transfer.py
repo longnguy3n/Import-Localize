@@ -47,6 +47,9 @@ def test_direct_upload_matches_csv_route_and_preserves_preview(world, tmp_path):
     assert not list(tmp_path.glob("*.csv"))
     assert (plan.pairs[0].tab_name, plan.pairs[0].row_count) == ("upload_en", 1)
 
+    stats = plan.pairs[0].stats
+    assert (stats.before_count, stats.after_count, stats.added) == (0, 1, 1)
+
     csv_path = tmp_path / "Demo - upload_en.csv"
     csv_path.write_bytes(prepare_export_pairs([asset], [csv_path], annotations=marks).changes[0].after)
     expected = load_csv_bundle(ImportJob((str(csv_path),), "url", sheet_name="upload_en"))
@@ -64,6 +67,7 @@ def test_direct_download_applies_reviewed_snapshot_and_backup(world, tmp_path):
     data = 'Key,Type,Desc,English\r\n001,Text,note,"  Xin chào {0}\r\nworld  "\r\n'.encode()
     state.payloads[8] = data
     plan = direct.prepare_transfer("download", "url", [asset])
+    assert plan.pairs[0].stats == plan.files.changes[0].stats
     assert asset.read_bytes() == original and not list(tmp_path.glob("*.csv"))
     csv_path = tmp_path / "Demo - export_en.csv"
     csv_path.write_bytes(data)
@@ -82,6 +86,7 @@ def test_ambiguous_or_stale_pairs_block_writes(world, tmp_path):
     with pytest.raises(UnityLocaleError, match="cùng mã"):
         direct.prepare_transfer("upload", "url", [asset, asset])
     plan = direct.prepare_transfer("upload", "url", [asset])
+    state.payloads[1] = b""
     state.tabs = [SimpleNamespace(title="upload_en", id=1)]
     with pytest.raises(UnityLocaleError, match="Tab upload_en đã thay đổi"):
         direct.apply_transfer(plan, tmp_path)
@@ -160,7 +165,18 @@ def test_empty_asset_will_not_clear_tab(world):
     state, asset = world
     first, last = ASSET.index("    mTerms:"), ASSET.index("    CaseInsensitiveTerms:")
     asset.write_text(ASSET[:first] + "    mTerms: []\n" + ASSET[last:])
+    state.payloads[1] = b""
     state.tabs = [SimpleNamespace(title="upload_en", id=1)]
     with pytest.raises(UnityLocaleError, match="không có dòng"):
         direct.prepare_transfer("upload", "url", [asset])
     assert not state.writes
+
+def test_direct_preview_compares_existing_tab_by_key(world):
+    state, asset = world
+    state.tabs = [SimpleNamespace(id=4, title="upload_en")]
+    state.payloads[4] = b"Key,Type,Desc,English\nobsolete,Text,changed,old\nremoved,Text,,bye\n"
+    pair = direct.prepare_transfer("upload", "url", [asset]).pairs[0]
+    stats = pair.stats
+    assert (stats.before_count, stats.after_count) == (2, 2)
+    assert (stats.added, stats.removed, stats.updated, stats.unchanged) == (1, 1, 1, 0)
+    assert state.reads == [4] and not state.writes

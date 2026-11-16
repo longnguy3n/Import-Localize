@@ -144,7 +144,7 @@ class ComparisonSortModel(QSortFilterProxyModel):
 
 
 class CsvCompareDialog(QDialog):
-    def __init__(self, old_path: str, new_path: str, parent=None):
+    def __init__(self, old_path: str = "", new_path: str = "", parent=None, *, choices=None):
         super().__init__(parent)
         self.setWindowTitle("So sánh CSV theo key")
         self.setObjectName("csvCompareDialog")
@@ -244,11 +244,36 @@ class CsvCompareDialog(QDialog):
         self.filter_combo.currentIndexChanged.connect(self._filter)
         self.search_edit.textChanged.connect(self._filter)
         self.table.selectionModel().currentRowChanged.connect(self._show_detail)
+        self.pickers = []
+        if choices is not None:
+            row = QHBoxLayout()
+            for index, title in enumerate(("Bản cũ", "Bản mới")):
+                picker = QComboBox()
+                picker.setAccessibleName(title)
+                for path in choices:
+                    picker.addItem(Path(path).name, path)
+                    picker.setItemData(picker.count() - 1, path, Qt.ItemDataRole.ToolTipRole)
+                picker.setCurrentIndex(min(index, len(choices) - 1))
+                self.pickers.append(picker)
+                row.addWidget(QLabel(title))
+                row.addWidget(picker, 1)
+            layout.insertLayout(0, row)
+            self.files_label.hide()
+            for picker in self.pickers:
+                picker.currentIndexChanged.connect(self._start)
         self._start()
 
     def _start(self):
         self.result = None
         self._filter()
+        if self.pickers:
+            self.paths = tuple(picker.currentData() for picker in self.pickers)
+            if not all(self.paths) or self.paths[0] == self.paths[1]:
+                self.swap_button.setEnabled(False)
+                self.summary_label.setText("Cần hai CSV khác nhau từ thư mục upload hoặc export để so sánh.")
+                return
+            for picker in self.pickers:
+                picker.setEnabled(False)
         self.files_label.setText(f"Bản cũ: {Path(self.paths[0]).name}\nBản mới: {Path(self.paths[1]).name}")
         self.files_label.setToolTip(f"Bản cũ: {self.paths[0]}\nBản mới: {self.paths[1]}")
         self.summary_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -264,6 +289,8 @@ class CsvCompareDialog(QDialog):
         self.worker.deleteLater()
         self.worker = None
         self.swap_button.setEnabled(True)
+        for picker in self.pickers:
+            picker.setEnabled(True)
         if self._closing:
             super().reject()
 
@@ -305,6 +332,10 @@ class CsvCompareDialog(QDialog):
 
     def _swap(self):
         self.paths = self.paths[1], self.paths[0]
+        for picker, path in zip(self.pickers, self.paths):
+            picker.blockSignals(True)
+            picker.setCurrentIndex(picker.findData(path))
+            picker.blockSignals(False)
         self._start()
 
     def reject(self):

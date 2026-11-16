@@ -572,38 +572,21 @@ def export_csv(asset: LocaleAsset, delimiter: str = ",", *, annotations=None) ->
     return stream.getvalue().encode("utf-8-sig")
 
 
-def _export_change(asset: LocaleAsset, target: Path, delimiter: str, *, annotations=None, check_header=False) -> FileChange:
-    duplicates = len(asset.terms) - len({t["Term"] for t in asset.terms})
-    warnings = (f"Asset có {duplicates} term trùng; Export giữ lại như I2.",) if duplicates else ()
-    before = target.read_bytes() if target.exists() else None
-    after = export_csv(asset, delimiter, annotations=annotations)
-    new_rows = list(csv.reader(io.StringIO(after.decode("utf-8-sig")), delimiter=delimiter))
-    def records(rows):
-        # Compare by column name, so column order alone does not imply a change.
-        values = {}
-        for row in rows[1:]:
-            if len(row) != len(rows[0]):
-                raise UnityLocaleError("Số cột không hợp lệ")
-            values.setdefault(row[0], []).append(dict(zip(rows[0][1:], row[1:])))
-        return values
-    current, old_rows = records(new_rows), None
-    if before is None:
-        old_rows = [new_rows[0]]
-    else:
-        try:
-            old_rows = parse_locale_csv(before, target.name, "auto")
-            if check_header:
-                validate_csv_header(old_rows[0], asset.languages[0]["Code"], target.name,
-                                    language_name=asset.languages[0]["Name"])
-            records(old_rows)
-        except (ValueError, OSError):
-            if check_header:
-                raise
-            old_rows = None
-            warnings += ("CSV đích không đọc được theo mẫu Key: chưa xác định số liệu cũ; Replace vẫn ghi đè toàn bộ.",)
-    stats = ChangeStats(len(asset.terms), None, len(new_rows) - 1, None, None, None, None, "term", "dòng CSV")
+def _records_by_key(rows):
+    # Compare by column name, so column order alone does not imply a change.
+    values = {}
+    for row in rows[1:]:
+        if len(row) != len(rows[0]):
+            raise UnityLocaleError("Số cột không hợp lệ")
+        values.setdefault(row[0], []).append(dict(zip(rows[0][1:], row[1:])))
+    return values
+
+
+def export_change_stats(old_rows, new_rows, source_count, target_unit):
+    stats = ChangeStats(source_count, None, len(new_rows) - 1, None, None, None, None, "term", target_unit)
     if old_rows is not None:
-        previous = records(old_rows)
+        current = _records_by_key(new_rows)
+        previous = _records_by_key(old_rows)
         shared = current.keys() & previous.keys()
         changed = sum(current[key] != previous[key] for key in shared)
         stats.before_count = len(old_rows) - 1
@@ -612,6 +595,30 @@ def _export_change(asset: LocaleAsset, target: Path, delimiter: str, *, annotati
         stats.removed = len(previous.keys() - current.keys())
         stats.updated = changed
         stats.unchanged = len(shared) - changed
+    return stats
+
+
+def _export_change(asset: LocaleAsset, target: Path, delimiter: str, *, annotations=None, check_header=False) -> FileChange:
+    duplicates = len(asset.terms) - len({t["Term"] for t in asset.terms})
+    warnings = (f"Asset có {duplicates} term trùng; Export giữ lại như I2.",) if duplicates else ()
+    before = target.read_bytes() if target.exists() else None
+    after = export_csv(asset, delimiter, annotations=annotations)
+    new_rows = list(csv.reader(io.StringIO(after.decode("utf-8-sig")), delimiter=delimiter))
+    if before is None:
+        old_rows = [new_rows[0]]
+    else:
+        try:
+            old_rows = parse_locale_csv(before, target.name, "auto")
+            if check_header:
+                validate_csv_header(old_rows[0], asset.languages[0]["Code"], target.name,
+                                    language_name=asset.languages[0]["Name"])
+            _records_by_key(old_rows)
+        except (ValueError, OSError):
+            if check_header:
+                raise
+            old_rows = None
+            warnings += ("CSV đích không đọc được theo mẫu Key: chưa xác định số liệu cũ; Replace vẫn ghi đè toàn bộ.",)
+    stats = export_change_stats(old_rows, new_rows, len(asset.terms), "dòng CSV")
     return FileChange(target, before, after,
                       f"{len(asset.terms)} term → {stats.after_count} dòng CSV", warnings, asset.path, stats)
 

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
 )
 
+from .transfer_preview import TransferPreview
 from .feature_workspace import open_child_feature
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.services.direct_transfer import apply_transfer, prepare_transfer
@@ -32,17 +33,20 @@ class TransferWorker(QThread):
 
 
 class DirectSheetDialog(QDialog):
-    def __init__(self, settings, direction, parent=None, *, annotations=None):
+    def __init__(self, settings, direction, parent=None, *, annotations=None, folder_only=False):
         super().__init__(parent)
         if direction not in ("upload", "download"):
             raise ValueError("Chiều truyền không hợp lệ.")
         self.direction = direction
         self.upload = direction == "upload"
+        self.folder_only = folder_only
         self.settings = settings
         self.annotations = annotations if annotations is not None else DescAnnotations()
         self.url = settings.sheet_url.strip()
         self.paths = [Path(p) for p in settings.unity_asset_files]
         self.asset_folder = settings.unity_folder
+        if self.folder_only and not self.asset_folder:
+            self.paths = []
         self.plan = None
         self.backup_path = None
         self.worker = None
@@ -71,6 +75,7 @@ class DirectSheetDialog(QDialog):
         self.remove_button = QPushButton("Bỏ file đã chọn")
         for button in (self.add_button, self.folder_button, self.remove_button):
             toolbar.addWidget(button)
+            button.setVisible(not folder_only)
         toolbar.addStretch()
         self.audit_button = QToolButton()
         self.audit_button.setText("Kiểm tra dữ liệu")
@@ -94,6 +99,8 @@ class DirectSheetDialog(QDialog):
         self.table.setColumnWidth(1, 190)
         self.table.setColumnWidth(2, 104)
         layout.addWidget(self.table, 1)
+        self.changes = TransferPreview()
+        layout.addWidget(self.changes)
 
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -164,20 +171,25 @@ class DirectSheetDialog(QDialog):
         self.sheet.setText(self.url or "Dán link bảng tính trên màn hình chính để bắt đầu.")
         self.sheet.setToolTip(self.url)
         self.table.setRowCount(0)
-        self.table.setRowCount(len(self.paths))
-        for row, path in enumerate(self.paths):
+        self.changes.hide()
+        self.table.setVisible(not self.folder_only)
+        shown = [] if self.folder_only else self.paths
+        self.table.setRowCount(len(shown))
+        for row, path in enumerate(shown):
             item = QTableWidgetItem(path.name)
             item.setToolTip(str(path))
             self.table.setItem(row, 0 if self.upload else 1, item)
         self.status.setText("Chọn Xem trước để ghép theo mã ngôn ngữ trong asset." if self.paths else
                             "Chọn các file locale*.asset để ghép với tab theo mã ngôn ngữ.")
+        if self.folder_only and not self.paths:
+            self.status.setText("Chọn thư mục Unity locale chứa locale_<mã>.asset trong Thư mục truyền dữ liệu.")
         self.update_controls()
 
     def update_controls(self):
         busy = self.worker is not None
         if hasattr(self, "workspace"):
             self.workspace.owner._sync_feature_controls()
-        edit_files = not busy and not self.asset_folder
+        edit_files = not busy and not self.asset_folder and not self.folder_only
         self.add_button.setEnabled(edit_files)
         self.direction_combo.setEnabled(not busy)
         self.folder_button.setEnabled(edit_files)
@@ -276,6 +288,8 @@ class DirectSheetDialog(QDialog):
         self.start_task(kind, lambda progress, cancel: asset_audit_sources(paths, progress, cancel))
 
     def check_duplicates(self):
+        if self.folder_only and not self.paths:
+            return
         from .locale_duplicate_dialog import LocaleDuplicateDialog
         dialog = LocaleDuplicateDialog(self.paths, self, settings=self.settings)
         if dialog.paths:
@@ -298,11 +312,13 @@ class DirectSheetDialog(QDialog):
         self.worker = None
         worker.deleteLater()
         if worker.error is not None:
+            self.changes.hide()
             self.plan = None
             self.status.setText(worker.error)
         elif worker.operation == "preview":
             self.plan = worker.result
             self.sheet.setText(self.plan.spreadsheet_name)
+            self.table.setVisible(not self.folder_only)
             self.table.setRowCount(len(self.plan.pairs))
             for row, pair in enumerate(self.plan.pairs):
                 source, target = (pair.asset_path.name, pair.tab_name) if self.upload else (pair.tab_name, pair.asset_path.name)
@@ -310,7 +326,14 @@ class DirectSheetDialog(QDialog):
                     item = QTableWidgetItem(text)
                     item.setToolTip(str(pair.asset_path) if col == (0 if self.upload else 1) else text)
                     self.table.setItem(row, col, item)
+            if self.folder_only:
+                changes = []
+                for pair in self.plan.pairs:
+                    names = (pair.asset_path.name, pair.tab_name) if self.upload else (pair.tab_name, pair.asset_path.name)
+                    changes.append((*names, pair.stats, pair.summary))
+                self.changes.show_changes(changes)
             self.table.resizeRowsToContents()
+            self.table.setMinimumHeight(min(280, self.table.horizontalHeader().height() + self.table.verticalHeader().length() + 6))
             self.status.setText("Kiểm tra các tab nhận trước khi ghi. Nội dung mỗi tab sẽ được thay thế." if self.upload else
                                 "Lưu asset và thoát Play Mode trong Unity. App sẽ sao lưu trước khi ghi dữ liệu đã xem trước.")
         elif worker.operation in ("mapping", "language"):

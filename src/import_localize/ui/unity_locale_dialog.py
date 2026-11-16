@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QToolButton,
 )
 
+from .transfer_preview import TransferPreview
 from .feature_workspace import open_child_feature, start_feature_worker
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.config.settings import AppSettings
@@ -183,8 +184,9 @@ class LocaleWorker(QThread):
 class UnityLocaleDialog(QDialog):
     """Visible source/destination row pairs, independent of Google settings."""
 
-    def __init__(self, settings: AppSettings, csv_paths: list[Path] | None = None, parent=None, *, annotations=None):
+    def __init__(self, settings: AppSettings, csv_paths: list[Path] | None = None, parent=None, *, annotations=None, folder_only=False):
         super().__init__(parent)
+        self.folder_only = folder_only
         self.settings = settings
         self.desc_annotations = annotations if annotations is not None else DescAnnotations()
         self.audit_kind = None
@@ -194,6 +196,13 @@ class UnityLocaleDialog(QDialog):
         self.export_paths = [Path(p) for p in settings.unity_export_csv_files]
         self.upload_paths = [Path(p) for p in settings.selected_csv_files]
         self.folders = {role: getattr(settings, role + "_folder", "") for role in ("upload", "export", "unity")}
+        if folder_only:
+            if not self.folders["unity"]:
+                self.asset_paths = []
+            if not self.folders["export"]:
+                self.csv_paths = []
+            if not self.folders["upload"]:
+                self.upload_paths, self.export_paths = [], []
         self.folder_issues = {}
         self.pair_error = ""
         self.plan: LocalePlan | None = None
@@ -271,7 +280,9 @@ class UnityLocaleDialog(QDialog):
         self.target_list = FileOrderList()
         self._active_list = self.source_list
         self._selection_sync = False
-        headers = QHBoxLayout()
+        headers_panel = QWidget()
+        headers = QHBoxLayout(headers_panel)
+        headers.setContentsMargins(0, 0, 0, 0)
         for side, file_list in (("source", self.source_list), ("target", self.target_list)):
             panel = QVBoxLayout()
             title = QLabel()
@@ -291,7 +302,8 @@ class UnityLocaleDialog(QDialog):
             columns.addWidget(QLabel("Vị trí"), 2)
             panel.addLayout(columns)
             headers.addLayout(panel, 1)
-        controls.addLayout(headers)
+        controls.addWidget(headers_panel)
+        headers_panel.setVisible(not folder_only)
         self.export_target_menu = QMenu(self.target_extra_button)
         self.use_uploads_action = self.export_target_menu.addAction("", self.use_upload_targets)
         self.export_target_menu.addAction("Thêm CSV mới…", self.choose_new_csv)
@@ -324,7 +336,7 @@ class UnityLocaleDialog(QDialog):
         self.remove_button = QPushButton("Bỏ chọn")
         self.clear_button = QPushButton("Xóa hết")
         self.duplicates_button = QPushButton("Kiểm tra key trùng…")
-        self.duplicates_button.setToolTip("Kiểm tra các file locale trong danh sách; gộp bản giống nhau và chọn bản giữ khi khác nội dung.")
+        self.duplicates_button.setToolTip("Kiểm tra các file locale trong thư mục; gộp bản giống nhau và chọn bản giữ khi khác nội dung.")
         self.clear_button.setToolTip("Xóa toàn bộ file khỏi danh sách bên đang thao tác; không xóa file trên máy.")
         for button in (self.up_button, self.down_button, self.remove_button, self.clear_button):
             toolbar.addWidget(button)
@@ -362,6 +374,8 @@ class UnityLocaleDialog(QDialog):
         self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.verticalHeader().hide()
         layout.addWidget(self.table, 3)
+        self.changes = TransferPreview()
+        layout.addWidget(self.changes)
         details_header = QHBoxLayout()
         self.preview_status = QLabel("Chọn file nguồn và file nhận để bắt đầu.")
         self.preview_status.setWordWrap(True)
@@ -432,6 +446,13 @@ class UnityLocaleDialog(QDialog):
         self.apply_button.clicked.connect(self.apply)
         self.close_button.clicked.connect(self.reject)
         self.backup_button.clicked.connect(self.open_backup)
+        if folder_only:
+            toolbar.insertStretch(0, 1)
+            for widget in (self.pair_scroll, self.selection_label, self.up_button, self.down_button,
+                           self.remove_button, self.clear_button, self.pair_status, self.source_metric,
+                           self.before_metric, self.after_metric, self.stats_note):
+                widget.hide()
+            layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._mode_changed()
         if self.asset_paths or self.csv_paths or self.export_paths:
             self.details.setPlainText("Đã nạp danh sách file. Mỗi mã ngôn ngữ phải có một nguồn và một đích.\n"
@@ -474,6 +495,8 @@ class UnityLocaleDialog(QDialog):
         open_child_feature(self, dialog)
 
     def check_duplicates(self):
+        if self.folder_only and not self.asset_paths:
+            return
         from .locale_duplicate_dialog import LocaleDuplicateDialog
         dialog = LocaleDuplicateDialog(self.asset_paths, self, settings=self.settings)
         if dialog.paths:
@@ -492,7 +515,7 @@ class UnityLocaleDialog(QDialog):
         self.setWindowTitle("Replace Import · CSV → Unity" if importing else "Replace Export · Unity → CSV")
         self.safety_label.setText("Replace Import thay toàn bộ term trong asset. Lưu asset và thoát Play Mode trong Unity trước khi ghi."
                                  if importing else "Replace Export ghi vào các CSV bên nhận. File có sẵn được sao lưu trước khi ghi đè.")
-        self.export_controls.setVisible(not importing)
+        self.export_controls.setVisible(not importing and not self.folder_only)
         self.review_button.setVisible(not importing)
         self.language_check_button.setVisible(importing)
         self.direct_button.setText("Sheet → Unity…" if importing else "Unity → Sheet…")
@@ -509,11 +532,17 @@ class UnityLocaleDialog(QDialog):
         self.apply_button.setEnabled(False)
         self.review_button.setEnabled(bool(self.asset_paths))
         self.table.setRowCount(0)
+        if self.folder_only:
+            self.changes.hide()
+            self.table.hide()
+            self.details_button.setChecked(False)
+            self.details_button.hide()
+            self.duplicates_button.setEnabled(bool(self.asset_paths))
         self.progress.setValue(0)
-        paired = bool(self.source_list.count()) and not self.pair_error
+        paired = bool(self.csv_paths if self.importing() else self.asset_paths) and not self.pair_error
         self.preview_button.setEnabled(paired and self.worker is None)
         self.preview_status.setText(self.pair_error or ("Bấm Xem trước để đối chiếu nội dung với mã trên tên file." if paired
-                                    else "Chọn thư mục hoặc file nguồn và đích."))
+                                    else "Thư mục nguồn chưa có file phù hợp." if self.folder_only else "Chọn thư mục hoặc file nguồn và đích."))
         self._update_action_emphasis()
         self.source_metric.setText("NGUỒN · chưa xem trước")
         self.before_metric.setText("ĐÍCH TRƯỚC · chưa xem trước")
@@ -558,6 +587,10 @@ class UnityLocaleDialog(QDialog):
         source_role, target_role = self._roles()
         self.pair_error = ""
         try:
+            if self.folder_only:
+                missing = [role for role in self._roles() if not self.folders[role]]
+                if missing:
+                    raise ValueError("Chọn thư mục " + " và ".join(missing) + " trong Thư mục truyền dữ liệu.")
             issues = [message for role in (source_role, target_role) for message in self.folder_issues.get(role, ())]
             if issues:
                 raise ValueError("\n".join(issues))
@@ -576,6 +609,9 @@ class UnityLocaleDialog(QDialog):
     def _refresh_lists(self):
         source_role, target_role = self._roles()
         self._match_paths()
+        if self.folder_only:
+            self.invalidate()
+            return
         for role, buttons in ((source_role, (self.source_choose_button, self.source_extra_button)),
                               (target_role, (self.target_choose_button, self.target_extra_button))):
             for button in buttons:
@@ -800,7 +836,11 @@ class UnityLocaleDialog(QDialog):
 
     def preview(self):
         self.invalidate()
-        source, target = self.source_list.paths(), self.target_list.paths()
+        if self.folder_only:
+            source, target = ((list(self.csv_paths), list(self.asset_paths)) if self.importing()
+                              else (list(self.asset_paths), list(self.export_paths)))
+        else:
+            source, target = self.source_list.paths(), self.target_list.paths()
         delimiter = self.delimiter_combo.currentData()
         if self.pair_error:
             self.details.setPlainText("LỖI: " + self.pair_error)
@@ -838,10 +878,12 @@ class UnityLocaleDialog(QDialog):
         self.progress.setRange(0, 1)
         audit_kind, self.audit_kind = self.audit_kind, None
         if worker.error:
+            self.changes.hide()
             self.progress.setValue(0)
             self.plan = None
             self.details.appendPlainText("LỖI: " + worker.error)
             self.preview_status.setText("Không thể hoàn tất. Xem lỗi bên dưới và kiểm tra lại.")
+            self.details_button.show()
             self.details_button.setChecked(True)
             self.apply_button.setEnabled(False)
         elif audit_kind:
@@ -867,6 +909,11 @@ class UnityLocaleDialog(QDialog):
                                          "Export: thêm CSV upload_* vào luồng upload Google Sheets của ứng dụng.")
         else:
             self.plan = worker.result
+            if self.folder_only:
+                self.changes.show_changes([(c.source_path.name, c.path.name, c.stats, c.summary) for c in self.plan.changes])
+            else:
+                self.table.show()
+            self.details_button.show()
             self.table.setRowCount(len(self.plan.changes))
             stats = [change.stats for change in self.plan.changes]
             source_total = sum(stat.source_count for stat in stats)
@@ -909,6 +956,7 @@ class UnityLocaleDialog(QDialog):
                     self.table.setItem(row, col, item)
                 details.append(f"Hàng {row + 1}: {source}\n→ {change.path}\n{change.summary}")
                 details.extend("  • " + warning for warning in change.warnings)
+            self.table.setMinimumHeight(min(280, self.table.horizontalHeader().height() + self.table.verticalHeader().length() + 6))
             self.details.setPlainText("\n\n".join(details))
             warnings = sum(len(change.warnings) for change in self.plan.changes)
             self.preview_status.setText(f"{len(self.plan.changes)} cặp sẵn sàng · chưa ghi dữ liệu"
@@ -917,6 +965,8 @@ class UnityLocaleDialog(QDialog):
             self.apply_button.setEnabled(True)
             self.progress.setValue(1)
         self.progress.hide()
+        if self.folder_only:
+            self.duplicates_button.setEnabled(bool(self.asset_paths))
         self._update_action_emphasis()
         if self._applying and self.loading_dialog:
             self.loading_dialog.finish(worker.error, worker.result if not worker.error else None)

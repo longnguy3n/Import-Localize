@@ -7,6 +7,7 @@ from import_localize.config.settings import AppSettings
 from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAPPING
 from import_localize.services.direct_transfer import TransferPlan, TransferPair
 from import_localize.ui import direct_sheet_dialog, unity_locale_dialog
+from import_localize.services.unity_locale_service import ChangeStats
 from test_unity_locale import ASSET
 from test_unity_locale_ui import app, drain
 
@@ -34,7 +35,7 @@ def test_direct_review_preview_snapshot_and_submit(app, tmp_path, monkeypatch):
         assert gate.wait(5)
         kwargs["progress_callback"](100, "Đã đọc")
         return TransferPlan(direction, url, "My Spreadsheet",
-                            [TransferPair(path, "upload_en", 2, "Ghi đè tab", 7)])
+                            [TransferPair(path, "upload_en", 2, "Ghi đè tab", 7, ChangeStats(2, 1, 2, 1, 0, 0, 1, "term", "dòng Sheet"))])
 
     def submit(plan, backup_root, **kwargs):
         submitted.append(plan)

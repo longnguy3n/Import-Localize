@@ -11,7 +11,7 @@ class TransferFoldersCard(QFrame):
     roles = {"upload": "CSV upload", "export": "CSV export", "unity": "Unity locale"}
     patterns = {"upload": "upload_<mã>.csv", "export": "export_<mã>.csv", "unity": "locale_<mã>.asset"}
 
-    def __init__(self, settings, files_button):
+    def __init__(self, settings):
         super().__init__()
         self.setObjectName("transferFoldersCard")
         self.settings = settings
@@ -28,7 +28,6 @@ class TransferFoldersCard(QFrame):
         header.addWidget(self.toggle)
         self.summary = QLabel()
         header.addWidget(self.summary, 1)
-        header.addWidget(files_button)
         self.rescan = QPushButton("Quét lại")
         self.rescan.clicked.connect(self.refresh_requested)
         header.addWidget(self.rescan)

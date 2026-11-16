@@ -101,20 +101,15 @@ def test_entrypoints_pass_selected_files_and_unity_csvs(app, tmp_path, monkeypat
         wait(app, dialog)
         return 0
     monkeypatch.setattr(CsvLanguageDialog, "exec", fake_exec)
-    paths = [write_csv(tmp_path / f"{i}.csv", [["Key", "English"], ["a", "OK"]]) for i in range(2)]
+    paths = [write_csv(tmp_path / f"upload_{code}.csv", [["Key", "English"], ["a", "OK"]]) for code in ("en", "vi")]
     main = MainWindow()
-    main.add_csv_files(list(map(str, paths)))
-    main.file_table.selectRow(1)
-    main.language_check_button.click()
-    assert main.workspace.pages[-1].paths == [paths[1]]
-    wait(app, main.workspace.pages[-1])
-    main.show_files()
-    main.file_table.clearSelection()
-    main.language_check_button.click()
-    assert main.workspace.pages[-1].paths == paths
-    wait(app, main.workspace.pages[-1])
-    main.show_files()
-    unity = UnityLocaleDialog(main.settings, paths)
+    main.set_transfer_folder("upload", str(tmp_path))
+    main.language_action.trigger()
+    popup = main.findChild(CsvLanguageDialog)
+    assert popup.isWindow() and popup.paths == paths and popup.choose_button.isHidden()
+    wait(app, popup)
+    popup.reject()
+    unity = UnityLocaleDialog(AppSettings(), paths)
     unity.language_check_button.click()
     assert visits[-1] == paths
     unity.reject()

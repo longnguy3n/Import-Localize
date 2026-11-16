@@ -13,11 +13,11 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
     app.processEvents()
     try:
         assert window.log_placeholder.isHidden()
-        assert window.file_table.isVisible()
+        assert window.csv_page.isVisible()
         window.show_unity_locale()
         tool = window.workspace.pages[-1]
         assert tool.isVisible() and tool.window() is window
-        assert not window.file_table.isVisible()
+        assert not window.csv_page.isVisible()
         assert not window.start_button.isVisible() and window.log_card.isVisible()
         assert window.action_title_label.text() == "Replace Import · CSV → Unity"
         assert window.action_card.isAncestorOf(tool.preview_status)
@@ -25,18 +25,12 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         assert tool.preview_status.isVisible() and not tool.progress.isVisible()
         tool.mode_combo.setCurrentIndex(1)
         assert window.action_title_label.text() == "Replace Export · Unity → CSV"
-        tool.duplicates_button.click()
-        duplicate = window.workspace.pages[-1]
-        assert window.action_title_label.text() == duplicate.windowTitle()
-        assert duplicate.scan_button.isVisible() and not tool.preview_status.isVisible()
-        duplicate.close_button.click()
-        assert window.workspace.pages[-1] is tool and tool.preview_status.isVisible()
-        assert window.action_title_label.text() == "Replace Export · Unity → CSV"
+        assert not tool.pair_scroll.isVisible() and not tool.changes.isVisible()
+        assert not tool.duplicates_button.isEnabled()
         window.files_launcher.click()
-        assert window.file_table.isVisible() and not window.workspace.pages
+        assert window.csv_page.isVisible() and not window.workspace.pages
         assert window.start_button.isVisible() and window.target_summary.isVisible()
         assert window.action_pages.count() == 1
-        assert window.file_table.isColumnHidden(3)
         assert not window.start_button.isEnabled()
         window.quick_sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/example/edit')
         assert window.sheet_url_edit.text() == window.quick_sheet_url_edit.text()
@@ -58,26 +52,10 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         assert window.action_title_label.text() == "Unity → Google Sheets"
         window.files_launcher.click()
         window.sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/other/edit')
-        first, second = tmp_path / 'en.csv', tmp_path / 'vi.csv'
-        for path in (first, second):
-            path.write_text('Key,English\na,Hello\n')
-        window.add_csv_files([str(first), str(second)])
-        window.file_table.selectAll()
+        first = tmp_path / "upload_en.csv"
+        first.write_text("Key,English\na,Hello\n")
+        window.set_transfer_folder("upload", str(tmp_path))
         assert window.compare_action.isEnabled() and window.language_action.isEnabled()
-        window.direct_transfer_button.click()
-        parent_tool = window.workspace.pages[-1]
-        window.check_mapping()
-        assert window.workspace.pages == [parent_tool, window.workspace.pages[-1]]
-        window.workspace.pages[-1].close_button.click()
-        assert window.workspace.pages == [parent_tool] and window.direct_transfer_button.isChecked()
-        window.files_launcher.click()
-        window.file_table.clearSelection()
-        window.compare_action.trigger()
-        compare = window.workspace.pages[-1]
-        assert compare.paths == (str(first), str(second))
-        assert compare.worker.wait(5000)
-        app.processEvents()
-        window.files_launcher.click()
         window.set_running(True)
         assert not window.quick_sheet_url_edit.isEnabled()
         assert not window.csv_tools_button.isEnabled()
@@ -93,7 +71,6 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         window.on_worker_finished()
         assert window.start_button.isEnabled()
         assert window.compare_action.isEnabled()
-        window.technical_columns_action.setChecked(True)
         window.append_log('FAIL', 'Example failure for UI test')
         assert window.log_toggle.isChecked()
         assert window.log_placeholder.isVisible()
@@ -102,7 +79,7 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
     reopened = main_window.MainWindow()
     try:
         assert reopened.log_toggle.isChecked()
-        assert not reopened.file_table.isColumnHidden(3)
+        assert reopened.folder_card.results["upload"][0] == (first,)
         assert reopened.quick_sheet_url_edit.text().endswith('/other/edit')
     finally:
         reopened.close()
@@ -116,43 +93,25 @@ def test_audit_actions_follow_active_view(app, tmp_path, monkeypatch):
     window.show()
     try:
         window.check_mapping()
-        mapping = window.workspace.pages[-1]
-        assert window.action_title_label.text() == mapping.windowTitle()
-        assert mapping.scan_button.isVisible() and window.action_card.isAncestorOf(mapping.scan_button)
+        mapping = app.activeModalWidget()
+        assert mapping.isWindow() and mapping.scan_button.isVisible()
+        assert mapping.files_button.isHidden() and mapping.folder_button.isHidden()
         mapping.focus_button.click()
-        assert not window.action_card.isVisible() and mapping.mark_button.isVisible()
+        assert mapping.mark_button.isVisible()
         mapping.focus_button.click()
-        assert mapping.scan_button.isVisible()
         mapping.close_button.click()
-
         window.direct_transfer_button.click()
         direct = window.workspace.pages[-1]
         window.language_action.trigger()
-        language = window.workspace.pages[-1]
-        assert language.paths == [] and language.choose_button.isVisible()
-        assert window.action_title_label.text() == language.windowTitle()
-        assert window.action_card.isAncestorOf(language.scan_button)
-        assert language.scan_button.isVisible() and not language.progress.isVisible()
-        paths = [tmp_path / name for name in ("old.csv", "new.csv")]
-        for path in paths:
-            path.write_text("Key,English\nhello,Hello\n", encoding="utf-8")
-        responses = iter([[], [str(path) for path in paths]])
-        monkeypatch.setattr(main_window.QFileDialog, "getOpenFileNames", lambda *a: (next(responses), "CSV"))
+        language = app.activeModalWidget()
+        assert language.paths == [] and language.choose_button.isHidden()
+        assert window.workspace.pages == [direct]
+        language.reject()
         window.compare_action.trigger()
-        assert window.workspace.pages[-1] is language
-        window.compare_action.trigger()
-        compare = window.workspace.pages[-1]
-        assert window.workspace.pages == [direct, compare]
-        assert compare.worker.wait(5000)
-        app.processEvents()
-        assert window.action_title_label.text() == compare.windowTitle()
-        assert window.action_card.isAncestorOf(compare.summary_label)
-        assert compare.swap_button.isVisible() and compare.swap_button.isEnabled()
-        compare.swap_button.click()
-        assert compare.worker.wait(5000)
-        app.processEvents()
-        assert compare.paths == (str(paths[1]), str(paths[0]))
-        window.files_launcher.click()
-        assert window.start_button.isVisible() and window.action_pages.count() == 1
+        compare = app.activeModalWidget()
+        assert compare.isWindow() and compare.worker is None and not compare.swap_button.isEnabled()
+        assert "hai CSV" in compare.summary_label.text()
+        compare.reject()
+        assert window.workspace.pages == [direct]
     finally:
         window.close()

@@ -18,45 +18,24 @@ def test_shared_file_changes_follow_workflows_and_survive_restart(app, tmp_path,
     other_asset.touch()
     window = main_window.MainWindow()
 
-    def choose(dialog):
-        dialog.csv_list.set_paths([upload])
-        dialog.asset_list.set_paths([asset])
-        dialog.accept()
-        return dialog.result()
-
     try:
         window.show_direct_transfer()
         direct = window.workspace.pages[-1]
         direct.plan = object()
-        monkeypatch.setattr(SharedFilesDialog, "exec", choose)
-        window.shared_files_button.click()
-        assert direct.paths == [asset] and direct.plan is None
-        assert window._ordered_file_paths() == (str(upload),)
-        assert repo.load().unity_asset_files == [str(asset)]
+        window.set_transfer_folder("unity", str(tmp_path))
+        window.set_transfer_folder("upload", str(tmp_path))
+        assert direct.paths == [asset, other_asset] and direct.plan is None
+        assert direct.add_button.isHidden() and direct.folder_button.isHidden() and direct.table.isHidden()
         window.show_unity_locale()
         unity = window.workspace.pages[-1]
-        assert unity.asset_paths == [asset] and unity.csv_paths == []
         unity.mode_combo.setCurrentIndex(1)
-        unity.use_uploads_action.trigger()
-        assert unity.target_list.paths() == [upload]
-        unity.set_assets([other_asset])
-
-        def cancel(dialog):
-            assert dialog.asset_list.paths() == [other_asset]
-            dialog.asset_list.clear_files()
-            dialog.csv_list.clear_files()
-            dialog.reject()
-            return QDialog.DialogCode.Rejected
-
-        monkeypatch.setattr(SharedFilesDialog, "exec", cancel)
-        window.shared_files_button.click()
-        assert unity.asset_paths == [other_asset] and unity.target_list.paths() == [upload]
-        assert window._ordered_file_paths() == (str(upload),)
+        assert unity.asset_paths == [asset, other_asset]
+        assert unity.export_paths == [upload, tmp_path / "DG - upload_vi.csv"]
+        assert unity.pair_scroll.isHidden() and unity.table.isHidden()
     finally:
         window.close()
-    assert repo.load().unity_asset_files == [str(other_asset)]
+    assert repo.load().unity_asset_files == [str(asset), str(other_asset)]
     assert repo.load().selected_csv_files == [str(upload)]
-    assert repo.load().unity_export_csv_files == [str(upload)]
 
 
 def test_shared_file_order_and_clear_are_scoped_to_current_list(app, tmp_path):

@@ -90,19 +90,8 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         window.files_launcher.click()
         assert window.target_form.isHidden()
         assert window.cards_splitter.indexOf(window.target_card) == -1
-        assert window.file_table.minimumHeight() >= 100
-        assert window.file_table.geometry().bottom() < window.add_files_button.mapTo(window.files_card, window.add_files_button.rect().topLeft()).y()
-        assert window.compare_files_button.isHidden() and window.csv_tools_button.isVisible()
-        assert abs(window.move_up_button.geometry().center().y() - window.add_files_button.geometry().center().y()) <= 1
-        window.add_csv_files(list(csv_pair))
-        window.file_table.clearSelection()
-        assert not window.compare_files_button.isEnabled()
-        selection = window.file_table.selectionModel()
-        flags = QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
-        selection.select(window.file_table.model().index(0, 0), flags)
-        assert not window.compare_files_button.isEnabled()
-        selection.select(window.file_table.model().index(1, 0), flags)
-        assert window.compare_files_button.isEnabled()
+        assert window.csv_tools_button.isVisible()
+        assert len(window.csv_tools_button.menu().actions()) == 3
         for attempt in range(2):
             observed = []
             def edit_settings():
@@ -111,8 +100,7 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
                     return
                 observed.append(dialog.settings_tabs.count() == 2 and dialog.settings_tabs.currentWidget().isAncestorOf(window.target_form))
                 window.sheet_url_edit.setText("https://docs.google.com/spreadsheets/d/example/edit")
-                window.target_mode_combo.setCurrentIndex(1)
-                window.single_sheet_name_edit.setText("import_vi")
+                assert window.target_mode_combo.isHidden()
                 dialog.update_repository_edit.setText("example/localize")
                 dialog.accept()
             QTimer.singleShot(30, edit_settings)
@@ -122,12 +110,9 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
             assert window.target_form.isHidden()
             assert window.target_form.parent() is window
             saved = repository.load()
-            assert saved.sheet_name == "import_vi"
-            assert saved.target_mode == "single"
+            assert saved.target_mode == "multiple"
             assert saved.update_repository == "example/localize"
             assert saved.sheet_url.endswith("example/edit")
-        window.clear_files()
-        assert not window.compare_files_button.isEnabled()
         window.close()
 
 
@@ -142,7 +127,7 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         splitter = window.cards_splitter
         assert splitter.count() == 2
         assert splitter.widget(0).isAncestorOf(window.workspace)
-        assert splitter.widget(0).isAncestorOf(window.action_card) and splitter.widget(1) is window.log_card
+        assert splitter.widget(0).isAncestorOf(window.action_card) and splitter.widget(1).isAncestorOf(window.log_card)
         splitter.moveSplitter(splitter.height(), 1)
         app.processEvents()
         assert window.log_card.height() >= window.log_card.minimumHeight()
@@ -157,26 +142,17 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         for _ in range(10):
             app.processEvents()
         assert all(abs(a - b) <= 2 for a, b in zip(saved, reopened.cards_splitter.sizes()))
-        # Narrow layout still fits the single row of controls.
-        reopened.resize(660, 700)
+        reopened.show_unity_locale()
         for _ in range(10):
             app.processEvents()
-        reopened.files_launcher.click()
-        buttons = [reopened.add_files_button,
-                   reopened.move_up_button, reopened.move_down_button,
-                   reopened.remove_files_button, reopened.clear_files_button]
-        assert max(button.geometry().center().y() for button in buttons) - min(button.geometry().center().y() for button in buttons) <= 1
-        assert all(button.geometry().right() <= reopened.files_card.width() for button in buttons)
-        small_sizes = reopened.cards_splitter.sizes()
-        small_height = reopened.height()
+        floor = reopened.workflow_frame.minimumHeight()
+        reopened.cards_splitter.moveSplitter(1, 1)
+        assert reopened.workflow_frame.height() >= floor
+        reopened.show_files()
+        for _ in range(10):
+            app.processEvents()
+        assert all(abs(a - b) <= 2 for a, b in zip(saved, reopened.cards_splitter.sizes()))
         reopened.close()
-        small_reopened = MainWindow()
-        small_reopened.show()
-        for _ in range(10):
-            app.processEvents()
-        assert small_reopened.height() == small_height
-        assert all(abs(a - b) <= 2 for a, b in zip(small_sizes, small_reopened.cards_splitter.sizes()))
-        small_reopened.close()
 
 
 def test_sort_all_columns_keeps_detail_mapping_and_status_colors(app, csv_pair):

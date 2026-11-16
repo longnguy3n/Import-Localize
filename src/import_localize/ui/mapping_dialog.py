@@ -134,12 +134,12 @@ class MappingTable(QTableWidget):
 class MappingDialog(QDialog):
     desc_marks_changed = Signal()
 
-    def __init__(self, settings, paths=(), parent=None, *, annotations=None, sources=None):
+    def __init__(self, settings, paths=None, parent=None, *, annotations=None, sources=None):
         super().__init__(parent)
         self.settings = settings
         self.annotations = annotations if annotations is not None else DescAnnotations()
         self.sources = sources
-        self.paths = list(sources) if sources is not None else list(dict.fromkeys(Path(p) for p in (paths or settings.mapping_csv_files)))
+        self.paths = list(sources) if sources is not None else list(dict.fromkeys(Path(p) for p in (settings.mapping_csv_files if paths is None else paths)))
         self.report = None
         self.snapshot = None
         self.worker = None
@@ -188,7 +188,12 @@ class MappingDialog(QDialog):
         source_layout.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
         path_row = QHBoxLayout()
-        self.mapping_edit = QLineEdit(settings.mapping_path)
+        mapping_path = settings.mapping_path
+        if not mapping_path and settings.upload_folder:
+            candidate = Path(settings.upload_folder) / "data" / "mapping.json"
+            if candidate.is_file():
+                mapping_path = str(candidate)
+        self.mapping_edit = QLineEdit(mapping_path)
         if not self.mapping_edit.text():
             for path in self.paths:
                 candidate = path.parent / "data" / "mapping.json"
@@ -390,7 +395,7 @@ class MappingDialog(QDialog):
         self.detail.clear()
         self.detail.hide()
         self.update_source_summary()
-        self.status.setText("Bấm Kiểm tra mapping để đối chiếu các CSV đã chọn." if self.paths else "Chọn thư mục DG hoặc các file CSV để bắt đầu.")
+        self.status.setText("Bấm Kiểm tra mapping để đối chiếu các CSV đã chọn." if self.paths else "Chọn thư mục CSV upload trong Thư mục truyền dữ liệu để bắt đầu.")
         for path in self.paths:
             row = self.files_table.rowCount()
             self.files_table.insertRow(row)

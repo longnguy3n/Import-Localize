@@ -46,13 +46,14 @@ def test_settings_edit_keeps_active_tool_and_shared_state(app, tmp_path, monkeyp
         assert window.workspace.pages[-1] is unity
         assert unity.settings is window.settings
         window.check_mapping()
-        mapping = window.workspace.pages[-1]
-        check_settings_visible()
+        from import_localize.ui.mapping_dialog import MappingDialog
+        mapping = window.findChild(MappingDialog)
+        assert mapping.isWindow() and mapping.settings is window.settings
+        mapping.reject()
         window.target_settings_button.click()
-        assert window.workspace.pages[-1] is mapping
-        assert mapping.settings is window.settings
+        assert window.workspace.pages == [unity]
         window.sheet_url_edit.setText("https://drive.google.com/open?id=first")
-        assert mapping.annotations is marks
+        assert unity.desc_annotations is marks
         window.show_direct_transfer()
         direct = window.workspace.pages[-1]
         check_settings_visible()
@@ -68,7 +69,8 @@ def test_settings_edit_keeps_active_tool_and_shared_state(app, tmp_path, monkeyp
         window.target_settings_button.click()
         assert direct.plan is None and not direct.apply_button.isEnabled()
         asset = tmp_path / "locale_en.asset"
-        direct.add_paths([asset])
+        asset.touch()
+        window.set_transfer_folder("unity", str(tmp_path))
         window.show_files()
         assert repo.load().unity_asset_files == [str(asset)]
         assert repo.load().update_repository == "example/localize"
@@ -85,32 +87,26 @@ def test_settings_unlock_after_embedded_worker(app, tmp_path, monkeypatch):
     window.activateWindow()
     app.processEvents()
     try:
-        paths = [tmp_path / name for name in ("old.csv", "new.csv")]
-        for path in paths:
-            path.write_text("Key,English\nhello,Hello\n", encoding="utf-8")
-        window.add_csv_files([str(path) for path in paths])
-        window.file_table.selectAll()
+        for name in ("upload_en.csv", "export_en.csv"):
+            (tmp_path / name).write_text("Key,English\nhello,Hello\n", encoding="utf-8")
+        window.set_transfer_folder("upload", str(tmp_path))
+        window.set_transfer_folder("export", str(tmp_path))
         window.compare_selected_files()
-        compare = window.workspace.pages[-1]
+        compare = app.activeModalWidget()
+        assert compare.window() is compare and window.workspace.pages == []
         for attempt in range(2):
             if attempt:
                 compare.swap_button.click()
-            assert not window.settings_button.isEnabled()
-            assert not window.shared_files_button.isEnabled()
-            QTest.keyClick(window, Qt.Key.Key_L, Qt.KeyboardModifier.ControlModifier)
-            assert not window.quick_sheet_url_edit.hasFocus()
             assert compare.worker.wait(5000)
             app.processEvents()
-            assert window.settings_button.isEnabled()
-            assert window.shared_files_button.isEnabled()
-            assert window.workspace.pages[-1] is compare
-            QTest.keyClick(window, Qt.Key.Key_L, Qt.KeyboardModifier.ControlModifier)
-            assert window.quick_sheet_url_edit.hasFocus()
+            assert compare.swap_button.isEnabled()
+        compare.reject()
+        assert window.settings_button.isEnabled() and window.folder_card.isEnabled()
     finally:
         window.close()
 
 
-def test_mapping_marks_follow_link_and_global_clear(app, tmp_path, monkeypatch):
+def test_popup_marks_remain_scoped_to_sheet(app, tmp_path, monkeypatch):
     from test_mapping_ui import report
 
     repo = SettingsRepository(tmp_path / "settings.json")
@@ -121,20 +117,18 @@ def test_mapping_marks_follow_link_and_global_clear(app, tmp_path, monkeypatch):
     try:
         window.sheet_url_edit.setText("https://drive.google.com/open?id=first")
         window.check_mapping()
-        mapping = window.workspace.pages[-1]
+        from import_localize.ui.mapping_dialog import MappingDialog
+        mapping = window.findChild(MappingDialog)
         mapping.report = report([tmp_path / "upload_vi.csv"])
         mapping.render_report()
-        mapping.issues_table.selectRow(0)
+        mapping.issues_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
         mapping.mark()
         assert mapping.issues_table.item(0, 3).text() == "vi"
-        assert window.clear_desc_action.isEnabled()
+        assert "1 dấu Desc" in window.csv_tools_button.text()
+        mapping.reject()
         window.sheet_url_edit.setText("https://drive.google.com/open?id=second")
-        assert mapping.issues_table.item(0, 3).text() == "—"
-        assert not window.clear_desc_action.isEnabled()
+        assert window.csv_tools_button.text() == "Kiểm tra CSV"
         window.sheet_url_edit.setText("https://drive.google.com/open?id=first")
-        assert mapping.issues_table.item(0, 3).text() == "vi"
-        window.clear_desc_action.trigger()
-        assert mapping.issues_table.item(0, 3).text() == "—"
-        assert not window.clear_desc_action.isEnabled()
+        assert window.desc_annotations.has("vi", mapping.visible_keys[0], "Wrong mapping")
     finally:
         window.close()

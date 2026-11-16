@@ -12,7 +12,7 @@ from import_localize.services.transfer_files import (
     TransferFileError, parse_tab_code, validate_asset_language, validate_csv_header,
 )
 from import_localize.services.unity_locale_service import (
-    LocalePlan, UnityLocaleError, apply_plan, check_folder_selections, export_rows, import_change,
+    ChangeStats, export_change_stats, LocalePlan, UnityLocaleError, apply_plan, check_folder_selections, export_rows, import_change,
     parse_locale_csv, read_asset,
 )
 
@@ -24,6 +24,7 @@ class TransferPair:
     row_count: int
     summary: str
     tab_id: int | None
+    stats: ChangeStats
 
 
 @dataclass
@@ -83,6 +84,13 @@ def prepare_transfer(direction, spreadsheet_url: str, asset_paths: list[Path], *
             count = bundle.row_count
             action = "Ghi đè tab" if tab else "Tạo tab"
             summary = f"{action} {name} · {count} dòng"
+            old_rows = [bundle.header]
+            if tab is not None:
+                payload = sheets.read_worksheet_csv(connection, tab, cancel_callback=cancel_callback)
+                if payload.decode("utf-8-sig").strip():
+                    old_rows = parse_locale_csv(payload, name, ",")
+                    validate_csv_header(old_rows[0], key, name, language_name=asset.languages[0]["Name"])
+            stats = export_change_stats(old_rows, [bundle.header, *bundle.rows], len(asset.terms), "dòng Sheet")
             removed = len(rows) - 1 - count
             if removed:
                 summary += f" · bỏ {removed} dòng trùng key"
@@ -97,9 +105,10 @@ def prepare_transfer(direction, spreadsheet_url: str, asset_paths: list[Path], *
                 raise UnityLocaleError(str(exc)) from exc
             change = import_change(asset, rows, matched_language=asset.languages[0])
             plan.files.changes.append(change)
+            stats = change.stats
             count = len(rows) - 1
             summary = "\n".join((change.summary, *change.warnings))
-        plan.pairs.append(TransferPair(asset.path, name, count, summary, tab.id if tab else None))
+        plan.pairs.append(TransferPair(asset.path, name, count, summary, tab.id if tab else None, stats))
         sheets._progress(progress_callback, i * 100 // len(asset_paths), f"Đã xem trước {name}")
     sheets._check_cancel(cancel_callback)
     check_folder_selections(folders)

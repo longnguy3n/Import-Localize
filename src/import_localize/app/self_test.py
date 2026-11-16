@@ -71,10 +71,10 @@ def run_self_test(report_path: str) -> int:
             window.ensurePolished()
             app.processEvents()
             assert window.cards_splitter.count() == 2 and window.workflow_frame.isAncestorOf(window.action_card)
-            assert window.file_table.columnCount() == 5, "Missing CSV table"
+            assert len(window.folder_card.rows) == 3
             assert not window.grab().isNull(), "Main window could not render"
             window.csv_page.direction.setCurrentIndex(1)
-            assert window.csv_page.folder.isVisibleTo(window) and window.download_export_tabs_button.isVisibleTo(window)
+            assert window.download_export_tabs_button.isVisibleTo(window)
             window.unity_locale_button.click()
             assert window.settings_button.isEnabled()
             window.direct_transfer_button.click()

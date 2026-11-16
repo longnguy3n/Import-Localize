@@ -50,6 +50,7 @@ class FeatureWorkspace(QStackedWidget):
         dialog.finished.connect(lambda _: self._finished(dialog, area, after_close))
         if dialog.worker is not None:
             dialog.worker.finished.connect(self.owner._sync_shared_controls, Qt.ConnectionType.QueuedConnection)
+        dialog.installEventFilter(self.owner)
         dialog.show()
         self.owner._sync_feature_controls()
 
@@ -95,7 +96,7 @@ def start_feature_worker(dialog):
 def open_child_feature(parent, dialog, after_close=None):
     workspace = getattr(parent, "workspace", None)
     if workspace is not None:
-        workspace.add_feature(dialog, after_close)
+        workspace.owner.open_audit_popup(dialog, after_close)
     else:
         try:
             dialog.exec()

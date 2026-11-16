@@ -41,6 +41,7 @@ class AppSettings:
     window_width: int = 760
     window_height: int = 950
     card_sizes: list[int] = field(default_factory=list)
+    workflow_card_sizes: dict[str, list[int]] = field(default_factory=dict)
     update_repository: str = ""
     auto_check_updates: bool = True
     ui_log_expanded: bool = False
@@ -70,6 +71,8 @@ class SettingsRepository:
                         if isinstance(path, str) and path.strip() and "\0" not in path))
                 elif key in values and key not in ("unity_import_csv_files", "unity_duplicate_files"):
                     values[key] = []
+            if not isinstance(values.get("workflow_card_sizes", {}), dict):
+                values.pop("workflow_card_sizes")
             return AppSettings(**values)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return AppSettings()

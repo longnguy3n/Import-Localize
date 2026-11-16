@@ -58,45 +58,26 @@ def test_unity_keeps_missing_pair_positions_and_remembers_clear(app, tmp_path):
     reopened.reject()
 
 
-def test_main_csv_order_removal_and_clear_survive_restart(app, tmp_path, monkeypatch):
+def test_saved_folder_is_rescanned_and_legacy_selection_is_ignored(app, tmp_path, monkeypatch):
     repository = SettingsRepository(tmp_path / "settings.json")
-    repository.save(AppSettings(auto_check_updates=False))
+    old = tmp_path / "old.csv"
+    old.write_text("Key,English\na,b\n")
+    repository.save(AppSettings(auto_check_updates=False, selected_csv_files=[str(old)],
+                                unity_asset_files=[str(tmp_path / "stale.asset")]))
     monkeypatch.setattr("import_localize.ui.main_window.SettingsRepository", lambda: repository)
-    paths = [tmp_path / f"file_{i}.csv" for i in range(3)]
-    for path in paths:
-        path.write_text("Key,English\na,b\n")
     first = MainWindow()
-    first.add_csv_files(list(map(str, paths)))
-    first.file_table.selectRow(2)
-    first.move_selected_files(-1)
-    first.file_table.clearSelection()
-    first.file_table.selectRow(0)
-    first.remove_selected_files()
+    assert not first.file_infos and not first.start_button.isEnabled()
+    first.show_direct_transfer()
+    assert not first.workspace.pages[-1].paths
+    first.set_transfer_folder("upload", str(tmp_path))
     first.close()
+    new = tmp_path / "upload_en.csv"
+    new.write_bytes(old.read_bytes())
     second = MainWindow()
-    assert [Path(second.file_table.item(i, 0).data(Qt.ItemDataRole.UserRole))
-            for i in range(second.file_table.rowCount())] == [paths[2], paths[1]]
-    second.clear_files()
+    assert tuple(second.file_infos) == (str(new),)
+    second.set_transfer_folder("upload", "")
+    assert not second.file_infos
     second.close()
-    third = MainWindow()
-    assert third.file_table.rowCount() == 0
-    third.close()
-
-
-def test_missing_main_csv_does_not_interrupt_startup(app, tmp_path, monkeypatch):
-    repository = SettingsRepository(tmp_path / "settings.json")
-    path = tmp_path / "valid.csv"
-    path.write_text("Key,English\na,b\n")
-    repository.save(AppSettings(auto_check_updates=False,
-        selected_csv_files=[str(tmp_path / "missing.csv"), str(path)]))
-    monkeypatch.setattr("import_localize.ui.main_window.SettingsRepository", lambda: repository)
-    def unexpected_popup(*args):
-        raise AssertionError("Restoration must report missing files in the log")
-    monkeypatch.setattr("import_localize.ui.main_window.QMessageBox.warning", unexpected_popup)
-    window = MainWindow()
-    assert window.file_table.rowCount() == 1
-    assert any("missing.csv" in label.text() for label in window.log_edit.findChildren(QLabel))
-    window.close()
 
 
 def test_duplicate_remembers_exact_subset_instead_of_whole_folder(app, tmp_path):
