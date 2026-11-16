@@ -78,6 +78,8 @@ class VariantPanel(QFrame):
 
 
 class LocaleDuplicateDialog(QDialog):
+    log_emitted = Signal(str, str)
+
     def __init__(self, paths: list[Path], parent=None, *, settings: AppSettings | None = None):
         super().__init__(parent)
         self.settings = settings if settings is not None else AppSettings()
@@ -424,6 +426,7 @@ class LocaleDuplicateDialog(QDialog):
             self.show_group()
             self.summary.setText("Không thể hoàn tất. Kiểm tra lại trước khi tiếp tục.")
             self.status.setText("LỖI: " + worker.error)
+            self.log_emitted.emit("FAIL", worker.error)
         elif self._writing:
             self.wrote_files = True
             self.backup_path = worker.result
@@ -432,6 +435,7 @@ class LocaleDuplicateDialog(QDialog):
             self.groups.setRowCount(0)
             self.show_group()
             self.summary.setText(f"Đã xóa {self._removed} bản ghi dư trong {self._changed_files} file; mỗi key còn một bản.")
+            self.log_emitted.emit("SUCCESS", self.summary.text())
             self.status.setText(f"Bản sao lưu: {self.backup_path}\nQuay lại Unity và Refresh (Ctrl+R).")
         else:
             self.scan_result = worker.result
@@ -440,6 +444,7 @@ class LocaleDuplicateDialog(QDialog):
             self.summary.setText(f"{len(self.scan_result.assets)} file · {len(groups)} key trùng · "
                                  f"{len(groups) - conflicts} key giống nội dung ngôn ngữ · {conflicts} key cần chọn · "
                                  f"{sum(group.count - 1 for group in groups)} bản ghi dư sẽ xóa")
+            self.log_emitted.emit("WARNING" if groups else "SUCCESS", self.summary.text())
             self.groups.setRowCount(len(groups))
             for row, group in enumerate(groups):
                 for col, value in enumerate((group.path.name, group.key, group.count, group.count - 1, "")):

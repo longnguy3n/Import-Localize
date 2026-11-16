@@ -133,6 +133,8 @@ class ComparisonSortModel(QSortFilterProxyModel):
 
 
 class CsvCompareDialog(QDialog):
+    log_emitted = Signal(str, str)
+
     def __init__(self, old_path: str = "", new_path: str = "", parent=None, *, choices=None):
         super().__init__(parent)
         self.setWindowTitle("So sánh CSV theo key")
@@ -270,7 +272,7 @@ class CsvCompareDialog(QDialog):
         self.swap_button.setEnabled(False)
         self.worker = CompareWorker(*self.paths, self)
         self.worker.result_ready.connect(self._loaded)
-        self.worker.failed.connect(self.summary_label.setText)
+        self.worker.failed.connect(self.compare_failed)
         self.worker.finished.connect(self._finished)
         start_feature_worker(self)
 
@@ -283,7 +285,12 @@ class CsvCompareDialog(QDialog):
         if self._closing:
             super().reject()
 
+    def compare_failed(self, message):
+        self.summary_label.setText(message)
+        self.log_emitted.emit("FAIL", message)
+
     def _loaded(self, result):
+        self.log_emitted.emit("SUCCESS", f"Đã so sánh {Path(self.paths[0]).name} và {Path(self.paths[1]).name}.")
         self.result = result
         self.summary_label.setTextFormat(Qt.TextFormat.RichText)
         summary = " &nbsp; ".join(

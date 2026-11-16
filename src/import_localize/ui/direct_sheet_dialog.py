@@ -1,3 +1,4 @@
+from concurrent.futures import CancelledError
 from pathlib import Path
 
 from PySide6.QtCore import QSignalBlocker, QThread, Qt, QUrl, Signal, Slot
@@ -24,15 +25,21 @@ class TransferWorker(QThread):
         self.task = task
         self.result = None
         self.error = None
+        self.cancelled = False
 
     def run(self):
         try:
             self.result = self.task(self.progress.emit, self.isInterruptionRequested)
+        except CancelledError as exc:
+            self.cancelled = True
+            self.error = str(exc) or "Đã dừng tác vụ."
         except Exception as exc:
             self.error = str(exc) or "Đã dừng tác vụ."
 
 
 class DirectSheetDialog(QDialog):
+    log_emitted = Signal(str, str)
+
     def __init__(self, settings, direction, parent=None, *, annotations=None, folder_only=False):
         super().__init__(parent)
         if direction not in ("upload", "download"):
@@ -243,6 +250,7 @@ class DirectSheetDialog(QDialog):
     def start_task(self, operation, task):
         if self.worker:
             return
+        self.log_emitted.emit("INFO", f"{self.windowTitle()} · {self.status.text()}")
         self.worker = TransferWorker(operation, task, self)
         self.worker.progress.connect(self.show_progress)
         self.worker.finished.connect(self.task_finished)
@@ -255,6 +263,7 @@ class DirectSheetDialog(QDialog):
             self.worker.requestInterruption()
             self.status.setText("Đang dừng…")
             self.stop_button.setEnabled(False)
+            self.log_emitted.emit("WARNING", "Đã yêu cầu dừng tác vụ.")
 
     def preview(self):
         self.invalidate()
@@ -276,6 +285,7 @@ class DirectSheetDialog(QDialog):
         self.status.setText("Đang ghi dữ liệu đã xem trước…")
         self.start_task("apply", lambda progress, cancel: apply_transfer(
             plan, USER_CONFIG_DIR / "unity_backups", progress_callback=progress, cancel_callback=cancel,
+            log_callback=lambda message: self.log_emitted.emit("INFO", message),
         ))
 
     def check_mapping(self):
@@ -307,6 +317,7 @@ class DirectSheetDialog(QDialog):
         self.progress.setRange(0, 100)
         self.progress.setValue(percent)
         self.status.setText(message)
+        self.log_emitted.emit("INFO", message)
 
     @Slot()
     def task_finished(self):
@@ -318,9 +329,11 @@ class DirectSheetDialog(QDialog):
             self.changes.hide()
             self.plan = None
             self.status.setText(worker.error)
+            self.log_emitted.emit("WARNING" if worker.cancelled else "FAIL", worker.error)
         elif worker.operation == "preview":
             self.plan = worker.result
             self.sheet.setText(self.plan.spreadsheet_name)
+            self.log_emitted.emit("SUCCESS", f"Đã xem trước {len(self.plan.pairs)} cặp · {self.plan.spreadsheet_name}")
             self.table.setVisible(not self.folder_only)
             self.table.setRowCount(len(self.plan.pairs))
             for row, pair in enumerate(self.plan.pairs):
@@ -334,6 +347,7 @@ class DirectSheetDialog(QDialog):
                 for pair in self.plan.pairs:
                     names = (pair.asset_path.name, pair.tab_name) if self.upload else (pair.tab_name, pair.asset_path.name)
                     changes.append((*names, pair.stats, pair.summary))
+                    self.log_emitted.emit("INFO", f"{names[0]} → {names[1]} · {pair.summary}")
                 self.changes.show_changes(changes)
             self.table.resizeRowsToContents()
             self.table.setMinimumHeight(min(280, self.table.horizontalHeader().height() + self.table.verticalHeader().length() + 6))
@@ -348,6 +362,7 @@ class DirectSheetDialog(QDialog):
             self.backup_button.setVisible(self.backup_path is not None)
             self.status.setText(f"Đã ghi {self.table.rowCount()} tab." if self.upload else
                                 f"Đã ghi {self.table.rowCount()} asset. Mở lại Unity hoặc Refresh để nạp bản dịch.")
+            self.log_emitted.emit("SUCCESS", self.status.text())
         self.update_controls()
 
     def open_backup(self):

@@ -138,6 +138,8 @@ class MappingTable(QTableWidget):
 
 
 class MappingDialog(QDialog):
+    log_emitted = Signal(str, str)
+
     desc_marks_changed = Signal()
 
     def __init__(self, settings, paths=None, parent=None, *, annotations=None, sources=None, unity_assets=False):
@@ -570,9 +572,11 @@ class MappingDialog(QDialog):
         self.progress.setValue(1)
         if worker.error:
             self.status.setText(f"Không hoàn tất: {worker.error}")
+            self.log_emitted.emit("FAIL", worker.error)
         else:
             self.report, self.snapshot = worker.result, worker.snapshot
             self.render_report()
+            self.log_emitted.emit("WARNING" if self.report.issues else "SUCCESS", self.status.text())
         worker.deleteLater()
         self.set_busy(False)
         self.focus_status.setText(self.status.text())

@@ -137,6 +137,8 @@ class LanguageRowsModel(QAbstractTableModel):
 
 
 class CsvLanguageDialog(QDialog):
+    log_emitted = Signal(str, str)
+
     desc_marks_changed = Signal()
 
     def __init__(self, paths=(), parent=None, *, annotations=None, sources=None, unity_assets=False):
@@ -403,6 +405,9 @@ class CsvLanguageDialog(QDialog):
                 (f" · {len(self.report.errors)} file lỗi" if self.report.errors else "") + ". Chọn dòng để xem nguyên văn.")
             self.filter_rows()
             self.fit_columns()
+        level = "FAIL" if worker.error else "WARNING" if worker.cancelled or self.report.errors or any(
+            col.counts["mismatch"] for col in self.report.columns) else "SUCCESS"
+        self.log_emitted.emit(level, self.status.text() + ("\n" + self.error_label.text() if self.error_label.text() else ""))
         self.error_label.setVisible(bool(self.error_label.text()))
         self.ensurePolished()
         dark = self.palette().color(QPalette.ColorRole.Window).lightness() < 128

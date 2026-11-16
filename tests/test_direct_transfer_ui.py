@@ -109,3 +109,36 @@ def test_offline_asset_audit_marks_follow_csv_export(app, tmp_path, monkeypatch)
         assert asset.read_text() == ASSET
     finally:
         dialog.close()
+
+def test_embedded_sheet_write_logs_while_collapsed_and_expands_on_failure(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QLabel
+    from import_localize.config.settings import SettingsRepository
+    from import_localize.ui import main_window
+
+    repo = SettingsRepository(tmp_path / "settings.json")
+    repo.save(AppSettings(auto_check_updates=False))
+    monkeypatch.setattr(main_window, "SettingsRepository", lambda: repo)
+    window = main_window.MainWindow()
+    window.show_direct_transfer()
+    page = window.workspace.pages[-1]
+    window.log_toggle.setChecked(False)
+
+    def submit(plan, backup_root, **kwargs):
+        kwargs["progress_callback"](50, "Ghi upload_vi")
+        if plan == "error":
+            raise ValueError("Tab <upload_vi> đã thay đổi")
+
+    monkeypatch.setattr(direct_sheet_dialog, "apply_transfer", submit)
+    try:
+        for plan in ("ok", "error"):
+            page.plan = plan
+            page.apply()
+            drain(app, page)
+            assert window.log_toggle.isChecked() == (plan == "error")
+        messages = [(label.property("level"), label.text())
+                    for label in window.log_edit.findChildren(QLabel, "logMessage")]
+        assert ("INFO", "Ghi upload_vi") in messages
+        assert any(level == "SUCCESS" and "Đã ghi" in text for level, text in messages)
+        assert ("FAIL", "Tab <upload_vi> đã thay đổi") in messages
+    finally:
+        window.close()

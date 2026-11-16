@@ -115,7 +115,7 @@ def prepare_transfer(direction, spreadsheet_url: str, asset_paths: list[Path], *
     return plan
 
 
-def apply_transfer(plan: TransferPlan, backup_root: Path, *, progress_callback=None, cancel_callback=None):
+def apply_transfer(plan: TransferPlan, backup_root: Path, *, progress_callback=None, cancel_callback=None, log_callback=None):
     sheets._check_cancel(cancel_callback)
     if not plan.pairs:
         raise UnityLocaleError("Chưa có dữ liệu xem trước.")
@@ -150,7 +150,7 @@ def apply_transfer(plan: TransferPlan, backup_root: Path, *, progress_callback=N
         sheets._progress(progress_callback, percent, message)
 
     try:
-        sheets.upload_bundles_fast(connection, plan.uploads, progress_callback=upload_progress,
+        sheets.upload_bundles_fast(connection, plan.uploads, progress_callback=upload_progress, log_callback=log_callback,
                                    cancel_callback=cancel_callback)
     except Exception as exc:
         if not write_started:

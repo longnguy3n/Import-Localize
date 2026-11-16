@@ -52,6 +52,8 @@ class LogRow(QWidget):
 
         message_label = QLabel(message)
         message_label.setObjectName("logMessage")
+        message_label.setTextFormat(Qt.TextFormat.PlainText)
+        message_label.setProperty("level", normalized)
         message_label.setWordWrap(True)
         message_label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop

@@ -182,6 +182,8 @@ class LocaleWorker(QThread):
 
 
 class UnityLocaleDialog(QDialog):
+    log_emitted = Signal(str, str)
+
     """Visible source/destination row pairs, independent of Google settings."""
 
     def __init__(self, settings: AppSettings, csv_paths: list[Path] | None = None, parent=None, *, annotations=None, folder_only=False):
@@ -831,6 +833,7 @@ class UnityLocaleDialog(QDialog):
         self.apply_button.setEnabled(False)
         self.close_button.setEnabled(False)
         self.progress.setRange(0, 0)
+        self.log_emitted.emit("INFO", f"{self.windowTitle()} · {self.preview_status.text()}")
         self._applying, self._generating = applying, generating
         self.worker = LocaleWorker(task, self, reports_progress=reports_progress)
         if applying:
@@ -845,6 +848,7 @@ class UnityLocaleDialog(QDialog):
 
     @Slot(int, int, str)
     def _apply_progress(self, completed, total, message):
+        self.log_emitted.emit("INFO", message)
         if self.loading_dialog:
             self.loading_dialog.update_progress(completed, total, message)
         self.progress.setRange(0, total)
@@ -898,6 +902,7 @@ class UnityLocaleDialog(QDialog):
             self.progress.setValue(0)
             self.plan = None
             self.details.appendPlainText("LỖI: " + worker.error)
+            self.log_emitted.emit("FAIL", worker.error)
             self.preview_status.setText("Không thể hoàn tất. Xem lỗi bên dưới và kiểm tra lại.")
             self.details_button.show()
             self.details_button.setChecked(True)
@@ -918,6 +923,7 @@ class UnityLocaleDialog(QDialog):
             self.backup_button.setEnabled(True)
             self.progress.setValue(1)
             self.preview_status.setText(f"Đã ghi {self.table.rowCount()} cặp file. Bản sao lưu sẵn sàng để mở.")
+            self.log_emitted.emit("SUCCESS", f"{self.preview_status.text()} {self.backup_path}")
             self.details_button.setChecked(True)
             for row in range(self.table.rowCount()):
                 self.table.item(row, 9).setText("Đã ghi")
@@ -973,12 +979,15 @@ class UnityLocaleDialog(QDialog):
                         item.setFont(font)
                     self.table.setItem(row, col, item)
                 details.append(f"Hàng {row + 1}: {source}\n→ {change.path}\n{change.summary}")
+                for warning in change.warnings:
+                    self.log_emitted.emit("WARNING", f"{change.path.name} · {warning}")
                 details.extend("  • " + warning for warning in change.warnings)
             self.table.setMinimumHeight(min(280, self.table.horizontalHeader().height() + self.table.verticalHeader().length() + 6))
             self.details.setPlainText("\n\n".join(details))
             warnings = sum(len(change.warnings) for change in self.plan.changes)
             self.preview_status.setText(f"{len(self.plan.changes)} cặp sẵn sàng · chưa ghi dữ liệu"
                                         + (f" · {warnings} cảnh báo cần xem" if warnings else ""))
+            self.log_emitted.emit("SUCCESS", self.preview_status.text())
             self.details_button.setChecked(bool(warnings))
             self.apply_button.setEnabled(True)
             self.progress.setValue(1)

@@ -710,3 +710,7 @@ QPushButton[workflowTab="true"]:checked {
 QPushButton[workflowTab="true"]:hover { background: #eff6f2; }
 QPushButton[workflowTab="true"]:focus { border: 1px solid #08764e; }
 QPushButton[workflowTab="true"]:disabled { color: #52695d; border-color: #b6d8c5; }
+
+QLabel#logMessage[level="FAIL"], QLabel#logMessage[level="ERROR"] { color: #a3261c; font-weight: 600; }
+QLabel#logMessage[level="WARNING"] { color: #835500; }
+QLabel#logMessage[level="SUCCESS"] { color: #12653e; }

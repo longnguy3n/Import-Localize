@@ -53,6 +53,7 @@ class FeatureWorkspace(QStackedWidget):
         dialog.setParent(area, Qt.WindowType.Widget)
         dialog.setModal(False)
         dialog.workspace = self
+        dialog.log_emitted.connect(self.owner.append_log)
         if hasattr(dialog, "close_button"):
             dialog.close_button.setText("Quay lại")
             if self.pages:

@@ -935,6 +935,8 @@ class MainWindow(QMainWindow):
         return True
 
     def open_audit_popup(self, dialog, after_close=None):
+        dialog.log_emitted.connect(self.append_log)
+        self.append_log("INFO", dialog.windowTitle())
         # The active workflow stays mounted, including its preview and selection.
         for name in ("folder_button", "files_button", "choose_button"):
             button = getattr(dialog, name, None)
@@ -1190,6 +1192,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(max(0, min(100, value)))
         self.progress_label.setText(text)
+        self.append_log("INFO", text)
 
     def on_completed(self, success: bool, message: str) -> None:
         operation = self._active_operation
