@@ -4,7 +4,8 @@ The application is an operating tool for CSV localization, Unity locale assets a
 
 ## Structure
 
-- Put the spreadsheet link above the direct Unity transfer actions. Group file-based Unity and CSV review tools alongside them.
+- Keep **CSV ↔ Sheet**, **CSV ↔ Unity**, and **Sheet ↔ Unity** visible as the three workflow selectors. Each workflow offers both directions within its own view. Keep its source and destination controls together with its live status and primary action. Nested reviews return to their calling workflow.
+- Place the spreadsheet link, shared file picker and settings outside individual workflows. Keep settings accessible from any idle view. Reuse the ordered asset list across Unity workflows. Keep translated import CSVs separate from upload CSVs. Allow the operator to reuse the upload list explicitly as the destination for Unity export.
 - Retain all existing import/export semantics, confirmation dialogs, backup paths and worker behavior.
 - Show a concise summary first. Place lengthy instructions, advanced CSV settings and detailed logs behind labeled disclosure controls. Errors reveal relevant detail automatically.
 - Distinguish pending Desc annotations from an applied export. Review decisions belong to the current spreadsheet session, language and key.

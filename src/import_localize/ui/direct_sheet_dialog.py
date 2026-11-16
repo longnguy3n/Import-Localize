@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QSignalBlocker, QThread, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QMenu,
+    QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QMenu,
     QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
 )
 
@@ -45,10 +45,19 @@ class DirectSheetDialog(QDialog):
         self.plan = None
         self.backup_path = None
         self.worker = None
-        self.setWindowTitle("Unity → Google Sheets" if self.upload else "Google Sheets → Unity")
         self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
         self.resize(950, 630)
         layout = QVBoxLayout(self)
+        direction_row = QHBoxLayout()
+        direction_label = QLabel("Chiều truyền")
+        self.direction_combo = QComboBox()
+        self.direction_combo.addItem("Unity → Sheet · Ghi các tab upload_*", "upload")
+        self.direction_combo.addItem("Sheet → Unity · Đọc các tab export_*", "download")
+        self.direction_combo.setCurrentIndex(self.direction_combo.findData(direction))
+        direction_label.setBuddy(self.direction_combo)
+        direction_row.addWidget(direction_label)
+        direction_row.addWidget(self.direction_combo, 1)
+        layout.addLayout(direction_row)
         self.sheet = QLabel(self.url or "Dán link bảng tính trên màn hình chính để bắt đầu.")
         self.sheet.setTextFormat(Qt.TextFormat.PlainText)
         self.sheet.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -66,19 +75,14 @@ class DirectSheetDialog(QDialog):
         self.audit_button.setText("Kiểm tra dữ liệu")
         self.audit_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self.audit_button)
-        if self.upload:
-            menu.addAction("Kiểm tra mapping…", self.check_mapping)
-            menu.addAction("Nhận diện ngôn ngữ…", self.check_language)
+        self.mapping_action = menu.addAction("Kiểm tra mapping…", self.check_mapping)
+        self.language_action = menu.addAction("Nhận diện ngôn ngữ…", self.check_language)
         menu.addAction("Kiểm tra key trùng trong asset…", self.check_duplicates)
         self.audit_button.setMenu(menu)
         toolbar.addWidget(self.audit_button)
         layout.addLayout(toolbar)
 
         self.table = QTableWidget(0, 4)
-        columns = ["Asset nguồn", "Tab nhận", "Dòng dữ liệu", "Thay đổi"] if self.upload else [
-            "Tab nguồn", "Asset nhận", "Dòng dữ liệu", "Thay đổi",
-        ]
-        self.table.setHorizontalHeaderLabels(columns)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -106,7 +110,7 @@ class DirectSheetDialog(QDialog):
         self.stop_button = QPushButton("Dừng")
         self.stop_button.setProperty("dangerAction", True)
         self.preview_button = QPushButton("Xem trước")
-        self.apply_button = QPushButton("Ghi lên Sheet" if self.upload else "Ghi vào Unity")
+        self.apply_button = QPushButton()
         self.close_button = QPushButton("Đóng")
         for button in (self.stop_button, self.preview_button, self.apply_button, self.close_button):
             actions.addWidget(button)
@@ -123,7 +127,30 @@ class DirectSheetDialog(QDialog):
         self.stop_button.clicked.connect(self.stop)
         self.backup_button.clicked.connect(self.open_backup)
         self.table.itemSelectionChanged.connect(self.update_controls)
+        self.direction_combo.currentIndexChanged.connect(self._direction_changed)
+        self._direction_changed()
+
+    def _direction_changed(self):
+        if self.worker is not None:
+            with QSignalBlocker(self.direction_combo):
+                self.direction_combo.setCurrentIndex(self.direction_combo.findData(self.direction))
+            return
+        self.direction = self.direction_combo.currentData()
+        self.settings.direct_direction = self.direction
+        self.upload = self.direction == "upload"
+        self.setWindowTitle("Unity → Google Sheets" if self.upload else "Google Sheets → Unity")
+        source, target = ("Asset nguồn", "Tab nhận") if self.upload else ("Tab nguồn", "Asset nhận")
+        self.table.setHorizontalHeaderLabels([source, target, "Dòng dữ liệu", "Thay đổi"])
+        self.mapping_action.setVisible(self.upload)
+        self.language_action.setVisible(self.upload)
+        self.apply_button.setText("Ghi lên Sheet" if self.upload else "Ghi vào Unity")
         self.invalidate()
+
+    def set_sheet_context(self, url, annotations):
+        if self.url != url or self.annotations is not annotations:
+            self.url = url
+            self.annotations = annotations
+            self.invalidate()
 
     def invalidate(self):
         self.plan = None
@@ -145,6 +172,7 @@ class DirectSheetDialog(QDialog):
         if hasattr(self, "workspace"):
             self.workspace.owner._sync_feature_controls()
         self.add_button.setEnabled(not busy)
+        self.direction_combo.setEnabled(not busy)
         self.folder_button.setEnabled(not busy)
         self.remove_button.setEnabled(not busy and bool(self.table.selectionModel().selectedRows()))
         self.audit_button.setEnabled(not busy and bool(self.paths))

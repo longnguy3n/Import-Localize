@@ -140,14 +140,14 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         for _ in range(10):
             app.processEvents()
         splitter = window.cards_splitter
-        assert splitter.count() == 3
-        assert splitter.widget(0) is window.workspace
-        assert splitter.widget(1) is window.action_card and splitter.widget(2) is window.log_card
-        splitter.moveSplitter(splitter.height(), 2)
+        assert splitter.count() == 2
+        assert splitter.widget(0).isAncestorOf(window.workspace)
+        assert splitter.widget(0).isAncestorOf(window.action_card) and splitter.widget(1) is window.log_card
+        splitter.moveSplitter(splitter.height(), 1)
         app.processEvents()
         assert window.log_card.height() >= window.log_card.minimumHeight()
-        splitter.setSizes([270, 175, 230])
-        splitter.moveSplitter(sum(splitter.sizes()[:2]) - 15, 2)
+        splitter.setSizes([445, 230])
+        splitter.moveSplitter(splitter.sizes()[0] - 15, 1)
         app.processEvents()
         saved = repository.load().card_sizes
         assert saved == splitter.sizes()

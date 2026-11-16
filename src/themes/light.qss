@@ -61,13 +61,22 @@ QPushButton#closeIconButton:hover {
     border-color: #ccebdc;
 }
 
-QFrame#filesCard,
+QFrame#workflowFrame,
 QFrame#targetCard,
 QFrame#actionCard,
 QFrame#logCard {
     background: #ffffff;
     border: 1px solid #dce6e1;
     border-radius: 10px;
+}
+
+QFrame#workflowFrame QFrame#filesCard, QFrame#workflowFrame QFrame#actionCard {
+    background: transparent;
+    border: none;
+}
+QFrame#workflowFrame QFrame#actionCard {
+    border-top: 1px solid #dce6e1;
+    border-radius: 0;
 }
 
 QLabel#filesIconLabel,

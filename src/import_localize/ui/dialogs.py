@@ -103,14 +103,16 @@ class _DesignerDialog(QDialog):
 
 
 class SettingsDialog(_DesignerDialog):
-    def __init__(self, parent=None, *, initial_tab: str = "google", target_form=None):
+    def __init__(self, parent=None, *, initial_tab: str = "google", target_form=None,
+                 settings=None, repository=None):
         super().__init__(parent)
         self._configure_window("Cài đặt — Import Localize")
         self.setMinimumSize(660, 620)
         self.resize(780, 740)
 
-        self.settings_repository = SettingsRepository()
-        self.settings = self.settings_repository.load()
+        self.settings_repository = repository if repository is not None else SettingsRepository()
+        self.settings = settings if settings is not None else self.settings_repository.load()
+        self.google_session_changed = False
         self.oauth_worker: OAuthWorker | None = None
         self.update_check_worker: UpdateCheckWorker | None = None
         self.update_download_worker: UpdateDownloadWorker | None = None
@@ -275,6 +277,7 @@ class SettingsDialog(_DesignerDialog):
             QMessageBox.critical(self, "OAuth Client không hợp lệ", str(exc))
             return
         self.oauth_log_edit.appendPlainText(f"Đã cài OAuth Client: {installed}")
+        self.google_session_changed = True
         self.refresh_status()
 
     def open_config_directory(self) -> None:
@@ -298,7 +301,8 @@ class SettingsDialog(_DesignerDialog):
             return
 
         if status["token_exists"] and self.login_button.text() == "Đổi tài khoản":
-            clear_saved_oauth_token()
+            removed, _ = clear_saved_oauth_token()
+            self.google_session_changed |= removed
 
         self.oauth_log_edit.clear()
         self.oauth_status_label.setText("Đang chờ đăng nhập trên trình duyệt...")
@@ -314,6 +318,7 @@ class SettingsDialog(_DesignerDialog):
         worker.start()
 
     def on_oauth_completed(self, success: bool, message: str) -> None:
+        self.google_session_changed |= success
         self.oauth_log_edit.appendPlainText(message)
         self.oauth_status_label.setText(message)
         self.oauth_worker = None
@@ -324,6 +329,7 @@ class SettingsDialog(_DesignerDialog):
 
     def logout_google(self) -> None:
         success, message = clear_saved_oauth_token()
+        self.google_session_changed |= success
         if success:
             QMessageBox.information(self, "Đăng xuất Google", message)
         else:

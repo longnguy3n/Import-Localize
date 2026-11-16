@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QToolButton,
 )
 
-from .feature_workspace import open_child_feature
+from .feature_workspace import open_child_feature, start_feature_worker
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.config.settings import AppSettings
 from .locale_progress_dialog import LocaleProgressDialog
@@ -191,6 +191,7 @@ class UnityLocaleDialog(QDialog):
         self.csv_paths = ([Path(p) for p in settings.unity_import_csv_files]
                           if settings.unity_import_csv_files is not None else list(csv_paths or []))
         self.export_paths = [Path(p) for p in settings.unity_export_csv_files]
+        self.upload_paths = [Path(p) for p in settings.selected_csv_files]
         self.plan: LocalePlan | None = None
         self.worker: LocaleWorker | None = None
         self.loading_dialog = None
@@ -220,7 +221,7 @@ class UnityLocaleDialog(QDialog):
         self.options_button.setArrowType(Qt.ArrowType.RightArrow)
         mode_row.addWidget(self.options_button)
         self.review_button = QToolButton()
-        self.review_button.setText("Kiểm tra trước khi xuất")
+        self.review_button.setText("Kiểm tra bản xuất")
         self.review_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         review_menu = QMenu(self.review_button)
         review_menu.addAction("Kiểm tra mapping…", self.review_mapping)
@@ -235,7 +236,7 @@ class UnityLocaleDialog(QDialog):
         csv_options = QHBoxLayout(self.csv_options)
         csv_options.setContentsMargins(0, 0, 0, 0)
         self.delimiter_combo = QComboBox()
-        for label, value in [("Tự nhận diện (export dùng dấu phẩy)", "auto"), ("Dấu phẩy ,", ","), ("Chấm phẩy ;", ";"), ("Tab", "\t")]:
+        for label, value in [("Tự nhận diện (xuất dấu phẩy)", "auto"), ("Dấu phẩy ,", ","), ("Chấm phẩy ;", ";"), ("Tab", "\t")]:
             self.delimiter_combo.addItem(label, value)
         csv_options.addWidget(QLabel("Dấu phân cách:"))
         csv_options.addWidget(self.delimiter_combo)
@@ -287,6 +288,9 @@ class UnityLocaleDialog(QDialog):
             panel.addLayout(columns)
             headers.addLayout(panel, 1)
         controls.addLayout(headers)
+        self.export_target_menu = QMenu(self.target_extra_button)
+        self.use_uploads_action = self.export_target_menu.addAction("", self.use_upload_targets)
+        self.export_target_menu.addAction("Thêm CSV mới…", self.choose_new_csv)
         # One scroll area keeps both sides aligned even with different counts.
         self.pair_scroll = QScrollArea()
         self.pair_scroll.setWidgetResizable(True)
@@ -308,12 +312,14 @@ class UnityLocaleDialog(QDialog):
         controls.addWidget(self.pair_scroll)
         toolbar = QHBoxLayout()
         self.selection_label = QLabel()
+        self.selection_label.setWordWrap(True)
+        self.selection_label.setToolTip("Giữ Ctrl hoặc Shift để chọn nhiều file trong cùng một bên.")
         toolbar.addWidget(self.selection_label, 1)
         self.up_button = QPushButton("↑ Lên")
         self.down_button = QPushButton("↓ Xuống")
         self.remove_button = QPushButton("Bỏ chọn")
         self.clear_button = QPushButton("Xóa hết")
-        self.duplicates_button = QPushButton("Kiểm tra duplicate key…")
+        self.duplicates_button = QPushButton("Kiểm tra key trùng…")
         self.duplicates_button.setToolTip("Kiểm tra các file locale trong danh sách; gộp bản giống nhau và chọn bản giữ khi khác nội dung.")
         self.clear_button.setToolTip("Xóa toàn bộ file khỏi danh sách bên đang thao tác; không xóa file trên máy.")
         for button in (self.up_button, self.down_button, self.remove_button, self.clear_button):
@@ -332,6 +338,7 @@ class UnityLocaleDialog(QDialog):
         for label, background, foreground in ((self.source_metric, "#e7f1ff", "#174b8a"),
                                               (self.before_metric, "#f0f2f5", "#39475a"),
                                               (self.after_metric, "#eeeaff", "#5531a0")):
+            label.setWordWrap(True)
             label.setStyleSheet(f"QLabel {{ background: {background}; color: {foreground}; border-radius: 6px; padding: 9px; }}")
             metrics.addWidget(label, 1)
         layout.addLayout(metrics)
@@ -429,6 +436,12 @@ class UnityLocaleDialog(QDialog):
     def importing(self):
         return self.mode_combo.currentIndex() == 0
 
+    def set_sheet_context(self, url, annotations):
+        if self.desc_annotations is not annotations:
+            self.desc_annotations = annotations
+            if not self.importing():
+                self.invalidate()
+
     def open_direct(self):
         from .direct_sheet_dialog import DirectSheetDialog
         self.settings.unity_asset_files = [str(p) for p in self.asset_paths]
@@ -479,11 +492,11 @@ class UnityLocaleDialog(QDialog):
         self.review_button.setVisible(not importing)
         self.language_check_button.setVisible(importing)
         self.direct_button.setText("Sheet → Unity…" if importing else "Unity → Sheet…")
-        self.source_choose_button.setText("Thêm CSV đã dịch…" if importing else "Thêm locale*.asset…")
-        self.source_extra_button.setText("Thư mục locale…")
+        self.source_choose_button.setText("Thêm CSV đã dịch…" if importing else "Thêm asset…")
+        self.source_extra_button.setText("Thư mục…")
         self.source_extra_button.setVisible(not importing)
-        self.target_choose_button.setText("Thêm locale*.asset…" if importing else "Chọn CSV nhận…")
-        self.target_extra_button.setText("Thư mục locale…" if importing else "Thêm CSV mới…")
+        self.target_choose_button.setText("Thêm asset…" if importing else "Chọn CSV nhận…")
+        self.set_upload_paths(self.upload_paths)
         self.apply_button.setText("2. Thực hiện Replace " + ("Import" if importing else "Export"))
         self._refresh_lists()
 
@@ -535,6 +548,7 @@ class UnityLocaleDialog(QDialog):
             self.csv_paths, self.asset_paths = self.source_list.paths(), self.target_list.paths()
         else:
             self.asset_paths, self.export_paths = self.source_list.paths(), self.target_list.paths()
+        self.settings.unity_asset_files = [str(p) for p in self.asset_paths]
         self._update_labels()
         self.invalidate()
         self.details.setPlainText("Thứ tự file đã thay đổi. Bấm Xem trước để kiểm tra các cặp mới trước khi ghi.")
@@ -580,7 +594,7 @@ class UnityLocaleDialog(QDialog):
         view = self._active_list
         rows = sorted(view.row(item) for item in view.selectedItems())
         side = "Nguồn" if view is self.source_list else "Nhận vào"
-        self.selection_label.setText(f"Bên {side} · chọn {len(rows)}/{view.count()} file · Ctrl/Shift để chọn nhiều")
+        self.selection_label.setText(f"Bên {side} · chọn {len(rows)}/{view.count()} file")
         self.up_button.setEnabled(bool(rows) and rows[0] > 0)
         self.down_button.setEnabled(bool(rows) and rows[-1] < view.count() - 1)
         self.remove_button.setEnabled(bool(rows))
@@ -610,7 +624,10 @@ class UnityLocaleDialog(QDialog):
         self.choose_assets() if self.importing() else self.choose_export_csv()
 
     def choose_target_extra(self):
-        self.choose_folder() if self.importing() else self.choose_new_csv()
+        if self.importing():
+            self.choose_folder()
+        elif self.target_extra_button.menu() is None:
+            self.choose_new_csv()
 
     def choose_assets(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Chọn I2 LanguageSourceAsset", self.settings.unity_locale_dir,
@@ -620,6 +637,7 @@ class UnityLocaleDialog(QDialog):
 
     def set_assets(self, paths: list[Path]):
         self.asset_paths = list(paths)
+        self.settings.unity_asset_files = [str(p) for p in self.asset_paths]
         if paths:
             self.settings.unity_locale_dir = str(paths[0].parent)
         self._refresh_lists()
@@ -648,6 +666,18 @@ class UnityLocaleDialog(QDialog):
         if paths:
             self.export_paths = self._append_unique(self.export_paths, paths)
             self._refresh_lists()
+
+    def set_upload_paths(self, paths):
+        self.upload_paths = list(paths)
+        menu_available = bool(self.upload_paths) and not self.importing()
+        self.use_uploads_action.setText(f"Dùng danh sách CSV upload ({len(paths)} tệp)")
+        self.target_extra_button.setMenu(self.export_target_menu if menu_available else None)
+        self.target_extra_button.setText("Thư mục…" if self.importing() else
+                                        "CSV upload / CSV mới…" if menu_available else "Thêm CSV mới…")
+
+    def use_upload_targets(self):
+        self.export_paths = list(self.upload_paths)
+        self._refresh_lists()
 
     def choose_new_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Thêm đường dẫn CSV nhận dữ liệu", self.output_edit.text(), "CSV (*.csv)")
@@ -693,7 +723,7 @@ class UnityLocaleDialog(QDialog):
             self.loading_dialog.show()
             self.worker.progress_changed.connect(self._apply_progress)
         self.worker.finished.connect(self._finished)
-        self.worker.start()
+        start_feature_worker(self)
 
     @Slot(int, int, str)
     def _apply_progress(self, completed, total, message):

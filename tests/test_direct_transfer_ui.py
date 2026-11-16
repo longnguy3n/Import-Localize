@@ -51,6 +51,9 @@ def test_direct_review_preview_snapshot_and_submit(app, tmp_path, monkeypatch):
         assert dialog.plan is None and not dialog.apply_button.isEnabled()
         dialog.preview_button.click()
         assert not dialog.folder_button.isEnabled() and not dialog.close_button.isEnabled()
+        assert not dialog.direction_combo.isEnabled()
+        dialog.direction_combo.setCurrentIndex(1)
+        assert dialog.direction_combo.currentData() == dialog.direction == "upload"
         dialog.reject()
         assert dialog.isVisible()
         gate.set()
@@ -62,6 +65,14 @@ def test_direct_review_preview_snapshot_and_submit(app, tmp_path, monkeypatch):
         drain(app, dialog)
         assert submitted == [snapshot]
         assert dialog.plan is None and not dialog.apply_button.isEnabled()
+        dialog.preview_button.click()
+        drain(app, dialog)
+        assert dialog.apply_button.isEnabled()
+        dialog.direction_combo.setCurrentIndex(1)
+        assert dialog.plan is None and not dialog.apply_button.isEnabled()
+        assert dialog.paths == [path] and settings.direct_direction == "download"
+        assert dialog.table.item(0, 1).text() == path.name
+        assert not dialog.mapping_action.isVisible()
     finally:
         gate.set()
         drain(app, dialog)

@@ -28,10 +28,15 @@ class FeatureWorkspace(QStackedWidget):
 
     def add_feature(self, dialog, after_close=None):
         area = QScrollArea()
+        area.setFrameShape(QScrollArea.Shape.NoFrame)
         area.setWidgetResizable(True)
         dialog.setParent(area, Qt.WindowType.Widget)
         dialog.setModal(False)
         dialog.workspace = self
+        if hasattr(dialog, "close_button"):
+            dialog.close_button.setText("Quay lại")
+            if self.pages:
+                dialog.close_button.setToolTip(self.pages[-1].windowTitle())
         area.setWidget(dialog)
         self.addWidget(area)
         self.pages.append(dialog)
@@ -40,7 +45,11 @@ class FeatureWorkspace(QStackedWidget):
         self.owner.action_pages.addWidget(dialog.action_panel)
         self.owner.action_pages.setCurrentWidget(dialog.action_panel)
         dialog.windowTitleChanged.connect(self.owner._sync_action_title)
+        if hasattr(dialog, "desc_marks_changed"):
+            dialog.desc_marks_changed.connect(self.owner._refresh_desc_count)
         dialog.finished.connect(lambda _: self._finished(dialog, area, after_close))
+        if dialog.worker is not None:
+            dialog.worker.finished.connect(self.owner._sync_shared_controls, Qt.ConnectionType.QueuedConnection)
         dialog.show()
         self.owner._sync_feature_controls()
 
@@ -61,8 +70,8 @@ class FeatureWorkspace(QStackedWidget):
         self.owner._sync_feature_controls()
         self.owner.save_settings()
 
-    def leave_features(self):
-        while self.pages:
+    def leave_features(self, keep=0):
+        while len(self.pages) > keep:
             page = self.pages[-1]
             if getattr(page, "worker", None) is not None:
                 self.owner.statusBar().showMessage("Đợi tác vụ hoàn tất hoặc bấm Dừng trước khi chuyển chức năng.", 4500)
@@ -73,6 +82,14 @@ class FeatureWorkspace(QStackedWidget):
             if self.pages and self.pages[-1] is page:
                 return False
         return True
+
+
+def start_feature_worker(dialog):
+    workspace = getattr(dialog, "workspace", None)
+    if workspace is not None:
+        workspace.owner._sync_shared_controls()
+        dialog.worker.finished.connect(workspace.owner._sync_shared_controls, Qt.ConnectionType.QueuedConnection)
+    dialog.worker.start()
 
 
 def open_child_feature(parent, dialog, after_close=None):

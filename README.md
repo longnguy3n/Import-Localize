@@ -1,15 +1,18 @@
 # Import Localize
 
-Dán link chia sẻ bảng tính từ Google Sheets hoặc Drive ở đầu màn hình. Kiểm tra tên bảng, rồi chọn chiều chuyển.
+Dùng thanh trên cùng để chọn cặp dữ liệu, rồi chọn chiều nhập hoặc xuất ngay trong nhóm đó. Khi làm việc với Sheet, dán link chia sẻ Google Sheets hoặc Drive và kiểm tra tên bảng hiện dưới ô link.
 
-| Thao tác | Nguồn → đích |
-|---|---|
-| Unity → Sheet | Asset một ngôn ngữ → tab `upload_<mã>` |
-| Sheet → Unity | Tab `export_<mã>` → asset có cùng mã ngôn ngữ |
-| Unity ↔ CSV | Replace Export hoặc Replace Import qua các cặp file đã chọn |
-| CSV ↔ Sheet | Nhập CSV lên Sheet hoặc tải các tab `export_*` ra CSV |
+| Nhóm | Chiều đi | Chiều về |
+|---|---|---|
+| **CSV ↔ Sheet** | Nhập các CSV upload vào những tab đích | Tải mỗi tab `export_*` thành một CSV trong thư mục đã chọn |
+| **CSV ↔ Unity** | Replace Import từ CSV đã dịch vào asset cùng hàng | Replace Export từ asset vào CSV cùng hàng |
+| **Sheet ↔ Unity** | Ghi từng tab `export_<mã>` vào asset có cùng mã ngôn ngữ | Ghi trực tiếp từng asset vào tab `upload_<mã>` |
 
-Các nút công cụ đổi nội dung trực tiếp trong vùng làm việc trên màn hình chính. Bấm **Tệp CSV** để trở lại danh sách file đã chọn.
+Danh sách nguồn, đích, trạng thái và nút thực hiện đi cùng chiều đang chọn. **Cài đặt** truy cập được từ cả ba nhóm khi tác vụ đang rảnh. **Kiểm tra CSV** cho phép mở các công cụ đối chiếu và quay lại nhóm trước đó.
+
+Mở **Tệp dùng chung…** để chọn trước CSV upload và Unity locale, sắp thứ tự rồi bấm **Lưu lựa chọn**. Hai nhóm có Unity dùng chung danh sách asset. CSV upload dùng cho chiều **CSV → Sheet**. Trong **Unity → CSV**, chọn **CSV upload / CSV mới… → Dùng danh sách CSV upload** nếu muốn dùng đúng thứ tự đó làm đích. Chiều **CSV → Unity** có danh sách CSV đã dịch riêng.
+
+**Ctrl+O** mở bộ chọn CSV khi đang ở **CSV → Sheet** và mở **Tệp dùng chung…** ở các màn hình làm việc khác.
 
 Chuyển trực tiếp ghép theo mã ngôn ngữ bên trong asset. Xem trước toàn bộ cặp rồi áp dụng. Khi nhập vào Unity, ứng dụng ghi nội dung đã xem trước và sao lưu asset trước khi thay đổi. Nếu có nhiều asset cùng mã hoặc asset chứa nhiều ngôn ngữ, dùng luồng CSV để ghép đích thủ công.
 
@@ -120,7 +123,7 @@ Từ v1.5.0, bản EXE có thể kiểm tra và tự cài bản mới tại **C�
 
 ## Tải các tab export_* về máy
 
-Trong phần **Chuyển giữa CSV và Google Sheets**, chọn **Tải CSV export_*…** rồi chọn thư mục lưu.
+Trong **CSV ↔ Sheet**, chọn chiều **Sheet → CSV** và thư mục lưu, rồi bấm **Tải CSV export_*…**.
 Ứng dụng sẽ quét mọi tab có tên bắt đầu bằng `export_`, tải CSV do Google Sheets tạo (thêm nhãn vào Desc nếu đã đánh dấu) và lưu theo mẫu:
 
 ```text
@@ -132,7 +135,7 @@ Các file trùng tên trong thư mục đích sẽ được thay thế. Những 
 
 ## So sánh CSV theo key
 
-Chọn hai tệp trong card Tệp CSV → **So sánh 2 CSV** để xem key mới, đã xóa và thay đổi. Dán link trên màn hình chính, chọn kiểu nhập trong **Thiết lập đích…**. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
+Mở **Kiểm tra CSV → So sánh hai CSV…** từ bất kỳ nhóm nào. App dùng hai hàng đang chọn hoặc danh sách dùng chung nếu chỉ có hai tệp. Với các trường hợp còn lại, chọn hai CSV trong hộp chọn tệp. Xem [hướng dẫn so sánh CSV](README_CSV_COMPARE.md).
 
 ## Kiểm tra mapping DG
 
@@ -153,7 +156,7 @@ Chọn các key cần xử lý để thêm nhãn `Wrong mapping` vào Desc của
 
 ## Nhận diện ngôn ngữ CSV offline
 
-Chọn một hoặc nhiều hàng trong card **Tệp CSV** → **Nhận diện ngôn ngữ CSV…**. Không chọn hàng thì kiểm tra toàn bộ danh sách. Cũng có nút này trong cửa sổ Unity Locale để kiểm tra CSV import hoặc CSV export. Trong cửa sổ kết quả có thể chọn các CSV khác và **Kiểm tra lại**.
+Trong danh sách CSV upload, chọn các hàng cần kiểm tra rồi mở **Kiểm tra CSV → Nhận diện ngôn ngữ…**. Nếu chưa chọn hàng, app kiểm tra toàn bộ danh sách. Nhóm **CSV ↔ Unity** cũng có công cụ nhận diện cho CSV đã dịch hoặc dữ liệu chuẩn bị xuất. Trong màn hình kết quả CSV có thể chọn các tệp khác và bấm **Kiểm tra lại**.
 
 - Mô hình **Lingua 2.2.0** được đóng gói cùng app, hỗ trợ 75 ngôn ngữ; không cần mạng, tài khoản Google hoặc tải mô hình khi sử dụng. Chạy trên luồng nền, có tiến độ theo số ô đã xử lý và nút **Dừng**. Lần phân tích đầu cần thêm thời gian nạp mô hình.
 - Nhận diện nội dung độc lập với tên cột, sau đó đối chiếu với `English`, `Vietnamese`, mã `en`, `vi`, dạng `Portuguese (Brazil) [pt-BR]`… Bỏ qua các cột key/type/desc/metadata. Cột không có tên/mã được hỗ trợ vẫn được nhận diện nhưng báo chưa thể đối chiếu; không suy đoán ngôn ngữ khai báo từ tên file.
@@ -166,7 +169,7 @@ Phát triển từ mã nguồn cần **Python 3.12+** và `requirements.txt`; b�
 
 ## Unity Locale: Replace Import / Replace Export
 
-Mở **Unity Locale — Replace Import / Export…** trong phần thao tác của ứng dụng.
+Mở **CSV ↔ Unity**, rồi chọn **Replace Import** hoặc **Replace Export**.
 Tính năng chạy trực tiếp trên file của máy, không cần đăng nhập Google hoặc thêm script vào Unity.
 
 ### CSV → Unity
@@ -178,7 +181,7 @@ Tính năng chạy trực tiếp trên file của máy, không cần đăng nh�
 5. Bấm **Thực hiện Replace Import**. Quay lại Unity, dùng **Assets → Refresh / Ctrl+R** nếu chưa thấy dữ liệu mới.
 
 Hai danh sách hiển thị tên file, đường dẫn và số hàng: **Nguồn** bên trái → **Nhận vào** bên phải. Hai file cùng hàng là một cặp chuyển dữ liệu.
-Ứng dụng nhớ các file trong card CSV, danh sách asset, CSV import, CSV export và chế độ Unity đang dùng khi đóng cửa sổ/app. Lần sau mở lại sẽ khôi phục đúng thứ tự đã sắp xếp; **Bỏ chọn/Xóa hết** cũng được ghi nhớ. Unity Locale ưu tiên danh sách đã lưu, chỉ lấy CSV từ màn hình chính ở lần mở đầu tiên.
+Ứng dụng nhớ danh sách CSV upload, asset, CSV đã dịch, CSV đích và chiều truyền đã chọn. Lần mở sau khôi phục thứ tự file, kể cả khi đã bỏ hết file trong một danh sách.
 Các đường dẫn bị thiếu trong Unity Locale vẫn giữ nguyên hàng và có nhãn **[Thiếu file]**, tránh làm lệch cặp. CSV đích mới chưa được tạo vẫn được nhớ. CSV không còn đọc được ở màn hình chính được bỏ qua và báo trong nhật ký. Khôi phục danh sách không tự chạy import/export; cần **Xem trước** lại trước khi ghi.
 Mỗi file chiếm một dòng: tên bên trái, vị trí bên phải (di chuột để xem đường dẫn đầy đủ). Ctrl/Shift để chọn nhiều file, Ctrl+A để chọn toàn bộ bên đang thao tác.
 Kéo thả trong từng bên hoặc dùng thanh nút chung **Lên/Xuống/Bỏ chọn/Xóa hết**. Thanh này tác động lên bên đang chọn, có nhãn chỉ rõ Nguồn hoặc Nhận vào; khi chuyển bên, lựa chọn bên cũ được bỏ. **Xóa hết** chỉ dọn danh sách của bên đó, không xóa file trên máy. Hai bên cuộn cùng nhau để giữ các hàng thẳng nhau.

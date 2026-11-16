@@ -15,6 +15,7 @@ from import_localize.config.settings import AppSettings
 from import_localize.services.locale_duplicate_service import scan_duplicates, prepare_duplicate_cleanup
 from import_localize.services.unity_locale_service import apply_plan
 from .locale_diff import variant_documents
+from .feature_workspace import start_feature_worker
 
 
 class DuplicateWorker(QThread):
@@ -281,7 +282,7 @@ class LocaleDuplicateDialog(QDialog):
             widget.setEnabled(False)
         self.progress.setRange(0, 0)
         self.worker.finished.connect(self._finished)
-        self.worker.start()
+        start_feature_worker(self)
 
     def scan(self):
         if self.worker:

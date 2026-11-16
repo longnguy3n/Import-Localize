@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from import_localize.services.csv_compare_service import CsvComparison, compare_csv_files
+from .feature_workspace import start_feature_worker
 
 STATUS_LABELS = {"added": "+ Key mới", "removed": "− Đã xóa", "changed": "≠ Thay đổi", "unchanged": "= Không đổi"}
 STATUS_COLORS = {
@@ -257,7 +258,7 @@ class CsvCompareDialog(QDialog):
         self.worker.result_ready.connect(self._loaded)
         self.worker.failed.connect(self.summary_label.setText)
         self.worker.finished.connect(self._finished)
-        self.worker.start()
+        start_feature_worker(self)
 
     def _finished(self):
         self.worker.deleteLater()

@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .feature_workspace import start_feature_worker
+
 
 def snapshots(paths):
     result = {}
@@ -130,6 +132,8 @@ class MappingTable(QTableWidget):
 
 
 class MappingDialog(QDialog):
+    desc_marks_changed = Signal()
+
     def __init__(self, settings, paths=(), parent=None, *, annotations=None, sources=None):
         super().__init__(parent)
         self.settings = settings
@@ -423,6 +427,18 @@ class MappingDialog(QDialog):
         self.select_visible_button.setEnabled(not self._busy and bool(self.report and self.visible_keys))
         self.clear_selection_button.setEnabled(not self._busy and bool(self.selected_keys))
 
+    def set_sheet_context(self, url, annotations):
+        if self.annotations is not annotations:
+            self.annotations = annotations
+            self.refresh_desc_marks()
+
+    def refresh_desc_marks(self):
+        for row, key in enumerate(self.visible_keys):
+            self.set_mark_cell(row, key)
+        if self.report is not None:
+            self.status.setText("Đã cập nhật dấu Desc của bản xuất đang chọn.")
+            self.focus_status.setText(self.status.text())
+
     def mark_description(self, key):
         locales = sorted({issue.locale for issue in self.key_issues[key]
                           if self.annotations.has(issue.locale, key, WRONG_MAPPING)})
@@ -506,7 +522,7 @@ class MappingDialog(QDialog):
         self.progress.setRange(0, 0)
         worker.progress.connect(self.on_progress)
         worker.finished.connect(self.finished_work)
-        worker.start()
+        start_feature_worker(self)
 
     def scan(self):
         if self.worker:
@@ -696,6 +712,7 @@ class MappingDialog(QDialog):
         self.clear_key_selection()
         verb = "Đã đánh dấu" if enabled else "Đã gỡ dấu"
         self.status.setText(f"{verb} Wrong mapping cho {len(pairs)} cặp key/ngôn ngữ của bản xuất.")
+        self.desc_marks_changed.emit()
         self.focus_status.setText(self.status.text())
         self.focus_status.setVisible(self.focus_mode)
 

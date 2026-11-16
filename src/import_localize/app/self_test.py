@@ -64,21 +64,26 @@ def run_self_test(report_path: str) -> int:
                 prepare_export, prepare_import_pairs, apply_plan, read_asset,
             )
 
-            from import_localize.ui.direct_sheet_dialog import DirectSheetDialog
-
             check_tls_context()
             app = create_application(["Import_Localize self-test"])
             window = MainWindow()
             window.settings.auto_check_updates = False
             window.ensurePolished()
             app.processEvents()
-            assert window.cards_splitter.count() == 3, "Missing main window cards"
+            assert window.cards_splitter.count() == 2 and window.workflow_frame.isAncestorOf(window.action_card)
             assert window.file_table.columnCount() == 5, "Missing CSV table"
             assert not window.grab().isNull(), "Main window could not render"
-            for direction in ("upload", "download"):
-                transfer = DirectSheetDialog(window.settings, direction, window, annotations=window.desc_annotations)
-                assert not transfer.apply_button.isEnabled() and not transfer.grab().isNull()
-                transfer.reject()
+            window.csv_page.direction.setCurrentIndex(1)
+            assert window.csv_page.folder.isVisibleTo(window) and window.download_export_tabs_button.isVisibleTo(window)
+            window.unity_locale_button.click()
+            assert window.settings_button.isEnabled()
+            window.direct_transfer_button.click()
+            transfer = window.workspace.pages[-1]
+            for index in (0, 1):
+                transfer.direction_combo.setCurrentIndex(index)
+                assert not transfer.apply_button.isEnabled() and not window.workflow_frame.grab().isNull()
+            window.files_launcher.click()
+            window.csv_page.direction.setCurrentIndex(0)
             before, after = Path(directory) / "old.csv", Path(directory) / "new.csv"
             before.write_text("key,en\na,Old\n", encoding="utf-8")
             after.write_text("key,en\na,New\nb,Added\n", encoding="utf-8")
@@ -102,7 +107,8 @@ def run_self_test(report_path: str) -> int:
             imports = prepare_import_pairs([exports.changes[0].path], [locale])
             apply_plan(imports, backup_root)
             assert read_asset(locale).terms[0]["Languages"] == ["Hello"]
-            unity_dialog = UnityLocaleDialog(window.settings, [exports.changes[0].path], parent=window)
+            window.settings.unity_import_csv_files = [str(exports.changes[0].path)]
+            unity_dialog = UnityLocaleDialog(window.settings, parent=window)
             unity_dialog.set_assets([locale])
             assert unity_dialog.source_list.paths() == [exports.changes[0].path]
             assert unity_dialog.target_list.paths() == [locale]

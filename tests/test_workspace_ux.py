@@ -42,16 +42,19 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         assert window.sheet_url_edit.text() == window.quick_sheet_url_edit.text()
         window.sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/other/edit')
         assert window.quick_sheet_url_edit.text() == window.sheet_url_edit.text()
-        window.direct_download_button.click()
+        window.direct_transfer_button.click()
         tool = window.workspace.pages[-1]
+        tool.direction_combo.setCurrentIndex(tool.direction_combo.findData("download"))
         assert tool.window() is window and tool.direction == "download"
         assert window.action_title_label.text() == "Google Sheets → Unity"
         assert tool.apply_button.isVisible() and not tool.stop_button.isVisible()
         assert not window.download_export_tabs_button.isVisible()
         window.quick_sheet_url_edit.setText('https://drive.google.com/open?id=another')
         assert tool.url == window.quick_sheet_url_edit.text()
-        window.direct_upload_button.click()
-        assert window.workspace.pages[-1].direction == "upload"
+        window.direct_transfer_button.click()
+        assert window.workspace.pages[-1] is tool and tool.direction == "download"
+        tool.direction_combo.setCurrentIndex(tool.direction_combo.findData("upload"))
+        assert tool.direction == "upload"
         assert window.action_title_label.text() == "Unity → Google Sheets"
         window.files_launcher.click()
         window.sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/other/edit')
@@ -61,11 +64,20 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         window.add_csv_files([str(first), str(second)])
         window.file_table.selectAll()
         assert window.compare_action.isEnabled() and window.language_action.isEnabled()
-        calls = []
-        window.compare_files_button.clicked.disconnect()
-        window.compare_files_button.clicked.connect(lambda: calls.append('compare'))
+        window.direct_transfer_button.click()
+        parent_tool = window.workspace.pages[-1]
+        window.check_mapping()
+        assert window.workspace.pages == [parent_tool, window.workspace.pages[-1]]
+        window.workspace.pages[-1].close_button.click()
+        assert window.workspace.pages == [parent_tool] and window.direct_transfer_button.isChecked()
+        window.files_launcher.click()
+        window.file_table.clearSelection()
         window.compare_action.trigger()
-        assert calls == ['compare']
+        compare = window.workspace.pages[-1]
+        assert compare.paths == (str(first), str(second))
+        assert compare.worker.wait(5000)
+        app.processEvents()
+        window.files_launcher.click()
         window.set_running(True)
         assert not window.quick_sheet_url_edit.isEnabled()
         assert not window.csv_tools_button.isEnabled()
@@ -113,20 +125,24 @@ def test_audit_actions_follow_active_view(app, tmp_path, monkeypatch):
         assert mapping.scan_button.isVisible()
         mapping.close_button.click()
 
-        window.check_csv_languages()
+        window.direct_transfer_button.click()
+        direct = window.workspace.pages[-1]
+        window.language_action.trigger()
         language = window.workspace.pages[-1]
+        assert language.paths == [] and language.choose_button.isVisible()
         assert window.action_title_label.text() == language.windowTitle()
         assert window.action_card.isAncestorOf(language.scan_button)
         assert language.scan_button.isVisible() and not language.progress.isVisible()
-        language.close_button.click()
-
         paths = [tmp_path / name for name in ("old.csv", "new.csv")]
         for path in paths:
             path.write_text("Key,English\nhello,Hello\n", encoding="utf-8")
-        window.add_csv_files([str(path) for path in paths])
-        window.file_table.selectAll()
+        responses = iter([[], [str(path) for path in paths]])
+        monkeypatch.setattr(main_window.QFileDialog, "getOpenFileNames", lambda *a: (next(responses), "CSV"))
+        window.compare_action.trigger()
+        assert window.workspace.pages[-1] is language
         window.compare_action.trigger()
         compare = window.workspace.pages[-1]
+        assert window.workspace.pages == [direct, compare]
         assert compare.worker.wait(5000)
         app.processEvents()
         assert window.action_title_label.text() == compare.windowTitle()

@@ -20,6 +20,7 @@ class AppSettings:
     theme: str = "light"
     last_csv_dir: str = ""
     last_export_dir: str = ""
+    csv_sheet_direction: str = "import"
     mapping_path: str = ""
     mapping_csv_files: list[str] = field(default_factory=list)
     selected_csv_files: list[str] = field(default_factory=list)
@@ -29,6 +30,7 @@ class AppSettings:
     unity_export_csv_files: list[str] = field(default_factory=list)
     unity_duplicate_files: list[str] | None = None
     unity_mode: str = "import"
+    direct_direction: str = "upload"
     unity_locale_dir: str = ""
     unity_csv_dir: str = ""
     unity_export_dir: str = ""

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from import_localize.services.desc_annotations import DescAnnotations, WRONG_LANGUAGE, locales_for_table
 from import_localize.services.csv_language_service import STATUS, COLORS, language_name
 from import_localize.services.language_audit_process import read_report
+from .feature_workspace import start_feature_worker
 
 
 class LanguageWorker(QThread):
@@ -127,6 +128,8 @@ class LanguageRowsModel(QAbstractTableModel):
 
 
 class CsvLanguageDialog(QDialog):
+    desc_marks_changed = Signal()
+
     def __init__(self, paths=(), parent=None, *, annotations=None, sources=None):
         super().__init__(parent)
         self.sources = sources
@@ -346,7 +349,7 @@ class CsvLanguageDialog(QDialog):
         self.worker = LanguageWorker(self.paths, self, sources=self.sources)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.finished_scan)
-        self.worker.start()
+        start_feature_worker(self)
 
     @Slot(int, int, str)
     def on_progress(self, done, total, message):
@@ -432,6 +435,17 @@ class CsvLanguageDialog(QDialog):
         else:
             self.result_label.setText("Chưa có kết quả nhận diện.")
 
+    def set_sheet_context(self, url, annotations):
+        if self.annotations is not annotations:
+            self.annotations = annotations
+            self.refresh_desc_marks()
+
+    def refresh_desc_marks(self):
+        self.update_mark_buttons()
+        self.show_content()
+        if self.report is not None:
+            self.status.setText("Đã cập nhật dấu Desc của bản xuất đang chọn.")
+
     def selected_annotations(self):
         pairs = set()
         for index in self.table.selectionModel().selectedRows():
@@ -461,6 +475,7 @@ class CsvLanguageDialog(QDialog):
         self.show_content()
         verb = "Đã đánh dấu" if enabled else "Đã gỡ dấu"
         self.status.setText(f"{verb} Wrong languague cho {len(pairs)} cặp key/ngôn ngữ của bản xuất.")
+        self.desc_marks_changed.emit()
 
     def show_content(self, *_):
         index = self.table.currentIndex()
