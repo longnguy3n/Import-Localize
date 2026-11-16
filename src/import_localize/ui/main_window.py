@@ -75,27 +75,12 @@ from import_localize.services.sheet_link import sheet_id_from_link
 from import_localize.workers.update_worker import UpdateCheckWorker
 
 
-class CsvTaskDialog(QDialog):
-    """Host the file list and progress controls for the chosen CSV task."""
-
-    def __init__(self, owner):
-        super().__init__(owner)
-        self.owner = owner
-        self.setModal(True)
-        self.setAcceptDrops(True)
-        self.setSizeGripEnabled(True)
-
+class CsvFilesDialog(QDialog):
     def dragEnterEvent(self, event):
-        if self.owner.csv_mode in ("import", "compare") and not self.owner.worker:
-            self.owner.dragEnterEvent(event)
+        self.parentWidget().dragEnterEvent(event)
 
     def dropEvent(self, event):
-        if self.owner.csv_mode in ("import", "compare") and not self.owner.worker:
-            self.owner.dropEvent(event)
-
-    def reject(self):
-        if self.owner.worker is None:
-            super().reject()
+        self.parentWidget().dropEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -291,6 +276,23 @@ class MainWindow(QMainWindow):
         self.mapping_check_button = QPushButton("Kiểm tra mapping…")
         self.mapping_check_button.setToolTip("Đối chiếu CSV với mapping.json; xem file sai và đánh dấu Wrong mapping trong Desc khi xuất.")
         self._configure_workspace()
+        self.files_launcher = QPushButton("Tệp CSV…")
+        self.files_launcher.setFixedHeight(38)
+        self.files_launcher.setToolTip("Mở danh sách CSV để thêm, sắp xếp hoặc chọn tệp")
+        self.cards_splitter.replaceWidget(self.cards_splitter.indexOf(self.files_card), self.files_launcher)
+        self.files_popup = CsvFilesDialog(self)
+        self.files_popup.setWindowTitle("Tệp CSV")
+        self.files_popup.setAcceptDrops(True)
+        self.files_popup.setSizeGripEnabled(True)
+        self.files_popup.resize(760, 470)
+        popup_layout = QVBoxLayout(self.files_popup)
+        popup_layout.addWidget(self.files_card)
+        self.files_card.show()
+        done = QPushButton("Xong")
+        done.clicked.connect(self.files_popup.accept)
+        popup_layout.addWidget(done, 0, Qt.AlignmentFlag.AlignRight)
+        self.files_launcher.clicked.connect(self.files_popup.open)
+        self.files_popup.finished.connect(self.save_settings)
         self.files_card_layout.setStretch(1, 1)
         self.log_card_layout.setStretch(1, 1)
         self.action_card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -343,8 +345,8 @@ class MainWindow(QMainWindow):
         self.csv_tools_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self.csv_tools_button)
         menu.addAction("Kiểm tra mapping…", self.mapping_check_button.click)
-        self.compare_action = menu.addAction("So sánh hai CSV…", lambda: self.open_csv_task("compare"))
-        self.language_action = menu.addAction("Nhận diện ngôn ngữ…", self.check_csv_languages)
+        self.compare_action = menu.addAction("So sánh 2 CSV đã chọn…", self.compare_files_button.click)
+        self.language_action = menu.addAction("Nhận diện ngôn ngữ…", self.language_check_button.click)
         menu.addSeparator()
         self.clear_desc_action = menu.addAction("Bỏ tất cả dấu Desc của bản xuất", self.clear_desc_annotations)
         self.technical_columns_action = menu.addAction("Hiện cột mã hóa và phân cách")
@@ -361,32 +363,6 @@ class MainWindow(QMainWindow):
         self.technical_columns_action.setChecked(bool(self.settings.ui_show_technical_columns))
         self._toggle_technical_columns(bool(self.settings.ui_show_technical_columns))
 
-        self.csv_mode = "import"
-        self.csv_popup = CsvTaskDialog(self)
-        popup_layout = QVBoxLayout(self.csv_popup)
-        panel = require_object(self.root, "contentWidget", QWidget)
-        self.root.layout().removeWidget(panel)
-        self.popup_target = QLabel()
-        self.popup_target.setTextFormat(Qt.TextFormat.PlainText)
-        self.popup_target.setWordWrap(True)
-        popup_layout.addWidget(self.popup_target)
-        popup_layout.addWidget(panel)
-        self.popup_close = QPushButton("Đóng")
-        self.popup_close.clicked.connect(self.csv_popup.reject)
-        popup_layout.addWidget(self.popup_close, 0, Qt.AlignmentFlag.AlignRight)
-        self.csv_popup.resize(800, 680)
-        self.csv_popup.finished.connect(self.save_settings)
-        self.root.layout().addStretch()
-        row = QHBoxLayout()
-        self.import_csv_launcher = QPushButton("CSV → Sheet…")
-        self.export_csv_launcher = QPushButton("Sheet → CSV…")
-        self.log_launcher = QPushButton("Nhật ký…")
-        for launcher, mode in ((self.import_csv_launcher, "import"),
-                               (self.export_csv_launcher, "download"), (self.log_launcher, "log")):
-            launcher.clicked.connect(lambda checked=False, task=mode: self.open_csv_task(task))
-            row.addWidget(launcher)
-        row.addStretch()
-        stack.addLayout(row)
         target_row = QHBoxLayout()
         target_row.addWidget(QLabel("Bảng tính"))
         self.quick_sheet_url_edit = self.sheet_url_edit
@@ -432,45 +408,6 @@ class MainWindow(QMainWindow):
         self.log_toggle.setChecked(bool(self.settings.ui_log_expanded))
         self._toggle_log(self.log_toggle.isChecked())
         self.progress_bar.hide()
-
-    def open_csv_task(self, mode):
-        if self.worker is not None:
-            return
-        titles = {"import": "Nhập CSV lên Google Sheets", "download": "Tải các tab export_* thành CSV",
-                  "compare": "Chọn hai CSV để so sánh", "log": "Nhật ký xử lý"}
-        self.csv_mode = mode
-        self.csv_popup.setWindowTitle(titles[mode])
-        target = self.sheet_title_label.text() if self.sheet_title_label.text().startswith("Tên bảng tính:") else self.sheet_url_edit.text().strip()
-        self.popup_target.setText(target or "Chưa chọn bảng tính. Dán link ở màn hình chính.")
-        self.popup_target.setVisible(mode in ("import", "download"))
-        if self._active_operation == "" and mode in ("import", "download"):
-            self.progress_bar.hide()
-            self.progress_label.setText("Sẵn sàng")
-        self.files_card.setVisible(mode in ("import", "compare"))
-        self.action_card.setVisible(mode in ("import", "download"))
-        self.log_card.setVisible(mode != "compare")
-        self.compare_files_button.setVisible(mode == "compare")
-        self.start_button.setVisible(mode == "import")
-        self.download_export_tabs_button.setVisible(mode == "download")
-        self.target_summary.setVisible(mode == "import")
-        self.log_toggle.setVisible(mode != "log")
-        if mode == "log":
-            self.log_placeholder.show()
-            self.clear_log_button.show()
-            self.log_card.setMaximumHeight(16777215)
-            self.log_card.setMinimumHeight(140)
-        else:
-            self._toggle_log(self.log_toggle.isChecked())
-        self._refresh_minimum_height()
-        self.csv_popup.resize(max(660, self.width()), {"import": 660, "download": 380, "compare": 460, "log": 430}[mode])
-        self.csv_popup.open()
-        if mode == "import":
-            self._card_sizes_restored = False
-            self._restore_card_sizes()
-
-    def add_csv_shortcut(self):
-        self.open_csv_task("import")
-        self.add_files_button.click()
 
     @property
     def desc_annotations(self) -> DescAnnotations:
@@ -627,7 +564,7 @@ class MainWindow(QMainWindow):
             lambda: self.move_selected_files(1)
         )
         self._add_files_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
-        self._add_files_shortcut.activated.connect(self.add_csv_shortcut)
+        self._add_files_shortcut.activated.connect(self.add_files_from_main)
         self._popup_add_shortcut = QShortcut(QKeySequence("Ctrl+O"), self.files_card)
         self._popup_add_shortcut.activated.connect(self.add_files_button.click)
         self.add_files_button.setToolTip("Thêm file CSV (Ctrl+O); cũng có thể kéo thả file vào cửa sổ.")
@@ -666,9 +603,14 @@ class MainWindow(QMainWindow):
             max(MIN_WINDOW_WIDTH, self.settings.window_width or DEFAULT_WINDOW_WIDTH),
             safe_width,
         )
+        target_height = min(
+            max(MIN_WINDOW_HEIGHT, self.settings.window_height or DEFAULT_WINDOW_HEIGHT),
+            safe_height,
+        )
+
         self.setMinimumWidth(min(MIN_WINDOW_WIDTH, safe_width))
-        self.resize(target_width, self.sizeHint().height())
-        self.setFixedHeight(self.sizeHint().height() + self.sheet_title_label.sizeHint().height() + 12)
+        self.setMinimumHeight(min(MIN_WINDOW_HEIGHT, safe_height))
+        self.resize(target_width, target_height)
 
         geometry = self.frameGeometry()
         geometry.moveCenter(available.center())
@@ -770,11 +712,25 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._refresh_minimum_height)
 
     def _refresh_minimum_height(self) -> None:
-        width = max(600, self.csv_popup.width() - 50)
-        self.files_card.setMinimumHeight(max(210, self.files_card_layout.minimumSize().height(),
-                                            self.files_card_layout.minimumHeightForWidth(width)))
-        self.action_card.setMinimumHeight(max(145, self.action_card.layout().minimumSize().height()))
-        self.log_card.setMinimumHeight(140 if self.csv_mode == "log" or self.log_toggle.isChecked() else 64)
+        available = self._current_available_geometry()
+        if available is None:
+            return
+
+        layout = self.root.layout()
+        if layout is not None:
+            layout.activate()
+        cards = (self.action_card, self.log_card)
+        for card, floor in zip(cards, (145, 140)):
+            if card is self.log_card and not self.log_toggle.isChecked():
+                card.setMinimumHeight(64)
+                continue
+            card.setMinimumHeight(max(
+                floor, card.layout().minimumSize().height(),
+                card.layout().minimumHeightForWidth(card.width()),
+            ))
+        desired = (self.top_bar.height() + self.files_launcher.height() + sum(card.minimumHeight() for card in cards)
+                   + 2 * self.cards_splitter.handleWidth() + 24)
+        self.setMinimumHeight(max(620, desired))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -787,7 +743,7 @@ class MainWindow(QMainWindow):
         if not self._screen_signal_connected and self.windowHandle() is not None:
             self.windowHandle().screenChanged.connect(self._on_screen_changed)
             self._screen_signal_connected = True
-
+        QTimer.singleShot(0, self._restore_card_sizes)
 
     def _on_screen_changed(self, _screen) -> None:
         self._apply_density(force=True)
@@ -907,10 +863,14 @@ class MainWindow(QMainWindow):
         dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
 
+    def add_files_from_main(self):
+        self.files_popup.open()
+        self.add_files_button.click()
+
     def choose_csv_files(self) -> None:
         start_dir = self.settings.last_csv_dir or str(Path.home())
         paths, _ = QFileDialog.getOpenFileNames(
-            self.csv_popup if self.csv_popup.isVisible() else self,
+            self.files_popup,
             "Chọn file CSV",
             start_dir,
             "CSV (*.csv);;Tất cả file (*.*)",
@@ -1106,8 +1066,8 @@ class MainWindow(QMainWindow):
         running = bool(self.worker and self.worker.isRunning())
         self.language_check_button.setEnabled(bool(self.file_infos) and not running)
         self.compare_files_button.setEnabled(len(rows) == 2 and not running)
-        self.compare_action.setEnabled(not running)
-        self.language_action.setEnabled(not running)
+        self.compare_action.setEnabled(self.compare_files_button.isEnabled())
+        self.language_action.setEnabled(self.language_check_button.isEnabled())
         self.remove_files_button.setEnabled(bool(rows) and not running)
         self.clear_files_button.setEnabled(bool(self.file_infos) and not running)
         self.start_button.setEnabled(bool(self.file_infos) and not running)
@@ -1152,7 +1112,7 @@ class MainWindow(QMainWindow):
         if len(rows) != 2 or (self.worker and self.worker.isRunning()):
             return
         paths = [str(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)) for row in rows]
-        dialog = CsvCompareDialog(*paths, self.csv_popup)
+        dialog = CsvCompareDialog(*paths, self)
         dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
         dialog.deleteLater()
@@ -1196,18 +1156,19 @@ class MainWindow(QMainWindow):
             }
             detail = f" • {format_size(total_size)} • {len(valid_tabs)} tab"
         self.file_summary_label.setText(f"{count} file{detail}")
+        self.files_launcher.setText(f"Tệp CSV…  ·  {count} file")
 
     def open_sheet(self) -> None:
         url = self.sheet_url_edit.text().strip()
         if not url:
-            QMessageBox.warning(self.csv_popup if self.csv_popup.isVisible() else self, "Thiếu link", "Dán link vào ô Sheet đích trên màn hình chính.")
+            QMessageBox.warning(self, "Thiếu link", "Dán link vào ô Sheet đích trên màn hình chính.")
             return
         QDesktopServices.openUrl(QUrl(url))
 
     def build_job(self) -> ImportJob | None:
         if not self.file_infos:
             QMessageBox.warning(
-                self.csv_popup if self.csv_popup.isVisible() else self,
+                self,
                 "Chưa chọn file",
                 "Hãy chọn ít nhất một file CSV.",
             )
@@ -1215,7 +1176,7 @@ class MainWindow(QMainWindow):
         url = self.sheet_url_edit.text().strip()
         if not sheet_id_from_link(url):
             QMessageBox.warning(
-                self.csv_popup if self.csv_popup.isVisible() else self,
+                self,
                 "Link không hợp lệ",
                 "Dán link Google Sheet hợp lệ vào ô Sheet đích trên màn hình chính.",
             )
@@ -1228,12 +1189,12 @@ class MainWindow(QMainWindow):
                     self.single_sheet_name_edit.text()
                 )
             except CsvImportError as exc:
-                QMessageBox.warning(self.csv_popup if self.csv_popup.isVisible() else self, "Tên Sheet không hợp lệ", str(exc))
+                QMessageBox.warning(self, "Tên Sheet không hợp lệ", str(exc))
                 self.show_settings(initial_tab="target")
                 return None
             ordered_paths = self._ordered_file_paths()
             if not ordered_paths:
-                QMessageBox.warning(self.csv_popup if self.csv_popup.isVisible() else self, "Chưa chọn file", "Danh sách file đang trống.")
+                QMessageBox.warning(self, "Chưa chọn file", "Danh sách file đang trống.")
                 return None
             file_paths = (ordered_paths[0],)
         else:
@@ -1257,7 +1218,7 @@ class MainWindow(QMainWindow):
                     target_keys[key] = info.path.name
             if invalid_names:
                 QMessageBox.warning(
-                    self.csv_popup if self.csv_popup.isVisible() else self,
+                    self,
                     "Tên file không hợp lệ",
                     "Chế độ nhiều sheet yêu cầu tên file theo mẫu "
                     "[Tên Google Sheet] - [Tên tab].csv:\n\n"
@@ -1266,7 +1227,7 @@ class MainWindow(QMainWindow):
                 return None
             if duplicates:
                 QMessageBox.warning(
-                    self.csv_popup if self.csv_popup.isVisible() else self,
+                    self,
                     "Trùng tab đích",
                     "Mỗi tab chỉ được có một file trong một lượt import:\n"
                     + "\n".join(duplicates),
@@ -1276,7 +1237,7 @@ class MainWindow(QMainWindow):
         oauth_status = oauth_configuration_status()
         if not oauth_status["client_ready"]:
             QMessageBox.warning(
-                self.csv_popup if self.csv_popup.isVisible() else self,
+                self,
                 "Chưa cấu hình Google OAuth",
                 "Mở Cài đặt, chọn oauth_client.json và đăng nhập Google trước.",
             )
@@ -1334,7 +1295,7 @@ class MainWindow(QMainWindow):
         url = self.sheet_url_edit.text().strip()
         if not sheet_id_from_link(url):
             QMessageBox.warning(
-                self.csv_popup if self.csv_popup.isVisible() else self,
+                self,
                 "Link không hợp lệ",
                 "Dán link Google Sheet hợp lệ vào ô Sheet đích trên màn hình chính.",
             )
@@ -1344,7 +1305,7 @@ class MainWindow(QMainWindow):
         oauth_status = oauth_configuration_status()
         if not oauth_status["client_ready"]:
             QMessageBox.warning(
-                self.csv_popup if self.csv_popup.isVisible() else self,
+                self,
                 "Chưa cấu hình Google OAuth",
                 "Mở Cài đặt, chọn oauth_client.json và đăng nhập Google trước.",
             )
@@ -1361,7 +1322,7 @@ class MainWindow(QMainWindow):
 
         initial_dir = self.settings.last_export_dir or str(Path.home())
         output_dir = QFileDialog.getExistingDirectory(
-            self.csv_popup,
+            self,
             "Chọn thư mục lưu các tab export_*",
             initial_dir,
             QFileDialog.Option.ShowDirsOnly,
@@ -1409,9 +1370,7 @@ class MainWindow(QMainWindow):
             self.download_export_tabs_button,
         ):
             button.setEnabled(not running)
-        self.start_button.setVisible(not running and self.csv_mode == "import")
-        self.download_export_tabs_button.setVisible(not running and self.csv_mode == "download")
-        self.popup_close.setEnabled(not running)
+            button.setVisible(not running)
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(running)
         self.settings_button.setEnabled(not running)
@@ -1419,6 +1378,7 @@ class MainWindow(QMainWindow):
         self.direct_upload_button.setEnabled(not running)
         self.direct_download_button.setEnabled(not running)
         self.mapping_check_button.setEnabled(not running)
+        self.files_launcher.setEnabled(not running)
         self.add_files_button.setEnabled(not running)
         self.remove_files_button.setEnabled(not running)
         self.clear_files_button.setEnabled(not running)
@@ -1454,13 +1414,13 @@ class MainWindow(QMainWindow):
                 title = "Tải CSV hoàn tất"
             else:
                 title = "Import hoàn tất"
-            QMessageBox.information(self.csv_popup if self.csv_popup.isVisible() else self, title, message)
+            QMessageBox.information(self, title, message)
         elif "dừng" not in message.casefold():
             if operation == "download":
                 title = "Tải CSV thất bại"
             else:
                 title = "Import thất bại"
-            QMessageBox.warning(self.csv_popup if self.csv_popup.isVisible() else self, title, message)
+            QMessageBox.warning(self, title, message)
         self._active_operation = ""
 
     def on_worker_finished(self) -> None:
@@ -1495,7 +1455,7 @@ class MainWindow(QMainWindow):
         self.settings.selected_csv_files = [
             str(self.file_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
             for row in range(self.file_table.rowCount())]
-        if self._card_sizes_restored and self.csv_mode == "import":
+        if self._card_sizes_restored:
             self.settings.card_sizes = self.cards_splitter.sizes()
         self.settings.window_width = self.width()
         self.settings.window_height = self.height()
@@ -1522,10 +1482,10 @@ class MainWindow(QMainWindow):
             if url.isLocalFile()
             and url.toLocalFile().casefold().endswith(".csv")
         ]
-        if paths and not self.worker:
-            if not self.csv_popup.isVisible():
-                self.open_csv_task("import")
-            self.add_csv_files(paths)
+        if paths:
+            if self.worker is None:
+                self.files_popup.open()
+                self.add_csv_files(paths)
             event.acceptProposedAction()
 
     def closeEvent(self, event: QCloseEvent) -> None:

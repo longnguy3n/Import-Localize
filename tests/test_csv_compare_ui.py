@@ -87,9 +87,7 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         window.show()
         for _ in range(10):
             app.processEvents()
-        assert not window.file_table.isVisible()
-        window.import_csv_launcher.click()
-        assert window.file_table.isVisible()
+        window.files_launcher.click()
         assert window.target_form.isHidden()
         assert window.cards_splitter.indexOf(window.target_card) == -1
         assert window.file_table.minimumHeight() >= 100
@@ -105,7 +103,7 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         assert not window.compare_files_button.isEnabled()
         selection.select(window.file_table.model().index(1, 0), flags)
         assert window.compare_files_button.isEnabled()
-        window.csv_popup.reject()
+        window.files_popup.accept()
         for attempt in range(2):
             observed = []
             def edit_settings():
@@ -142,26 +140,21 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         window.show()
         for _ in range(10):
             app.processEvents()
-        window.import_csv_launcher.click()
         splitter = window.cards_splitter
         assert splitter.count() == 3
-        # Actual divider movement may not collapse either adjacent card.
-        splitter.moveSplitter(0, 1)
-        app.processEvents()
-        assert window.files_card.height() >= window.files_card.minimumHeight()
-        assert window.file_table.geometry().bottom() < window.add_files_button.y()
+        assert splitter.widget(0) is window.files_launcher
+        assert splitter.widget(1) is window.action_card and splitter.widget(2) is window.log_card
         splitter.moveSplitter(splitter.height(), 2)
         app.processEvents()
         assert window.log_card.height() >= window.log_card.minimumHeight()
         splitter.setSizes([270, 175, 230])
-        splitter.moveSplitter(splitter.sizes()[0] + 15, 1)
+        splitter.moveSplitter(sum(splitter.sizes()[:2]) - 15, 2)
         app.processEvents()
         saved = repository.load().card_sizes
         assert saved == splitter.sizes()
         window.close()
         reopened = MainWindow()
         reopened.show()
-        reopened.import_csv_launcher.click()
         for _ in range(10):
             app.processEvents()
         assert all(abs(a - b) <= 2 for a, b in zip(saved, reopened.cards_splitter.sizes()))
@@ -169,17 +162,18 @@ def test_card_resize_minimum_and_restore(app, tmp_path):
         reopened.resize(660, 700)
         for _ in range(10):
             app.processEvents()
+        reopened.files_launcher.click()
         buttons = [reopened.add_files_button,
                    reopened.move_up_button, reopened.move_down_button,
                    reopened.remove_files_button, reopened.clear_files_button]
         assert max(button.geometry().center().y() for button in buttons) - min(button.geometry().center().y() for button in buttons) <= 1
         assert all(button.geometry().right() <= reopened.files_card.width() for button in buttons)
+        reopened.files_popup.accept()
         small_sizes = reopened.cards_splitter.sizes()
         small_height = reopened.height()
         reopened.close()
         small_reopened = MainWindow()
         small_reopened.show()
-        small_reopened.import_csv_launcher.click()
         for _ in range(10):
             app.processEvents()
         assert small_reopened.height() == small_height

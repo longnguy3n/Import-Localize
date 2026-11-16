@@ -13,6 +13,14 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
     app.processEvents()
     try:
         assert window.log_placeholder.isHidden()
+        assert not window.file_table.isVisible()
+        assert window.start_button.isVisible() and window.download_export_tabs_button.isVisible()
+        assert window.log_card.isVisible()
+        window.files_launcher.click()
+        assert window.files_popup.isVisible() and window.file_table.isVisible()
+        assert window.start_button.window() is window and window.log_card.window() is window
+        window.files_popup.accept()
+        assert not window.file_table.isVisible()
         assert window.file_table.isColumnHidden(3)
         assert not window.start_button.isEnabled()
         window.quick_sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/example/edit')
@@ -28,14 +36,8 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         calls = []
         window.compare_files_button.clicked.disconnect()
         window.compare_files_button.clicked.connect(lambda: calls.append('compare'))
-        assert not window.file_table.isVisible()
         window.compare_action.trigger()
-        assert window.csv_popup.isVisible() and window.file_table.isVisible()
-        window.compare_files_button.click()
         assert calls == ['compare']
-        window.csv_popup.reject()
-        window.export_csv_launcher.click()
-        assert window.download_export_tabs_button.isVisible() and not window.file_table.isVisible()
         window.set_running(True)
         assert not window.quick_sheet_url_edit.isEnabled()
         assert not window.csv_tools_button.isEnabled()
@@ -51,8 +53,6 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         window.on_worker_finished()
         assert window.start_button.isEnabled()
         assert window.compare_action.isEnabled()
-        window.csv_popup.reject()
-        window.import_csv_launcher.click()
         window.technical_columns_action.setChecked(True)
         window.append_log('FAIL', 'Example failure for UI test')
         assert window.log_toggle.isChecked()
