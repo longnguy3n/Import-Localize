@@ -219,6 +219,8 @@ class LocaleDuplicateDialog(QDialog):
         actions.addWidget(self.apply_button)
         actions.addWidget(self.close_button)
         layout.addLayout(actions)
+        self.action_messages = (safety, self.status, self.progress)
+        self.action_buttons = (self.backup_button, self.scan_button, self.apply_button, self.close_button)
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
         self.choose_button.clicked.connect(self.choose_files)

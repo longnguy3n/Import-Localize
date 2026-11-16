@@ -258,6 +258,8 @@ class CsvLanguageDialog(QDialog):
         footer.addWidget(self.status, 1)
         footer.addWidget(self.close_button)
         layout.addLayout(footer)
+        self.action_messages = (self.status, self.progress)
+        self.action_buttons = (self.stop_button, self.scan_button, self.close_button)
         self.choose_button.clicked.connect(self.choose_files)
         self.scan_button.clicked.connect(self.start_scan)
         self.stop_button.clicked.connect(self.stop)

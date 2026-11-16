@@ -391,6 +391,8 @@ class UnityLocaleDialog(QDialog):
         for button in (self.preview_button, self.apply_button, self.close_button):
             actions.addWidget(button)
         layout.addLayout(actions)
+        self.action_messages = (self.safety_label, self.preview_status, self.progress)
+        self.action_buttons = (self.backup_button, self.preview_button, self.apply_button, self.close_button)
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
 
@@ -470,6 +472,7 @@ class UnityLocaleDialog(QDialog):
 
     def _mode_changed(self):
         importing = self.importing()
+        self.setWindowTitle("Replace Import · CSV → Unity" if importing else "Replace Export · Unity → CSV")
         self.safety_label.setText("Replace Import thay toàn bộ term trong asset. Lưu asset và thoát Play Mode trong Unity trước khi ghi."
                                  if importing else "Replace Export ghi vào các CSV bên nhận. File có sẵn được sao lưu trước khi ghi đè.")
         self.export_controls.setVisible(not importing)

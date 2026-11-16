@@ -285,6 +285,8 @@ class MappingDialog(QDialog):
         bottom.addStretch()
         bottom.addWidget(self.close_button)
         layout.addWidget(self.bottom_panel)
+        self.action_messages = (self.status, self.progress)
+        self.action_buttons = (self.stop_button, self.scan_button, self.close_button)
         self.fit_button.clicked.connect(self.fit_columns)
         self.focus_button.clicked.connect(self.toggle_focus_mode)
         self.source_toggle.toggled.connect(self.toggle_sources)

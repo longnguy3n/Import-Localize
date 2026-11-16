@@ -112,6 +112,8 @@ class DirectSheetDialog(QDialog):
             actions.addWidget(button)
             button.setAutoDefault(False)
         layout.addLayout(actions)
+        self.action_messages = (self.status, self.progress)
+        self.action_buttons = (self.backup_button, self.stop_button, self.preview_button, self.apply_button, self.close_button)
         self.add_button.clicked.connect(self.choose_files)
         self.folder_button.clicked.connect(self.choose_folder)
         self.remove_button.clicked.connect(self.remove_selected)

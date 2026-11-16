@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.20.3</string>
+         <string>v1.20.4</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -654,6 +654,14 @@
              </layout>
             </item>
             <item>
+             <widget class="QStackedWidget" name="actionPages">
+              <widget class="QWidget" name="csvActions">
+               <layout class="QVBoxLayout" name="csvActionsLayout">
+                <property name="leftMargin"><number>0</number></property>
+                <property name="topMargin"><number>0</number></property>
+                <property name="rightMargin"><number>0</number></property>
+                <property name="bottomMargin"><number>0</number></property>
+            <item>
              <widget class="QWidget" name="progressPage">
               <layout class="QVBoxLayout" name="progressLayout">
                <property name="spacing">
@@ -812,6 +820,10 @@
                </spacer>
               </item>
              </layout>
+            </item>
+               </layout>
+              </widget>
+             </widget>
             </item>
            </layout>
           </widget>

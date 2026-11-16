@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -290,7 +291,7 @@ class MainWindow(QMainWindow):
         self.app_subtitle_label.setText("CSV · Unity Locale · Google Sheets")
         self.files_subtitle_label.setText("Kéo thả CSV hoặc thêm tệp. Giữ Ctrl/Shift để chọn nhiều.")
         require_object(self.root, "filesTitleLabel", QLabel).setText("Tệp CSV")
-        require_object(self.root, "actionTitleLabel", QLabel).setText("Chuyển giữa CSV và Google Sheets")
+        self.action_title_label = require_object(self.root, "actionTitleLabel", QLabel)
         require_object(self.root, "logTitleLabel", QLabel).setText("Nhật ký xử lý")
         self.action_subtitle_label.hide()
         self.log_subtitle_label.hide()
@@ -309,7 +310,6 @@ class MainWindow(QMainWindow):
         stack.addLayout(toolbar)
         toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(8)
-        self.action_card_layout.removeWidget(self.unity_locale_button)
         self.unity_locale_button.setText("Unity ↔ CSV…")
         self.unity_locale_button.setToolTip("Import / export locale.asset, ghép cặp file và xử lý key trùng.")
         self.direct_upload_button = QPushButton("Unity → Sheet…")
@@ -378,7 +378,10 @@ class MainWindow(QMainWindow):
         self.target_summary = QLabel()
         self.target_summary.setProperty("muted", True)
         self.target_summary.setWordWrap(True)
-        self.action_card_layout.insertWidget(1, self.target_summary)
+        self.action_pages = require_object(self.root, "actionPages", QStackedWidget)
+        self.action_pages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        csv_layout = require_object(self.root, "csvActionsLayout", QVBoxLayout)
+        csv_layout.insertWidget(0, self.target_summary)
         self.target_mode_combo.currentIndexChanged.connect(self._update_target_summary)
         self.single_sheet_name_edit.textChanged.connect(self._update_target_summary)
         self.value_input_combo.currentIndexChanged.connect(self._update_target_summary)
@@ -798,7 +801,12 @@ class MainWindow(QMainWindow):
     def show_files(self):
         return self.workspace.leave_features()
 
+    def _sync_action_title(self):
+        pages = self.workspace.pages
+        self.action_title_label.setText(pages[-1].windowTitle() if pages else "Chuyển giữa CSV và Google Sheets")
+
     def _sync_feature_controls(self):
+        self._sync_action_title()
         page = self.workspace.pages[-1] if self.workspace.pages else None
         base = self.workspace.pages[0] if self.workspace.pages else None
         editable = self.worker is None and (page is None or

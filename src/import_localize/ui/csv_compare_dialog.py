@@ -237,6 +237,8 @@ class CsvCompareDialog(QDialog):
         close.clicked.connect(self.reject)
         footer.addWidget(close)
         layout.addLayout(footer)
+        self.action_messages = (self.summary_label, self.visible_label)
+        self.action_buttons = (self.swap_button, close)
         self.swap_button.clicked.connect(self._swap)
         self.filter_combo.currentIndexChanged.connect(self._filter)
         self.search_edit.textChanged.connect(self._filter)
