@@ -91,7 +91,8 @@ def test_main_selection_settings_persistence_and_layout(app, csv_pair, tmp_path)
         assert window.target_form.isHidden()
         assert window.cards_splitter.indexOf(window.target_card) == -1
         assert window.csv_tools_button.isVisible()
-        assert len(window.csv_tools_button.menu().actions()) == 3
+        assert [a.text() for a in window.csv_tools_button.menu().actions()] == [
+            "Kiểm tra mapping", "Nhận diện ngôn ngữ", "Kiểm tra key trùng trong asset…", "So sánh hai CSV…"]
         for attempt in range(2):
             observed = []
             def edit_settings():

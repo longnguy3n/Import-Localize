@@ -104,7 +104,7 @@ def test_entrypoints_pass_selected_files_and_unity_csvs(app, tmp_path, monkeypat
     paths = [write_csv(tmp_path / f"upload_{code}.csv", [["Key", "English"], ["a", "OK"]]) for code in ("en", "vi")]
     main = MainWindow()
     main.set_transfer_folder("upload", str(tmp_path))
-    main.language_action.trigger()
+    main.audit_source_actions["language", "upload"].trigger()
     popup = main.findChild(CsvLanguageDialog)
     assert popup.isWindow() and popup.paths == paths and popup.choose_button.isHidden()
     wait(app, popup)

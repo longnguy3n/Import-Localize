@@ -3,12 +3,12 @@ from pathlib import Path
 from PySide6.QtCore import QSignalBlocker, QThread, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QMenu,
+    QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QMenu,
     QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
 )
 
 from .transfer_preview import TransferPreview
-from .feature_workspace import open_child_feature
+from .feature_workspace import TransferDirections, open_child_feature
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.services.direct_transfer import apply_transfer, prepare_transfer
 from import_localize.services.desc_annotations import DescAnnotations
@@ -54,14 +54,10 @@ class DirectSheetDialog(QDialog):
         self.resize(950, 630)
         layout = QVBoxLayout(self)
         direction_row = QHBoxLayout()
-        direction_label = QLabel("Chiều truyền")
-        self.direction_combo = QComboBox()
-        self.direction_combo.addItem("Unity → Sheet · Ghi các tab upload_*", "upload")
-        self.direction_combo.addItem("Sheet → Unity · Đọc các tab export_*", "download")
+        self.direction_combo = TransferDirections([("Unity → Sheet", "upload"), ("Sheet → Unity", "download")])
         self.direction_combo.setCurrentIndex(self.direction_combo.findData(direction))
-        direction_label.setBuddy(self.direction_combo)
-        direction_row.addWidget(direction_label)
-        direction_row.addWidget(self.direction_combo, 1)
+        direction_row.addWidget(self.direction_combo)
+        direction_row.addStretch()
         layout.addLayout(direction_row)
         self.sheet = QLabel(self.url or "Dán link bảng tính trên màn hình chính để bắt đầu.")
         self.sheet.setTextFormat(Qt.TextFormat.PlainText)
@@ -85,6 +81,7 @@ class DirectSheetDialog(QDialog):
         self.language_action = menu.addAction("Nhận diện ngôn ngữ…", self.check_language)
         menu.addAction("Kiểm tra key trùng trong asset…", self.check_duplicates)
         self.audit_button.setMenu(menu)
+        self.audit_button.setVisible(not folder_only)
         toolbar.addWidget(self.audit_button)
         layout.addLayout(toolbar)
 
@@ -125,7 +122,7 @@ class DirectSheetDialog(QDialog):
             button.setAutoDefault(False)
         layout.addLayout(actions)
         self.action_messages = (self.status, self.progress)
-        self.action_buttons = (self.backup_button, self.stop_button, self.preview_button, self.apply_button, self.close_button)
+        self.action_buttons = (self.preview_button, self.apply_button, self.backup_button, self.stop_button, self.close_button)
         self.add_button.clicked.connect(self.choose_files)
         self.folder_button.clicked.connect(self.choose_folder)
         self.remove_button.clicked.connect(self.remove_selected)
@@ -135,7 +132,7 @@ class DirectSheetDialog(QDialog):
         self.stop_button.clicked.connect(self.stop)
         self.backup_button.clicked.connect(self.open_backup)
         self.table.itemSelectionChanged.connect(self.update_controls)
-        self.direction_combo.currentIndexChanged.connect(self._direction_changed)
+        self.direction_combo.currentChanged.connect(self._direction_changed)
         self._direction_changed()
 
     def _direction_changed(self):
@@ -179,10 +176,16 @@ class DirectSheetDialog(QDialog):
             item = QTableWidgetItem(path.name)
             item.setToolTip(str(path))
             self.table.setItem(row, 0 if self.upload else 1, item)
-        self.status.setText("Chọn Xem trước để ghép theo mã ngôn ngữ trong asset." if self.paths else
-                            "Chọn các file locale*.asset để ghép với tab theo mã ngôn ngữ.")
-        if self.folder_only and not self.paths:
-            self.status.setText("Chọn thư mục Unity locale chứa locale_<mã>.asset trong Thư mục truyền dữ liệu.")
+        if not self.paths:
+            message = ("Chọn thư mục Unity locale trong Thư mục truyền dữ liệu." if self.folder_only else
+                       "Chọn các file locale*.asset để ghép với tab theo mã ngôn ngữ.")
+        elif not self.url:
+            message = "Dán link Google Sheets ở đầu màn hình."
+        elif self.upload:
+            message = f"{len(self.paths)} asset → các tab upload_* cùng mã ngôn ngữ."
+        else:
+            message = f"Các tab export_* → {len(self.paths)} asset cùng mã ngôn ngữ."
+        self.status.setText(message)
         self.update_controls()
 
     def update_controls(self):

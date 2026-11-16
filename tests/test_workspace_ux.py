@@ -19,14 +19,14 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         assert tool.isVisible() and tool.window() is window
         assert not window.csv_page.isVisible()
         assert not window.start_button.isVisible() and window.log_card.isVisible()
-        assert window.action_title_label.text() == "Replace Import · CSV → Unity"
+        assert window.action_title_label.text() == "CSV ↔ Unity"
         assert window.action_card.isAncestorOf(tool.preview_status)
         assert window.action_card.isAncestorOf(tool.apply_button)
         assert tool.preview_status.isVisible() and not tool.progress.isVisible()
         tool.mode_combo.setCurrentIndex(1)
-        assert window.action_title_label.text() == "Replace Export · Unity → CSV"
+        assert window.action_title_label.text() == "CSV ↔ Unity"
         assert not tool.pair_scroll.isVisible() and not tool.changes.isVisible()
-        assert not tool.duplicates_button.isEnabled()
+        assert tool.duplicates_button.isHidden() and tool.review_button.isHidden()
         window.files_launcher.click()
         assert window.csv_page.isVisible() and not window.workspace.pages
         assert window.start_button.isVisible() and window.target_summary.isVisible()
@@ -40,7 +40,7 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         tool = window.workspace.pages[-1]
         tool.direction_combo.setCurrentIndex(tool.direction_combo.findData("download"))
         assert tool.window() is window and tool.direction == "download"
-        assert window.action_title_label.text() == "Google Sheets → Unity"
+        assert window.action_title_label.text() == "Google Sheets ↔ Unity"
         assert tool.apply_button.isVisible() and not tool.stop_button.isVisible()
         assert not window.download_export_tabs_button.isVisible()
         window.quick_sheet_url_edit.setText('https://drive.google.com/open?id=another')
@@ -49,13 +49,13 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
         assert window.workspace.pages[-1] is tool and tool.direction == "download"
         tool.direction_combo.setCurrentIndex(tool.direction_combo.findData("upload"))
         assert tool.direction == "upload"
-        assert window.action_title_label.text() == "Unity → Google Sheets"
+        assert window.action_title_label.text() == "Google Sheets ↔ Unity"
         window.files_launcher.click()
         window.sheet_url_edit.setText('https://docs.google.com/spreadsheets/d/other/edit')
         first = tmp_path / "upload_en.csv"
         first.write_text("Key,English\na,Hello\n")
         window.set_transfer_folder("upload", str(tmp_path))
-        assert window.compare_action.isEnabled() and window.language_action.isEnabled()
+        assert window.compare_action.isEnabled() and window.audit_source_actions["language", "upload"].isEnabled()
         window.set_running(True)
         assert not window.quick_sheet_url_edit.isEnabled()
         assert not window.csv_tools_button.isEnabled()
@@ -102,7 +102,7 @@ def test_audit_actions_follow_active_view(app, tmp_path, monkeypatch):
         mapping.close_button.click()
         window.direct_transfer_button.click()
         direct = window.workspace.pages[-1]
-        window.language_action.trigger()
+        window.check_csv_languages()
         language = app.activeModalWidget()
         assert language.paths == [] and language.choose_button.isHidden()
         assert window.workspace.pages == [direct]

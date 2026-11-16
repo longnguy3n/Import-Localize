@@ -185,8 +185,9 @@ def test_duplicate_folder_saved_and_automatically_reused_after_restart(app, tmp_
         window.show_unity_locale()
         unity = window.workspace.pages[-1]
         assert unity.asset_paths == assets
-        unity.duplicates_button.click()
-        dialog = unity.findChild(LocaleDuplicateDialog)
+        assert unity.duplicates_button.isHidden()
+        window.duplicate_action.trigger()
+        dialog = window.findChild(LocaleDuplicateDialog)
         assert dialog.isWindow() and dialog.folder_button.isHidden() and dialog.choose_button.isHidden()
         drain(app, dialog)
         assert dialog.scan_result and dialog.paths == assets

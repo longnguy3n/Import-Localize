@@ -1,6 +1,26 @@
 """Navigation for feature views hosted in the main workspace."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QStackedWidget, QTabBar, QVBoxLayout, QWidget
+
+
+class TransferDirections(QTabBar):
+    """Two visible directions with native keyboard navigation and one active selection."""
+
+    def __init__(self, choices):
+        super().__init__()
+        self.setObjectName("transferDirections")
+        self.setAccessibleName("Chiều truyền dữ liệu")
+        self.setExpanding(False)
+        self.setDrawBase(False)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        for label, value in choices:
+            self.setTabData(self.addTab(label), value)
+
+    def currentData(self):
+        return self.tabData(self.currentIndex())
+
+    def findData(self, value):
+        return next((i for i in range(self.count()) if self.tabData(i) == value), -1)
 
 
 def feature_action_panel(dialog):
@@ -12,7 +32,7 @@ def feature_action_panel(dialog):
     for widget in dialog.action_messages:
         layout.addWidget(widget)
     buttons = QHBoxLayout()
-    buttons.addStretch()
+    buttons.setSpacing(8)
     layout.addLayout(buttons)
     for widget in dialog.action_buttons:
         buttons.addWidget(widget)
@@ -37,6 +57,10 @@ class FeatureWorkspace(QStackedWidget):
             dialog.close_button.setText("Quay lại")
             if self.pages:
                 dialog.close_button.setToolTip(self.pages[-1].windowTitle())
+        dialog.setObjectName("embeddedTransferPage")
+        dialog.layout().setContentsMargins(0, 0, 0, 0)
+        area.setObjectName("transferScroll")
+        area.viewport().setObjectName("transferViewport")
         area.setWidget(dialog)
         self.addWidget(area)
         self.pages.append(dialog)

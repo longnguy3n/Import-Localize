@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from .feature_workspace import start_feature_worker
+from .unity_audit import asset_audit_sources
 
 
 def snapshots(paths):
@@ -31,10 +32,11 @@ def snapshots(paths):
 class MappingWorker(QThread):
     progress = Signal(int, int, str)
 
-    def __init__(self, mapping, paths, *, sources=None, parent=None):
+    def __init__(self, mapping, paths, *, sources=None, parent=None, unity_assets=False):
         super().__init__(parent)
         self.mapping, self.paths = Path(mapping), list(map(Path, paths))
         self.sources = sources
+        self.unity_assets = unity_assets
         self.snapshot = None
         self.result = None
         self.error = ""
@@ -44,7 +46,11 @@ class MappingWorker(QThread):
             from import_localize.services.mapping_audit_service import audit_mapping
             inputs = [self.mapping] if self.sources is not None else [self.mapping, *self.paths]
             before = snapshots(inputs)
-            self.result = audit_mapping(self.mapping, self.paths, sources=self.sources,
+            sources = self.sources
+            if self.unity_assets:
+                sources = asset_audit_sources(self.paths, lambda n, text: self.progress.emit(n, 100, text),
+                                              self.isInterruptionRequested, check_language=True)
+            self.result = audit_mapping(self.mapping, self.paths, sources=sources,
                 progress_callback=self.progress.emit, cancel_callback=self.isInterruptionRequested)
             if snapshots(inputs) != before:
                 raise ValueError("Dữ liệu đã thay đổi trong lúc kiểm tra. Hãy kiểm tra lại.")
@@ -134,11 +140,12 @@ class MappingTable(QTableWidget):
 class MappingDialog(QDialog):
     desc_marks_changed = Signal()
 
-    def __init__(self, settings, paths=None, parent=None, *, annotations=None, sources=None):
+    def __init__(self, settings, paths=None, parent=None, *, annotations=None, sources=None, unity_assets=False):
         super().__init__(parent)
         self.settings = settings
         self.annotations = annotations if annotations is not None else DescAnnotations()
         self.sources = sources
+        self.unity_assets = unity_assets
         self.paths = list(sources) if sources is not None else list(dict.fromkeys(Path(p) for p in (settings.mapping_csv_files if paths is None else paths)))
         self.report = None
         self.snapshot = None
@@ -325,7 +332,7 @@ class MappingDialog(QDialog):
 
     def update_source_summary(self):
         mapping = Path(self.mapping_edit.text()).name if self.mapping_edit.text() else "chưa chọn mapping"
-        self.source_summary.setText(f"{len(self.paths)} CSV · {mapping}")
+        self.source_summary.setText(f"{len(self.paths)} {'asset' if self.unity_assets else 'CSV'} · {mapping}")
         self.source_summary.setToolTip("\n".join([self.mapping_edit.text(), *map(str, self.paths)]))
 
     def fit_columns(self):
@@ -395,7 +402,7 @@ class MappingDialog(QDialog):
         self.detail.clear()
         self.detail.hide()
         self.update_source_summary()
-        self.status.setText("Bấm Kiểm tra mapping để đối chiếu các CSV đã chọn." if self.paths else "Chọn thư mục CSV upload trong Thư mục truyền dữ liệu để bắt đầu.")
+        self.status.setText("Bấm Kiểm tra mapping để đối chiếu dữ liệu." if self.paths else "Chọn thư mục CSV upload trong Thư mục truyền dữ liệu để bắt đầu.")
         for path in self.paths:
             row = self.files_table.rowCount()
             self.files_table.insertRow(row)
@@ -536,7 +543,7 @@ class MappingDialog(QDialog):
             self.status.setText("Chọn mapping.json và ít nhất một file CSV trước khi kiểm tra.")
             return
         self.invalidate()
-        self.launch(MappingWorker(self.mapping_edit.text().strip(), self.paths, sources=self.sources, parent=self))
+        self.launch(MappingWorker(self.mapping_edit.text().strip(), self.paths, sources=self.sources, parent=self, unity_assets=self.unity_assets))
 
     def stop(self):
         if self.worker:
@@ -729,7 +736,7 @@ class MappingDialog(QDialog):
             self.stop()
             return
         self.settings.mapping_path = self.mapping_edit.text().strip()
-        if self.sources is None:
+        if self.sources is None and not self.unity_assets:
             self.settings.mapping_csv_files = [str(p) for p in self.paths]
         super().reject()
 

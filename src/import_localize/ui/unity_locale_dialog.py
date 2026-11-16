@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .transfer_preview import TransferPreview
-from .feature_workspace import open_child_feature, start_feature_worker
+from .feature_workspace import TransferDirections, open_child_feature, start_feature_worker
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.config.settings import AppSettings
 from .locale_progress_dialog import LocaleProgressDialog
@@ -219,14 +219,15 @@ class UnityLocaleDialog(QDialog):
         intro.setProperty("muted", True)
         intro.setWordWrap(True)
         layout.addWidget(intro)
+        intro.setVisible(not folder_only)
         self.controls = QWidget()
         controls = QVBoxLayout(self.controls)
         controls.setContentsMargins(0, 0, 0, 0)
         mode_row = QHBoxLayout()
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Replace Import: CSV → Unity .asset", "Replace Export: Unity .asset → CSV"])
+        self.mode_combo = TransferDirections([("CSV → Unity", "import"), ("Unity → CSV", "export")])
         self.mode_combo.setCurrentIndex(1 if settings.unity_mode == "export" else 0)
-        mode_row.addWidget(self.mode_combo, 1)
+        mode_row.addWidget(self.mode_combo)
+        mode_row.addStretch()
         self.options_button = QToolButton()
         self.options_button.setText("Tùy chọn CSV")
         self.options_button.setCheckable(True)
@@ -340,6 +341,7 @@ class UnityLocaleDialog(QDialog):
         self.clear_button.setToolTip("Xóa toàn bộ file khỏi danh sách bên đang thao tác; không xóa file trên máy.")
         for button in (self.up_button, self.down_button, self.remove_button, self.clear_button):
             toolbar.addWidget(button)
+        self.duplicates_button.setVisible(not folder_only)
         toolbar.addWidget(self.duplicates_button)
         controls.addLayout(toolbar)
         self.pair_status = QLabel()
@@ -381,11 +383,15 @@ class UnityLocaleDialog(QDialog):
         self.preview_status.setWordWrap(True)
         details_header.addWidget(self.preview_status, 1)
         self.details_button = QToolButton()
-        self.details_button.setText("Chi tiết & cảnh báo")
+        self.details_button.setText("Chi tiết")
+        self.details_button.setToolTip("Xem chi tiết và cảnh báo của các cặp file")
         self.details_button.setCheckable(True)
         self.details_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.details_button.setArrowType(Qt.ArrowType.RightArrow)
-        details_header.addWidget(self.details_button)
+        if folder_only:
+            mode_row.addWidget(self.details_button)
+        else:
+            details_header.addWidget(self.details_button)
         layout.addLayout(details_header)
         self.details = QPlainTextEdit()
         self.details.setReadOnly(True)
@@ -407,8 +413,9 @@ class UnityLocaleDialog(QDialog):
         layout.addWidget(safety)
         actions = QHBoxLayout()
         self.backup_button = QPushButton("Mở bản sao lưu")
+        self.backup_button.hide()
         self.backup_button.setEnabled(False)
-        self.preview_button = QPushButton("1. Xem trước")
+        self.preview_button = QPushButton("Xem trước")
         self.apply_button = QPushButton()
         self.close_button = QPushButton("Đóng")
         actions.addWidget(self.backup_button)
@@ -416,8 +423,8 @@ class UnityLocaleDialog(QDialog):
         for button in (self.preview_button, self.apply_button, self.close_button):
             actions.addWidget(button)
         layout.addLayout(actions)
-        self.action_messages = (self.safety_label, self.preview_status, self.progress)
-        self.action_buttons = (self.backup_button, self.preview_button, self.apply_button, self.close_button)
+        self.action_messages = (self.preview_status, self.safety_label, self.progress)
+        self.action_buttons = (self.preview_button, self.apply_button, self.backup_button, self.close_button)
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
 
@@ -438,7 +445,7 @@ class UnityLocaleDialog(QDialog):
         self.clear_button.clicked.connect(lambda: self._active_list.clear_files())
         self.duplicates_button.clicked.connect(self.check_duplicates)
         self.language_check_button.clicked.connect(self.check_csv_languages)
-        self.mode_combo.currentIndexChanged.connect(self._mode_changed)
+        self.mode_combo.currentChanged.connect(self._mode_changed)
         self.delimiter_combo.currentIndexChanged.connect(self.invalidate)
         self.output_edit.textChanged.connect(self.invalidate)
         self.prefix_edit.textChanged.connect(self._refresh_lists)
@@ -505,6 +512,7 @@ class UnityLocaleDialog(QDialog):
             if dialog.wrote_files:
                 self.invalidate()
                 self.backup_path = dialog.backup_path
+                self.backup_button.show()
                 self.backup_button.setEnabled(True)
                 self.details.setPlainText("Đã xử lý duplicate key. Bấm Xem trước lại trước khi import/export.\n"
                                           f"Bản sao lưu: {self.backup_path}")
@@ -516,15 +524,15 @@ class UnityLocaleDialog(QDialog):
         self.safety_label.setText("Replace Import thay toàn bộ term trong asset. Lưu asset và thoát Play Mode trong Unity trước khi ghi."
                                  if importing else "Replace Export ghi vào các CSV bên nhận. File có sẵn được sao lưu trước khi ghi đè.")
         self.export_controls.setVisible(not importing and not self.folder_only)
-        self.review_button.setVisible(not importing)
-        self.language_check_button.setVisible(importing)
+        self.review_button.setVisible(not importing and not self.folder_only)
+        self.language_check_button.setVisible(importing and not self.folder_only)
         self.direct_button.setText("Sheet → Unity…" if importing else "Unity → Sheet…")
         self.source_choose_button.setText("Thêm CSV đã dịch…" if importing else "Thêm asset…")
         self.source_extra_button.setText("Thư mục…")
         self.source_extra_button.setVisible(not importing)
         self.target_choose_button.setText("Thêm asset…" if importing else "Chọn CSV nhận…")
         self.set_upload_paths(self.upload_paths)
-        self.apply_button.setText("2. Thực hiện Replace " + ("Import" if importing else "Export"))
+        self.apply_button.setText("Ghi vào Unity" if importing else "Ghi vào CSV upload")
         self._refresh_lists()
 
     def invalidate(self):
@@ -534,6 +542,8 @@ class UnityLocaleDialog(QDialog):
         self.table.setRowCount(0)
         if self.folder_only:
             self.changes.hide()
+            self.backup_button.hide()
+            self.safety_label.hide()
             self.table.hide()
             self.details_button.setChecked(False)
             self.details_button.hide()
@@ -541,8 +551,14 @@ class UnityLocaleDialog(QDialog):
         self.progress.setValue(0)
         paired = bool(self.csv_paths if self.importing() else self.asset_paths) and not self.pair_error
         self.preview_button.setEnabled(paired and self.worker is None)
-        self.preview_status.setText(self.pair_error or ("Bấm Xem trước để đối chiếu nội dung với mã trên tên file." if paired
-                                    else "Thư mục nguồn chưa có file phù hợp." if self.folder_only else "Chọn thư mục hoặc file nguồn và đích."))
+        if self.folder_only:
+            count = len(self.csv_paths if self.importing() else self.asset_paths)
+            summary = (f"{count} CSV export → asset cùng mã ngôn ngữ." if self.importing() else
+                       f"{count} asset → CSV upload cùng mã ngôn ngữ.")
+            self.preview_status.setText(self.pair_error or (summary if paired else "Thư mục nguồn chưa có file phù hợp."))
+        else:
+            self.preview_status.setText(self.pair_error or ("Bấm Xem trước để đối chiếu nội dung với mã trên tên file."
+                                        if paired else "Chọn thư mục hoặc file nguồn và đích."))
         self._update_action_emphasis()
         self.source_metric.setText("NGUỒN · chưa xem trước")
         self.before_metric.setText("ĐÍCH TRƯỚC · chưa xem trước")
@@ -898,6 +914,7 @@ class UnityLocaleDialog(QDialog):
         elif self._applying:
             self.plan = None
             self.backup_path = worker.result
+            self.backup_button.show()
             self.backup_button.setEnabled(True)
             self.progress.setValue(1)
             self.preview_status.setText(f"Đã ghi {self.table.rowCount()} cặp file. Bản sao lưu sẵn sàng để mở.")
@@ -909,6 +926,7 @@ class UnityLocaleDialog(QDialog):
                                          "Export: thêm CSV upload_* vào luồng upload Google Sheets của ứng dụng.")
         else:
             self.plan = worker.result
+            self.safety_label.show()
             if self.folder_only:
                 self.changes.show_changes([(c.source_path.name, c.path.name, c.stats, c.summary) for c in self.plan.changes])
             else:

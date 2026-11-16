@@ -2,18 +2,21 @@ from pathlib import Path
 from concurrent.futures import CancelledError
 
 from .feature_workspace import open_child_feature
+from import_localize.services.transfer_files import validate_asset_language
 from import_localize.services.unity_locale_service import export_csv, read_asset
 
 
-def asset_audit_sources(paths, progress=None, cancelled=None):
+def asset_audit_sources(paths, progress=None, cancelled=None, *, check_language=False):
     """Give audit dialogs the exact unmarked Unity export, held in memory."""
     sources = {}
     for index, path in enumerate(paths):
         if cancelled and cancelled():
             raise CancelledError("Đã dừng đọc asset.")
         asset = read_asset(path)
+        if check_language:
+            validate_asset_language(asset.path, asset.languages)
         code = asset.languages[0]["Code"] if len(asset.languages) == 1 else path.stem
-        name = Path(f"upload_{code}.csv")
+        name = asset.path if check_language else Path(f"upload_{code}.csv")
         if name in sources:
             raise ValueError(f"Nhiều asset cùng tạo {name}. Hãy chọn một asset cho mỗi mã ngôn ngữ.")
         sources[name] = export_csv(asset)

@@ -73,8 +73,7 @@ def run_self_test(report_path: str) -> int:
             assert window.cards_splitter.count() == 2 and window.workflow_frame.isAncestorOf(window.action_card)
             assert len(window.folder_card.rows) == 3
             assert not window.grab().isNull(), "Main window could not render"
-            window.csv_page.direction.setCurrentIndex(1)
-            assert window.download_export_tabs_button.isVisibleTo(window)
+            assert window.start_button.isVisibleTo(window) and window.download_export_tabs_button.isVisibleTo(window)
             window.unity_locale_button.click()
             assert window.settings_button.isEnabled()
             window.direct_transfer_button.click()
@@ -83,7 +82,6 @@ def run_self_test(report_path: str) -> int:
                 transfer.direction_combo.setCurrentIndex(index)
                 assert not transfer.apply_button.isEnabled() and not window.workflow_frame.grab().isNull()
             window.files_launcher.click()
-            window.csv_page.direction.setCurrentIndex(0)
             before, after = Path(directory) / "old.csv", Path(directory) / "new.csv"
             before.write_text("key,en\na,Old\n", encoding="utf-8")
             after.write_text("key,en\na,New\nb,Added\n", encoding="utf-8")

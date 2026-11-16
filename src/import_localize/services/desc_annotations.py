@@ -16,7 +16,7 @@ def locales_for_table(headers, tab_name="") -> tuple[str, ...]:
     from .csv_language_service import METADATA, declared_language
 
     codes = []
-    tab = re.search(r"(?:^| - )(?:upload|export)_([a-zA-Z]{2,3}(?:[-_][a-zA-Z0-9]+)*)$", tab_name, re.I)
+    tab = re.search(r"(?:^| - )(?:upload|export|locale)_([a-zA-Z]{2,3}(?:[-_][a-zA-Z0-9]+)*)$", tab_name, re.I)
     for header in headers:
         token = header.strip().lstrip("$").strip()
         if token.casefold() in METADATA or token.casefold() == "technical key":

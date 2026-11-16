@@ -11,21 +11,10 @@ from PySide6.QtWidgets import (
 )
 
 from import_localize.services.csv_compare_service import CsvComparison, compare_csv_files
+from .change_colors import STATUS_COLORS, STATUS_COLORS_DARK
 from .feature_workspace import start_feature_worker
 
 STATUS_LABELS = {"added": "+ Key mới", "removed": "− Đã xóa", "changed": "≠ Thay đổi", "unchanged": "= Không đổi"}
-STATUS_COLORS = {
-    "added": ("#dcfce7", "#166534"),
-    "removed": ("#ffe4e6", "#9f1239"),
-    "changed": ("#fef3c7", "#92400e"),
-    "unchanged": ("#e2e8f0", "#475569"),
-}
-STATUS_COLORS_DARK = {
-    "added": ("#173e2b", "#86efac"),
-    "removed": ("#482330", "#fda4af"),
-    "changed": ("#46361d", "#fcd34d"),
-    "unchanged": ("#26352f", "#b9c8c1"),
-}
 SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
 

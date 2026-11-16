@@ -69,15 +69,27 @@ QFrame#logCard {
     border-radius: 10px;
 }
 
-QFrame#workflowFrame QFrame#filesCard, QFrame#workflowFrame QFrame#actionCard {
+QFrame#workflowFrame QFrame#actionCard, QScrollArea#transferScroll,
+QWidget#transferViewport, QDialog#embeddedTransferPage {
     background: transparent;
     border: none;
 }
-QWidget#csvSheetPage { background: #17231e; }
-QFrame#workflowFrame QFrame#actionCard {
-    border-top: 1px solid #304239;
-    border-radius: 0;
+QTabBar#transferDirections::tab {
+    background: #22332b;
+    color: #d4e6dd;
+    border: 1px solid #4b6255;
+    border-radius: 5px;
+    margin: 0 4px 0 0;
+    padding: 5px 12px;
+    min-height: 19px;
 }
+QTabBar#transferDirections::tab:selected {
+    background: #194734;
+    color: #baf3d8;
+    border-color: #6ad7a3;
+    font-weight: 600;
+}
+QTabBar#transferDirections:focus::tab:selected { border: 2px solid #6ad7a3; }
 
 QLabel#filesIconLabel,
 QLabel#targetIconLabel,
@@ -638,3 +650,20 @@ QSplitter::handle:vertical { height: 7px; margin: 2px 0; }
 QSplitter::handle:horizontal { width: 7px; margin: 0 2px; }
 QPushButton#closeButton { color: #dce7e2; background: #213029; border: 1px solid #43564c; font-weight: 600; }
 QPushButton#closeButton:hover { background: #2b4134; }
+
+QPushButton[workflowTab="true"] {
+    color: #acbeb3;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0;
+    padding: 5px 10px;
+}
+QPushButton[workflowTab="true"]:checked {
+    color: #8de0b5;
+    background: #21372b;
+    border-bottom: 3px solid #8de0b5;
+    padding-bottom: 3px;
+}
+QPushButton[workflowTab="true"]:hover { background: #21372b; }
+QPushButton[workflowTab="true"]:focus { border: 1px solid #8de0b5; }
+QPushButton[workflowTab="true"]:disabled { color: #acbeb3; border-color: #456f56; }

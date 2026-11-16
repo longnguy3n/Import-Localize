@@ -68,7 +68,6 @@ from import_localize.workers.update_worker import UpdateCheckWorker
 
 
 from .feature_workspace import FeatureWorkspace
-from .csv_sheet_page import CsvSheetPage
 from .transfer_folders_card import TransferFoldersCard
 from import_localize.services.transfer_files import scan_folder
 
@@ -229,18 +228,9 @@ class MainWindow(QMainWindow):
         workflow_layout = QVBoxLayout(self.workflow_frame)
         workflow_layout.setContentsMargins(1, 1, 1, 1)
         workflow_layout.setSpacing(0)
-        workflow_layout.addWidget(self.workspace, 1)
         workflow_layout.addWidget(self.action_card)
-        self.action_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        self.csv_page = CsvSheetPage()
-        self.csv_page.direction.setCurrentIndex(1 if self.settings.csv_sheet_direction == "download" else 0)
-        csv_scroll = QScrollArea()
-        csv_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        csv_scroll.setWidgetResizable(True)
-        csv_scroll.setWidget(self.csv_page)
-        self.workspace.addWidget(csv_scroll)
-        self.csv_page.direction.currentIndexChanged.connect(self._csv_direction_changed)
-        self._csv_direction_changed()
+        self.action_card_layout.insertWidget(1, self.workspace, 1)
+        self.csv_page = require_object(self.action_pages, "csvActions", QWidget)
         self._sync_feature_controls()
         self.log_card_layout.setStretch(1, 1)
         self.action_card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -266,11 +256,10 @@ class MainWindow(QMainWindow):
         require_object(self.root, "logTitleLabel", QLabel).setText("Nhật ký xử lý")
         self.action_subtitle_label.hide()
         self.log_subtitle_label.hide()
-        self.start_button.setText("Nhập CSV lên Sheet")
+        self.start_button.setText("Upload CSV lên Sheet")
         self.start_button.setProperty("primaryAction", True)
         self.stop_button.setProperty("dangerAction", True)
-        self.download_export_tabs_button.setText("Tải CSV export_*…")
-        self.download_export_tabs_button.setProperty("primaryAction", True)
+        self.download_export_tabs_button.setText("Tải CSV export từ Sheet")
 
         tools = QWidget(self.root)
         self.workspace_toolbar = tools
@@ -291,15 +280,24 @@ class MainWindow(QMainWindow):
         self.workflow_buttons = (self.files_launcher, self.unity_locale_button, self.direct_transfer_button)
         for button in self.workflow_buttons:
             button.setCheckable(True)
+            button.setProperty("workflowTab", True)
             toolbar.addWidget(button)
         toolbar.addStretch()
         self.csv_tools_button = QToolButton(tools)
-        self.csv_tools_button.setText("Kiểm tra CSV")
+        self.csv_tools_button.setText("Kiểm tra dữ liệu")
         self.csv_tools_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self.csv_tools_button)
-        menu.addAction("Kiểm tra mapping…", self.check_mapping)
+        self.audit_source_actions = {}
+        for kind, label, callback in (("mapping", "Kiểm tra mapping", self.check_mapping),
+                                      ("language", "Nhận diện ngôn ngữ", self.check_csv_languages)):
+            submenu = menu.addMenu(label)
+            for role, title in TransferFoldersCard.roles.items():
+                action = submenu.addAction(title)
+                action.triggered.connect(lambda checked=False, r=role, check=callback: check(r))
+                self.audit_source_actions[kind, role] = action
+        self.duplicate_action = menu.addAction("Kiểm tra key trùng trong asset…", self.check_asset_duplicates)
         self.compare_action = menu.addAction("So sánh hai CSV…", self.compare_selected_files)
-        self.language_action = menu.addAction("Nhận diện ngôn ngữ…", self.check_csv_languages)
+        menu.aboutToShow.connect(self._update_audit_sources)
         self.csv_tools_button.setMenu(menu)
         toolbar.addWidget(self.csv_tools_button)
         self.root.layout().insertWidget(1, tools)
@@ -347,10 +345,8 @@ class MainWindow(QMainWindow):
         self.action_pages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         csv_layout = require_object(self.root, "csvActionsLayout", QVBoxLayout)
         csv_layout.insertWidget(0, self.target_summary)
-        self.target_mode_combo.currentIndexChanged.connect(self._update_target_summary)
-        self.single_sheet_name_edit.textChanged.connect(self._update_target_summary)
-        self.value_input_combo.currentIndexChanged.connect(self._update_target_summary)
         self._update_target_summary()
+        self.progress_label.hide()
 
         self.log_toggle = QToolButton(self.log_card)
         self.log_toggle.setText("Hiện nhật ký")
@@ -381,7 +377,7 @@ class MainWindow(QMainWindow):
         if marks is None and set(self._sheet_annotations) == {""}:
             marks = self._sheet_annotations[""]
         count = len(marks) if marks else 0
-        self.csv_tools_button.setText(f"Kiểm tra · {count} dấu Desc" if count else "Kiểm tra CSV")
+        self.csv_tools_button.setText(f"Kiểm tra dữ liệu · {count} dấu Desc" if count else "Kiểm tra dữ liệu")
 
     def _invalidate_export_previews(self):
         for page in self.workspace.pages:
@@ -440,10 +436,8 @@ class MainWindow(QMainWindow):
         self._title_timer.start(100)
 
     def _update_target_summary(self, *_args) -> None:
-        if hasattr(self, "csv_page") and self.csv_page.direction.currentData() == "download":
-            self.target_summary.setText("Mỗi tab export_* được lưu thành một file CSV.")
-            return
-        self.target_summary.setText(f"{len(self.file_infos)} CSV upload · Mỗi file ghi vào tab upload_* cùng mã ngôn ngữ.")
+        count = len(self.file_infos)
+        self.target_summary.setText(f"{count} CSV upload → tab upload_*   ·   Tab export_* → thư mục CSV export")
 
     def _toggle_log(self, expanded: bool) -> None:
         self.settings.ui_log_expanded = expanded
@@ -644,6 +638,13 @@ class MainWindow(QMainWindow):
         layout = self.root.layout()
         if layout is not None:
             layout.activate()
+        page = self.workspace.pages[-1] if self.workspace.pages else None
+        content_height = 0
+        if page is not None:
+            page_layout = page.layout()
+            width = max(1, self.workspace.width() - 4)
+            content_height = max(page_layout.minimumSize().height(), page_layout.minimumHeightForWidth(width)) + 4
+        self.workspace.setMinimumHeight(content_height)
         cards = (self.action_card, self.log_card)
         for card, floor in zip(cards, (0, 140)):
             if card is self.log_card and not self.log_toggle.isChecked():
@@ -653,22 +654,19 @@ class MainWindow(QMainWindow):
                 floor, card.layout().minimumSize().height(),
                 card.layout().minimumHeightForWidth(card.width()),
             ))
-        page = self.workspace.currentWidget().widget()
-        page_layout = page.layout()
-        width = max(1, self.workspace.width() - 4)
-        content_height = max(page_layout.minimumSize().height(), page_layout.minimumHeightForWidth(width))
-        self.workspace.setMinimumHeight(content_height + 4)
-        self.workflow_frame.setMinimumHeight(content_height + self.action_card.minimumHeight() + 6)
+        self.workflow_frame.setMinimumHeight(self.action_card.minimumHeight() + 2)
         if self._card_sizes_restored:
             if isinstance(page, UnityLocaleDialog):
                 key = "unity-import" if page.importing() else "unity-export"
-            elif page is self.csv_page:
-                key = "csv-" + page.direction.currentData()
+            elif page is None:
+                key = "csv-sheet"
             else:
                 key = "direct-" + page.direction
             if key != self._size_key:
                 self._size_key = key
                 sizes = self.settings.workflow_card_sizes.get(key)
+                if sizes is None and page is None:
+                    sizes = self.settings.workflow_card_sizes.get(f"csv-{self.settings.csv_sheet_direction}")
                 if not (isinstance(sizes, list) and len(sizes) == 2 and
                         all(type(n) is int and 0 < n < 100000 for n in sizes)):
                     preferred = self.workflow_frame.minimumHeight()
@@ -756,19 +754,13 @@ class MainWindow(QMainWindow):
     def _sync_action_title(self):
         self._layout_timer.start()
         pages = self.workspace.pages
-        self.action_title_label.setText(pages[-1].windowTitle() if pages else self.csv_page.direction.currentText())
-
-    def _csv_direction_changed(self):
-        self.settings.csv_sheet_direction = self.csv_page.direction.currentData()
-        downloading = self.settings.csv_sheet_direction == "download"
-        self.download_export_tabs_button.setVisible(downloading)
-        self.start_button.setVisible(not downloading)
-        self.progress_label.setText("Sẵn sàng")
-        self.progress_bar.setValue(0)
-        self.progress_bar.hide()
-        self._update_target_summary()
-        self._sync_action_title()
-        self._layout_timer.start()
+        if not pages:
+            title = "CSV ↔ Google Sheets"
+        elif isinstance(pages[-1], UnityLocaleDialog):
+            title = "CSV ↔ Unity"
+        else:
+            title = "Google Sheets ↔ Unity"
+        self.action_title_label.setText(title)
 
     def _sync_shared_controls(self, starting=False):
         editable = not starting and self.worker is None and all(page.worker is None for page in self.workspace.pages)
@@ -782,6 +774,7 @@ class MainWindow(QMainWindow):
         self._sync_action_title()
         self._sync_shared_controls()
         base = self.workspace.pages[0] if self.workspace.pages else None
+        self.workspace.setVisible(base is not None)
         if hasattr(base, "direction"):
             active = self.direct_transfer_button
         elif isinstance(base, UnityLocaleDialog):
@@ -790,9 +783,6 @@ class MainWindow(QMainWindow):
             active = self.files_launcher
         for button in self.workflow_buttons:
             button.setChecked(button is active)
-            button.setProperty("primaryAction", button is active)
-            button.style().unpolish(button)
-            button.style().polish(button)
         self._refresh_desc_count()
 
     def show_direct_transfer(self):
@@ -940,7 +930,7 @@ class MainWindow(QMainWindow):
 
     def _csv_audit_available(self):
         if self.worker is not None or any(page.worker is not None for page in self.workspace.pages):
-            self.statusBar().showMessage("Đợi tác vụ hiện tại hoàn tất trước khi mở kiểm tra CSV.", 4500)
+            self.statusBar().showMessage("Đợi tác vụ hiện tại hoàn tất trước khi kiểm tra dữ liệu.", 4500)
             return False
         return True
 
@@ -960,16 +950,53 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(dialog.deleteLater)
         dialog.open()
 
-    def check_csv_languages(self) -> None:
+    def _update_audit_sources(self):
+        for (_, role), action in self.audit_source_actions.items():
+            paths, issues = self.folder_card.results[role]
+            detail = "Lỗi thư mục" if issues else f"{len(paths)} tệp"
+            if not getattr(self.settings, role + "_folder"):
+                detail = "Chưa chọn thư mục"
+            action.setText(f"{TransferFoldersCard.roles[role]} · {detail}")
+            action.setEnabled(bool(paths) and not issues)
+        paths, issues = self.folder_card.results["unity"]
+        self.duplicate_action.setEnabled(bool(paths) and not issues)
+
+    def check_csv_languages(self, role="upload") -> None:
         if self._csv_audit_available():
             from .csv_language_dialog import CsvLanguageDialog
-            self.open_audit_popup(CsvLanguageDialog(tuple(self.file_infos), self, annotations=self.desc_annotations))
+            paths, issues = self.folder_card.results[role]
+            if not issues:
+                dialog = CsvLanguageDialog(paths, self, annotations=self.desc_annotations, unity_assets=role == "unity")
+                dialog.setWindowTitle("Nhận diện ngôn ngữ · " + TransferFoldersCard.roles[role])
+                self.open_audit_popup(dialog)
 
-    def check_mapping(self) -> None:
+    def check_mapping(self, role="upload") -> None:
         if self._csv_audit_available():
             from .mapping_dialog import MappingDialog
-            self.open_audit_popup(MappingDialog(self.settings, tuple(self.file_infos), self,
-                                                annotations=self.desc_annotations))
+            paths, issues = self.folder_card.results[role]
+            if not issues:
+                dialog = MappingDialog(self.settings, paths, self, annotations=self.desc_annotations,
+                                       unity_assets=role == "unity")
+                dialog.setWindowTitle("Kiểm tra mapping · " + TransferFoldersCard.roles[role])
+                self.open_audit_popup(dialog)
+
+    def check_asset_duplicates(self) -> None:
+        if not self._csv_audit_available():
+            return
+        from .locale_duplicate_dialog import LocaleDuplicateDialog
+        paths, issues = self.folder_card.results["unity"]
+        if not paths or issues:
+            self.show_transfer_folders()
+            return
+        dialog = LocaleDuplicateDialog(list(paths), self, settings=self.settings)
+
+        def after_review():
+            if dialog.wrote_files:
+                for page in self.workspace.pages:
+                    page.invalidate()
+
+        self.open_audit_popup(dialog, after_review)
+        dialog.scan()
 
     def compare_selected_files(self) -> None:
         if self._csv_audit_available():
@@ -1059,6 +1086,7 @@ class MainWindow(QMainWindow):
                 f"Bắt đầu import {len(job.file_paths)} file CSV vào nhiều tab.",
             )
         self._active_operation = "import"
+        self.progress_label.setText("Đang chuẩn bị upload CSV lên Sheet…")
         self.set_running(True)
 
         worker = ImportWorker(job, self, annotations=self.desc_annotations.snapshot())
@@ -1139,13 +1167,14 @@ class MainWindow(QMainWindow):
             self.append_log("INFO", "Đã yêu cầu dừng ngay. Nếu đang có request Google trên mạng, app sẽ cắt ở timeout ngắn gần nhất.")
 
     def set_running(self, running: bool) -> None:
+        if running:
+            self.progress_bar.setValue(0)
+            self.progress_label.show()
         self.progress_bar.setVisible(running or self.progress_bar.value() > 0)
         self._sync_shared_controls(starting=running)
-        self.csv_page.direction.setEnabled(not running)
-        downloading = self.csv_page.direction.currentData() == "download"
-        for button, active in ((self.start_button, not downloading), (self.download_export_tabs_button, downloading)):
-            button.setEnabled(not running)
-            button.setVisible(not running and active)
+        if running:
+            self.start_button.setEnabled(False)
+            self.download_export_tabs_button.setEnabled(False)
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(running)
         self.unity_locale_button.setEnabled(not running)
@@ -1156,8 +1185,6 @@ class MainWindow(QMainWindow):
         self.target_mode_combo.setEnabled(not running)
         self.single_sheet_name_edit.setEnabled(not running)
         self.value_input_combo.setEnabled(not running)
-        if not running:
-            self.stop_button.setVisible(False)
 
     def on_progress(self, value: int, text: str) -> None:
         self.progress_bar.setRange(0, 100)

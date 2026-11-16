@@ -192,6 +192,8 @@ def _locale(header):
 
 def _family(path):
     # Never pair upload with export or unrelated spreadsheets/directories.
+    if path.suffix.casefold() == ".asset" and path.stem.casefold().startswith("locale_"):
+        return (str(path.parent).casefold(), "unity")
     match = re.fullmatch(r"(.*?)(export|upload)_(?:en|vi|pt[-_]br)", path.stem, re.IGNORECASE)
     return (str(path.parent).casefold(), *(part.casefold() for part in match.groups())) if match else (str(path),)
 

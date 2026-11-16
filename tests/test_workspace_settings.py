@@ -127,8 +127,48 @@ def test_popup_marks_remain_scoped_to_sheet(app, tmp_path, monkeypatch):
         assert "1 dấu Desc" in window.csv_tools_button.text()
         mapping.reject()
         window.sheet_url_edit.setText("https://drive.google.com/open?id=second")
-        assert window.csv_tools_button.text() == "Kiểm tra CSV"
+        assert window.csv_tools_button.text() == "Kiểm tra dữ liệu"
         window.sheet_url_edit.setText("https://drive.google.com/open?id=first")
         assert window.desc_annotations.has("vi", mapping.visible_keys[0], "Wrong mapping")
+    finally:
+        window.close()
+
+
+def test_shared_unity_mapping_reads_assets_and_keeps_active_workflow(app, tmp_path, monkeypatch):
+    from pathlib import Path
+    from import_localize.ui.mapping_dialog import MappingDialog
+    from test_unity_locale import ASSET
+    from test_unity_locale_ui import drain
+
+    mapping_path = Path(__file__).parent / "fixtures" / "mapping_v2.json"
+    assets = [tmp_path / "locale_en.asset", tmp_path / "locale_vi.asset"]
+    for path, code, name, value in zip(assets, ("en", "vi"), ("English", "Vietnamese"), ("DMG", "wrong")):
+        path.write_text(ASSET.replace("Code: en", "Code: " + code).replace("Name: English", "Name: " + name)
+                        .replace("Term: 001", "Term: cf_damage_title").replace("- yes", "- " + value), encoding="utf-8")
+    repo = SettingsRepository(tmp_path / "settings.json")
+    repo.save(AppSettings(auto_check_updates=False, unity_folder=str(tmp_path), mapping_path=str(mapping_path)))
+    monkeypatch.setattr(main_window, "SettingsRepository", lambda: repo)
+    window = main_window.MainWindow()
+    try:
+        window.show_direct_transfer()
+        page = window.workspace.pages[-1]
+        page.direction_combo.setCurrentIndex(page.direction_combo.findData("upload"))
+        page.plan = object()
+        window.csv_tools_button.menu().aboutToShow.emit()
+        action = window.audit_source_actions["mapping", "unity"]
+        assert action.isEnabled() and "2 tệp" in action.text()
+        assert not window.audit_source_actions["mapping", "export"].isEnabled()
+        action.trigger()
+        popup = window.findChild(MappingDialog)
+        assert popup.paths == assets and page.audit_button.isHidden()
+        popup.scan()
+        drain(app, popup)
+        assert popup.report.files == assets and "cf_damage_title" in popup.report.wrong_keys
+        popup.select_visible()
+        popup.mark()
+        assert window.desc_annotations.has("vi", "cf_damage_title", "Wrong mapping")
+        popup.reject()
+        assert window.workspace.pages == [page] and page.plan is None
+        assert not list(tmp_path.glob("*.csv"))
     finally:
         window.close()

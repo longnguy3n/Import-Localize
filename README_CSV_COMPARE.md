@@ -1,7 +1,7 @@
 # So sánh CSV theo key
 
 1. Chọn thư mục CSV upload hoặc CSV export trong **Thư mục truyền dữ liệu**.
-2. Mở **Kiểm tra CSV → So sánh hai CSV…**.
+2. Mở **Kiểm tra dữ liệu → So sánh hai CSV…**.
 3. Chọn bản cũ và bản mới trong cửa sổ so sánh. Dùng **Đổi cũ ↔ mới** để đảo chiều.
 4. Xem tổng số key mới, đã xóa, thay đổi và không đổi. Chọn bộ lọc **Key mới** để xem từng key và toàn bộ giá trị mới của nó.
 5. Bảng ghép cũ/mới theo **key và tên cột**, không theo vị trí dòng/cột. Mỗi dòng kết quả là một ô dữ liệu; số lượng thống kê tính theo key duy nhất. Chọn dòng để xem và sao chép đầy đủ nội dung nhiều dòng ở hai khung bên dưới.

@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.23.0</string>
+         <string>v1.24.0</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -447,17 +447,23 @@
                <number>8</number>
               </property>
               <item>
-               <spacer name="actionLeftSpacer">
-                <property name="orientation">
-                 <enum>Qt::Orientation::Horizontal</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
+               <widget class="QPushButton" name="startButton">
+                <property name="minimumSize">
                  <size>
-                  <width>40</width>
-                  <height>20</height>
+                  <width>210</width>
+                  <height>38</height>
                  </size>
                 </property>
-               </spacer>
+                <property name="maximumSize">
+                 <size>
+                  <width>300</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string>Import vào Google Sheet</string>
+                </property>
+               </widget>
               </item>
               <item>
                <widget class="QPushButton" name="downloadExportTabsButton">
@@ -477,7 +483,7 @@
                  <string>Tải các tab export_*</string>
                 </property>
                 <property name="toolTip">
-                 <string>Chọn thư mục và tải trực tiếp toàn bộ tab có tên bắt đầu bằng export_ dưới dạng CSV.</string>
+                 <string>Lưu toàn bộ tab export_* vào thư mục CSV export đã chọn.</string>
                 </property>
                </widget>
               </item>
@@ -494,25 +500,6 @@
                 </property>
                 <property name="visible">
                  <bool>false</bool>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="startButton">
-                <property name="minimumSize">
-                 <size>
-                  <width>210</width>
-                  <height>38</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>300</width>
-                  <height>16777215</height>
-                 </size>
-                </property>
-                <property name="text">
-                 <string>Import vào Google Sheet</string>
                 </property>
                </widget>
               </item>

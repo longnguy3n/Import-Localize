@@ -78,10 +78,40 @@ def test_folder_preview_appears_only_after_diff_and_resets_on_switch(app, tmp_pa
         page.preview_button.click()
         drain(app, page)
         assert page.changes.isVisible() and page.apply_button.isEnabled()
-        assert [page.changes.item(0, col).text() for col in range(6)] == [
-            "export_en.csv → locale_en.asset", "2 → 1", "0", "1", "1", "0"]
+        assert [page.changes.item(0, col).text() for col in range(7)] == [
+            "export_en.csv", "locale_en.asset", "2 → 1", "0", "1", "1", "0"]
         assert page.source_metric.isHidden() and page.table.isHidden()
         page.mode_combo.setCurrentIndex(1)
         assert page.changes.isHidden() and not page.apply_button.isEnabled()
     finally:
         window.close()
+
+
+def test_preview_count_colors_follow_theme_and_keep_filenames_readable(app):
+    from import_localize.app.paths import THEMES_DIR
+    from import_localize.services.unity_locale_service import ChangeStats
+    from import_localize.ui.change_colors import STATUS_COLORS, STATUS_COLORS_DARK
+    from import_localize.ui.transfer_preview import TransferPreview
+
+    preview = TransferPreview()
+    preview.resize(1100, 150)
+    try:
+        preview.show_changes([("export_en.csv", "locale_en.asset", ChangeStats(
+            10, 9, 10, 2, 1, 3, 5, "CSV", "term"), "Chi tiết")])
+        for theme, colors in (("light", STATUS_COLORS), ("dark", STATUS_COLORS_DARK)):
+            preview.setStyleSheet((THEMES_DIR / f"{theme}.qss").read_text(encoding="utf-8"))
+            app.processEvents()
+            for column, status in enumerate(("added", "removed", "changed", "unchanged"), 3):
+                cell = preview.visualItemRect(preview.item(0, column))
+                image = preview.viewport().grab(cell).toImage()
+                # Check the painted badge: global QSS can override ordinary item backgrounds.
+                background = colors[status][0]
+                assert any(image.pixelColor(x, image.height() // 2).name() == background
+                           for x in range(image.width()))
+        preview.resize(320, 150)
+        app.processEvents()
+        assert preview.columnWidth(0) >= preview.fontMetrics().horizontalAdvance("locale_pt-BR.asset")
+        assert preview.columnWidth(1) >= preview.fontMetrics().horizontalAdvance("locale_pt-BR.asset")
+        assert preview.horizontalScrollBar().maximum() > 0
+    finally:
+        preview.close()

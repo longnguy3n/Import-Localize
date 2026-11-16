@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import CancelledError
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QThread, QTimer, Qt, Signal, Slot
@@ -19,15 +20,17 @@ from import_localize.services.desc_annotations import DescAnnotations, WRONG_LAN
 from import_localize.services.csv_language_service import STATUS, COLORS, language_name
 from import_localize.services.language_audit_process import read_report
 from .feature_workspace import start_feature_worker
+from .unity_audit import asset_audit_sources
 
 
 class LanguageWorker(QThread):
     progress = Signal(int, int, str)
 
-    def __init__(self, paths, parent=None, *, sources=None):
+    def __init__(self, paths, parent=None, *, sources=None, unity_assets=False):
         super().__init__(parent)
         self.paths = list(paths)
         self.sources = sources
+        self.unity_assets = unity_assets
         self.result = None
         self.error = ""
         self.cancelled = False
@@ -37,8 +40,12 @@ class LanguageWorker(QThread):
             with tempfile.TemporaryDirectory(prefix="import-localize-language-") as directory:
                 folder = Path(directory)
                 request = {"paths": [str(p.resolve()) for p in self.paths]}
-                if self.sources is not None:
-                    request["sources"] = {str(p): data.decode("utf-8-sig") for p, data in self.sources.items()}
+                sources = self.sources
+                if self.unity_assets:
+                    sources = asset_audit_sources(self.paths, lambda n, text: self.progress.emit(n, 100, text),
+                                                  self.isInterruptionRequested, check_language=True)
+                if sources is not None:
+                    request["sources"] = {str(p): data.decode("utf-8-sig") for p, data in sources.items()}
                 (folder / "request.json").write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
                 command = [sys.executable]
                 if not getattr(sys, "frozen", False):
@@ -85,6 +92,8 @@ class LanguageWorker(QThread):
                         if process.poll() is None:
                             process.kill()
                         process.wait()
+        except CancelledError:
+            self.cancelled = True
         except Exception as exc:
             self.error = str(exc)
 
@@ -130,9 +139,10 @@ class LanguageRowsModel(QAbstractTableModel):
 class CsvLanguageDialog(QDialog):
     desc_marks_changed = Signal()
 
-    def __init__(self, paths=(), parent=None, *, annotations=None, sources=None):
+    def __init__(self, paths=(), parent=None, *, annotations=None, sources=None, unity_assets=False):
         super().__init__(parent)
         self.sources = sources
+        self.unity_assets = unity_assets
         self.paths = list(sources) if sources is not None else list(map(Path, paths))
         self.annotations = annotations if annotations is not None else DescAnnotations()
         self.worker = None
@@ -341,12 +351,12 @@ class CsvLanguageDialog(QDialog):
         names = ", ".join(p.name for p in self.paths[:2])
         if len(self.paths) > 2:
             names += f" · và {len(self.paths) - 2} file khác"
-        self.files_label.setText(f"{len(self.paths)} CSV · {names}")
+        self.files_label.setText(f"{len(self.paths)} {'asset' if self.unity_assets else 'CSV'} · {names}")
         self.files_label.setToolTip("\n".join(map(str, self.paths)))
         self._set_busy(True)
         self.progress.setRange(0, 0)
         self.status.setText("Đang đọc CSV và chuẩn bị mô hình offline…")
-        self.worker = LanguageWorker(self.paths, self, sources=self.sources)
+        self.worker = LanguageWorker(self.paths, self, sources=self.sources, unity_assets=self.unity_assets)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.finished_scan)
         start_feature_worker(self)
