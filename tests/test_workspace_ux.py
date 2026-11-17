@@ -13,6 +13,14 @@ def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):
     app.processEvents()
     try:
         assert window.log_placeholder.isHidden()
+        window.append_log("WARNING", "Đợi kết nối")
+        assert window.log_subtitle_label.isVisible()
+        assert window.log_subtitle_label.text() == "Cảnh báo · Đợi kết nối"
+        assert window.log_subtitle_label.property("level") == "WARNING"
+        window.log_toggle.click()
+        window.clear_log_button.click()
+        window.log_toggle.click()
+        assert window.log_subtitle_label.text() == "Chưa có hoạt động."
         assert window.csv_page.isVisible()
         window.show_unity_locale()
         tool = window.workspace.pages[-1]

@@ -58,6 +58,13 @@ def test_dialog_results_filters_content_and_offline_worker(app, tmp_path):
     dialog.search.clear()
     dialog.filter_combo.setCurrentIndex(dialog.filter_combo.findData("unresolved"))
     assert dialog.model.rowCount() == 1
+    dialog.summary.selectRow(0)
+    dialog.search.setText("no_matching_key")
+    assert dialog.results.reset_button.isVisible()
+    dialog.results.reset_button.click()
+    assert dialog.table.isVisible() and dialog.model.rowCount() == 3
+    assert not dialog.search.text() and not dialog.summary.selectedItems()
+    assert dialog.column_combo.currentData() is None and dialog.filter_combo.currentData() == "all"
     assert dialog.progress.value() == dialog.progress.maximum()
     dialog.reject()
     assert path.read_bytes() == before

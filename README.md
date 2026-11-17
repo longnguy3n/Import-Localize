@@ -1,6 +1,6 @@
 # Import Localize
 
-Chọn **CSV ↔ Sheet** để dùng hai nút **Upload CSV lên Sheet** và **Tải CSV export từ Sheet** trong cùng card. Với **CSV ↔ Unity** và **Sheet ↔ Unity**, chọn chiều truyền ở đầu card rồi bấm **Xem trước**. Khi làm việc với Sheet, dán link chia sẻ Google Sheets hoặc Drive và kiểm tra tên bảng hiện dưới ô link.
+Chọn **CSV ↔ Sheet** để dùng hai nút **Ghi lên Sheet** và **Tải về CSV** trong cùng card. Với **CSV ↔ Unity** và **Sheet ↔ Unity**, chọn chiều truyền ở đầu card rồi bấm **Xem trước**. Khi làm việc với Sheet, dán link chia sẻ Google Sheets hoặc Drive và kiểm tra tên bảng hiện dưới ô link.
 
 | Nhóm | Chiều đi | Chiều về |
 |---|---|---|

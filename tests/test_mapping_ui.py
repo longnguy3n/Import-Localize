@@ -247,8 +247,12 @@ def test_file_summary_filters_and_full_content(app, tmp_path):
         assert dialog.visible_issues[0].key == "cf_hp_title"
         dialog.search.setText("not_a_key")
         assert dialog.issues_table.rowCount() == 0
-        dialog.search.clear()
-        dialog.filter_combo.setCurrentIndex(0)
+        assert dialog.detail.isHidden()
+        assert dialog.results.reset_button.isVisible()
+        dialog.files_table.selectRow(0)
+        dialog.results.reset_button.click()
+        assert dialog.issues_table.isVisible() and dialog.issues_table.rowCount() == 2
+        assert not dialog.search.text() and not dialog.files_table.selectedItems()
         dialog.issues_table.selectRow(0)
         assert not dialog.grab().isNull()
     finally:

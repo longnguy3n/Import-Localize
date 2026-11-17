@@ -301,9 +301,7 @@ QPushButton#logoutGoogleButton:hover {
 }
 
 QPushButton#openSheetButton {
-    min-width: 34px;
-    max-width: 34px;
-    padding: 0;
+    padding: 0 10px;
     background: #1d2b25;
 }
 
@@ -671,3 +669,13 @@ QPushButton[workflowTab="true"]:disabled { color: #acbeb3; border-color: #456f56
 QLabel#logMessage[level="FAIL"], QLabel#logMessage[level="ERROR"] { color: #ffaaa3; font-weight: 600; }
 QLabel#logMessage[level="WARNING"] { color: #f3ce78; }
 QLabel#logMessage[level="SUCCESS"] { color: #82deb0; }
+
+QFrame#sheetConnection { background: #1b2821; border: 1px solid #43594b; border-radius: 8px; }
+QFrame#transferDivider { background: #43594b; border: none; }
+QLabel#uploadTitle, QLabel#downloadTitle { font-weight: 600; }
+QLabel#csvSheetHint, QLabel#logSubtitleLabel[level="WARNING"] { color: #f3ce78; }
+QLabel#folderIssue, QLabel#logSubtitleLabel[level="FAIL"], QLabel#logSubtitleLabel[level="ERROR"] { color: #ffaaa3; }
+QLabel#logSubtitleLabel[level="SUCCESS"] { color: #82deb0; }
+QPushButton#downloadExportTabsButton:disabled, QPushButton#openSheetButton:disabled {
+    background: #27352d; color: #acbeb3; border-color: #43594b;
+}

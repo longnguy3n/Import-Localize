@@ -52,6 +52,7 @@ class DirectSheetDialog(QDialog):
         self.url = settings.sheet_url.strip()
         self.paths = [Path(p) for p in settings.unity_asset_files]
         self.asset_folder = settings.unity_folder
+        self.folder_issues = ()
         if self.folder_only and not self.asset_folder:
             self.paths = []
         self.plan = None
@@ -107,6 +108,7 @@ class DirectSheetDialog(QDialog):
         layout.addWidget(self.changes)
 
         self.status = QLabel()
+        self.status.setAccessibleName("Trạng thái truyền giữa Sheet và Unity")
         self.status.setWordWrap(True)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -164,9 +166,10 @@ class DirectSheetDialog(QDialog):
             self.annotations = annotations
             self.invalidate()
 
-    def set_folder_files(self, paths, folder):
+    def set_folder_files(self, paths, folder, issues=()):
         self.asset_folder = str(folder or "")
         self.paths = [Path(path) for path in paths]
+        self.folder_issues = tuple(issues)
         self.invalidate()
 
     def invalidate(self):
@@ -183,16 +186,26 @@ class DirectSheetDialog(QDialog):
             item = QTableWidgetItem(path.name)
             item.setToolTip(str(path))
             self.table.setItem(row, 0 if self.upload else 1, item)
-        if not self.paths:
-            message = ("Chọn thư mục Unity locale trong Thư mục truyền dữ liệu." if self.folder_only else
-                       "Chọn các file locale*.asset để ghép với tab theo mã ngôn ngữ.")
-        elif not self.url:
-            message = "Dán link Google Sheets ở đầu màn hình."
+        requirements = []
+        if not self.url:
+            requirements.append("Dán link Google Sheets.")
+        if self.folder_issues:
+            requirements.append(self.folder_issues[0])
+        elif not self.paths:
+            if self.folder_only and self.asset_folder:
+                requirements.append("Chưa tìm thấy locale_<mã>.asset trong thư mục Unity locale. Kiểm tra thư mục rồi bấm Quét lại.")
+            elif self.folder_only:
+                requirements.append("Chọn thư mục Unity locale.")
+            else:
+                requirements.append("Chọn file locale*.asset để ghép với tab theo mã ngôn ngữ.")
+        if requirements:
+            message = " ".join(requirements)
         elif self.upload:
             message = f"{len(self.paths)} asset → các tab upload_* cùng mã ngôn ngữ."
         else:
             message = f"Các tab export_* → {len(self.paths)} asset cùng mã ngôn ngữ."
         self.status.setText(message)
+        self.preview_button.setToolTip(message if requirements else "Đối chiếu các tab với asset theo mã ngôn ngữ và xem các key sẽ thay đổi.")
         self.update_controls()
 
     def update_controls(self):
@@ -205,8 +218,10 @@ class DirectSheetDialog(QDialog):
         self.folder_button.setEnabled(edit_files)
         self.remove_button.setEnabled(edit_files and bool(self.table.selectionModel().selectedRows()))
         self.audit_button.setEnabled(not busy and bool(self.paths))
-        self.preview_button.setEnabled(not busy and bool(self.paths) and bool(self.url))
+        self.preview_button.setEnabled(not busy and bool(self.paths) and bool(self.url) and not self.folder_issues)
         self.apply_button.setEnabled(not busy and self.plan is not None)
+        if self.plan is None:
+            self.apply_button.setToolTip("Xem trước các thay đổi để có thể ghi dữ liệu.")
         self.close_button.setEnabled(not busy)
         self.stop_button.setVisible(busy and (self.upload or self.worker.operation != "apply"))
         self.stop_button.setEnabled(busy and not self.worker.isInterruptionRequested())
@@ -351,8 +366,19 @@ class DirectSheetDialog(QDialog):
                 self.changes.show_changes(changes)
             self.table.resizeRowsToContents()
             self.table.setMinimumHeight(min(280, self.table.horizontalHeader().height() + self.table.verticalHeader().length() + 6))
-            self.status.setText("Kiểm tra các tab nhận trước khi ghi. Nội dung mỗi tab sẽ được thay thế." if self.upload else
-                                "Lưu asset và thoát Play Mode trong Unity. App sẽ sao lưu trước khi ghi dữ liệu đã xem trước.")
+            count, title = len(self.plan.pairs), self.plan.spreadsheet_name
+            self.apply_button.setToolTip(f"Ghi {count} tab vào bảng tính {title}." if self.upload else
+                                         f"Ghi {count} asset từ bảng tính {title}.")
+            if self.upload:
+                new = sum(pair.tab_id is None for pair in self.plan.pairs)
+                actions = []
+                if new:
+                    actions.append(f"tạo {new} tab")
+                if new < count:
+                    actions.append(f"thay nội dung {count - new} tab")
+                self.status.setText(f"Khi ghi vào {title}, app sẽ " + " và ".join(actions) + ".")
+            else:
+                self.status.setText(f"Sẵn sàng ghi {count} asset từ {title}. Lưu asset và thoát Play Mode trước khi ghi. App sẽ tạo bản sao lưu.")
         elif worker.operation in ("mapping", "language"):
             self.update_controls()
             review_sources(worker.operation, self, self.settings, worker.result, self.annotations)

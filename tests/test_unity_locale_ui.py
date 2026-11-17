@@ -50,12 +50,14 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
     dialog.preview_button.click()
     drain(app, dialog)
     assert dialog.apply_button.isEnabled()
+    assert "1 asset Unity" in dialog.apply_button.toolTip()
     assert dialog.table.rowCount() == 1
     assert len(read_asset(asset).terms) == 2
     dialog.apply_button.click()
     drain(app, dialog)
     assert read_asset(asset).terms[0]["Languages"] == ["World"]
     assert dialog.table.item(0, 9).text() == "Đã ghi"
+    assert "Đã ghi 1 asset Unity" in dialog.preview_status.text()
     assert dialog.backup_path.is_dir()
     assert not dialog.apply_button.isEnabled()
     dialog.mode_combo.setCurrentIndex(1)
@@ -76,6 +78,7 @@ def test_preview_apply_export_and_settings(app, tmp_path, monkeypatch):
     drain(app, dialog)
     output = tmp_path / "Other Sheet - upload_en.csv"
     assert "hello,Text,,World" in output.read_text(encoding="utf-8-sig")
+    assert "Đã ghi 1 file CSV upload" in dialog.preview_status.text()
     dialog.reject()
     assert settings.unity_export_prefix == "Other Sheet"
     assert settings.unity_locale_dir == str(tmp_path)
@@ -105,6 +108,7 @@ def test_csv_options_and_preview_errors_remain_findable(app, tmp_path):
         drain(app, dialog)
         assert dialog.details.isVisible()
         assert "Không thể hoàn tất" in dialog.preview_status.text()
+        assert dialog.preview_status.text().removeprefix("Không thể hoàn tất. ") in dialog.details.toPlainText()
         assert not dialog.apply_button.isEnabled()
         csv.write_text("Key,Type,Desc,English\nhello,Text,,World\n", encoding="utf-8")
         dialog.preview()
@@ -114,6 +118,21 @@ def test_csv_options_and_preview_errors_remain_findable(app, tmp_path):
         assert not dialog.preview_button.property("primaryAction")
     finally:
         dialog.reject()
+
+
+def test_folder_feedback_names_both_inputs_and_missing_patterns(app, tmp_path):
+    dialog = UnityLocaleDialog(AppSettings(), folder_only=True)
+    try:
+        assert "CSV export" in dialog.preview_status.text() and "Unity locale" in dialog.preview_status.text()
+        dialog.set_folder_files("export", [], tmp_path)
+        dialog.set_folder_files("unity", [], tmp_path)
+        assert "export_<mã>.csv" in dialog.preview_status.text()
+        assert "locale_<mã>.asset" in dialog.preview_status.text()
+        assert not dialog.preview_button.isEnabled()
+        dialog.mode_combo.setCurrentIndex(1)
+        assert "CSV upload" in dialog.preview_status.text()
+    finally:
+        dialog.close()
 
 
 def test_shared_toolbar_multi_selection_and_compact_rows(app, tmp_path):

@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAPPING
 
-from PySide6.QtCore import QItemSelectionModel, QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QItemSelectionModel, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .audit_results import AuditResults
 from .feature_workspace import start_feature_worker
 from .unity_audit import asset_audit_sources
 
@@ -275,14 +276,15 @@ class MappingDialog(QDialog):
         splitter.setObjectName("mappingSplitter")
         splitter.setHandleWidth(9)
         splitter.setChildrenCollapsible(False)
-        self.files_table = self._table(["File CSV (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
+        self.files_table = self._table(["Tệp nguồn (bấm để lọc)", "Sai mapping", "Cần xem ngữ cảnh", "Đọc dữ liệu"])
         self.files_table.setProperty("summaryTable", True)
         self.issues_table = self._table(["Chọn", "Trạng thái", "Key", "Desc khi xuất", "Mapping chuẩn / Lý do"])
         self.issues_table.setProperty("keyCheckboxes", True)
         self.issues_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.issues_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         splitter.addWidget(self.files_table)
-        splitter.addWidget(self.issues_table)
+        self.results = AuditResults(self.issues_table, self.search, self.reset_filters, self)
+        splitter.addWidget(self.results)
         splitter.setSizes([170, 310])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -400,11 +402,12 @@ class MappingDialog(QDialog):
         self.snapshot = None
         self.files_table.setRowCount(0)
         self.issues_table.setRowCount(0)
+        self.results.show_empty("Chưa có kết quả kiểm tra mapping.")
         self.issues_table.columns_fitted = False
         self.detail.clear()
         self.detail.hide()
         self.update_source_summary()
-        self.status.setText("Bấm Kiểm tra mapping để đối chiếu dữ liệu." if self.paths else "Chọn thư mục CSV upload trong Thư mục truyền dữ liệu để bắt đầu.")
+        self.status.setText("Bấm Kiểm tra mapping để đối chiếu dữ liệu." if self.paths else "Chọn thư mục nguồn trong Thư mục truyền dữ liệu để bắt đầu.")
         for path in self.paths:
             row = self.files_table.rowCount()
             self.files_table.insertRow(row)
@@ -532,6 +535,7 @@ class MappingDialog(QDialog):
 
     def launch(self, worker):
         self.worker = worker
+        self.results.show_empty("Đang kiểm tra mapping…")
         self.set_busy(True)
         self.progress.setRange(0, 0)
         worker.progress.connect(self.on_progress)
@@ -542,7 +546,7 @@ class MappingDialog(QDialog):
         if self.worker:
             return
         if not self.mapping_edit.text().strip() or not self.paths:
-            self.status.setText("Chọn mapping.json và ít nhất một file CSV trước khi kiểm tra.")
+            self.status.setText("Chọn mapping.json và ít nhất một tệp nguồn trước khi kiểm tra.")
             return
         self.invalidate()
         self.launch(MappingWorker(self.mapping_edit.text().strip(), self.paths, sources=self.sources, parent=self, unity_assets=self.unity_assets))
@@ -572,6 +576,7 @@ class MappingDialog(QDialog):
         self.progress.setValue(1)
         if worker.error:
             self.status.setText(f"Không hoàn tất: {worker.error}")
+            self.results.show_empty("Chưa có kết quả. Xem thông báo kiểm tra để biết chi tiết.")
             self.log_emitted.emit("FAIL", worker.error)
         else:
             self.report, self.snapshot = worker.result, worker.snapshot
@@ -619,10 +624,18 @@ class MappingDialog(QDialog):
         self.status.setText(f"Đã kiểm tra {report.checked_cells} ô / {len(report.files)} file · "
             f"{len(report.wrong_keys)} key sai mapping · {sum(i.status == 'review' for i in report.issues)} cần xem ngữ cảnh · "
             f"{report.unmapped_cells} ô chưa có mapping · {len(report.errors)} file lỗi.")
-        self.status.setToolTip("Mỗi key một dòng; mỗi CSV một cột. Ctrl/Shift để chọn nhiều key. "
+        self.status.setToolTip("Mỗi key một dòng. Mỗi tệp nguồn một cột. Ctrl/Shift để chọn nhiều key. "
                                "Shift + cuộn chuột để cuộn ngang. Đánh dấu các key đã chọn cho những ngôn ngữ có phát hiện.")
         self.source_toggle.setChecked(False)
         self.filter_rows()
+
+    def reset_filters(self):
+        with QSignalBlocker(self.files_table), QSignalBlocker(self.filter_combo), QSignalBlocker(self.search):
+            self.files_table.clearSelection()
+            self.filter_combo.setCurrentIndex(0)
+            self.search.clear()
+        self.filter_rows()
+        self.search.setFocus()
 
     def filter_rows(self):
         if not self.report:
@@ -631,7 +644,7 @@ class MappingDialog(QDialog):
         dark = self.issues_table.palette().color(QPalette.ColorRole.Base).lightness() < 128
         rows = self.files_table.selectionModel().selectedRows()
         path = self.files_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole) if rows else None
-        status, query = self.filter_combo.currentData(), self.search.text().casefold()
+        status, query = self.filter_combo.currentData(), self.search.text().strip().casefold()
         self.visible_keys = []
         for key, issues in self.key_issues.items():
             if not any((not path or str(i.path) == path) and (not status or i.status == status) for i in issues):
@@ -641,6 +654,14 @@ class MappingDialog(QDialog):
             if not query or query in search_text.casefold():
                 self.visible_keys.append(key)
         self.visible_issues = [self.key_issues[key][0] for key in self.visible_keys]
+        if self.visible_keys:
+            self.results.show_table()
+        elif self.key_issues:
+            self.results.show_empty("Không có key khớp bộ lọc hiện tại.", "Hiện tất cả phát hiện")
+        elif self.report.errors:
+            self.results.show_empty("Chưa có phát hiện. Xem lỗi đọc file trong bảng tổng hợp.")
+        else:
+            self.results.show_empty("Không có phát hiện mapping trong dữ liệu đã kiểm tra.")
         self._selection_sync = True
         self.issues_table.blockSignals(True)
         self.issues_table.setRowCount(0)
@@ -683,6 +704,9 @@ class MappingDialog(QDialog):
         self.issues_table.fit_content()
         self.issues_table.blockSignals(False)
         self.sync_key_selection()
+        if not self.issues_table.selectionModel().hasSelection():
+            self.detail.clear()
+            self.detail.hide()
 
     def show_detail(self):
         rows = self.issues_table.selectionModel().selectedRows()
@@ -715,7 +739,7 @@ class MappingDialog(QDialog):
         if self.worker or not self.report or not self.selected_keys:
             return
         if self.snapshot is not None and snapshots(self.snapshot) != self.snapshot:
-            self.status.setText("Mapping hoặc CSV đã thay đổi. Hãy kiểm tra lại.")
+            self.status.setText("Mapping hoặc tệp nguồn đã thay đổi. Hãy kiểm tra lại.")
             self.focus_status.setText(self.status.text())
             self.focus_status.setVisible(self.focus_mode)
             return

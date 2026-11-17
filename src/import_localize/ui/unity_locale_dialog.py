@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .transfer_preview import TransferPreview
+from .transfer_folders_card import TransferFoldersCard
 from .feature_workspace import TransferDirections, open_child_feature, start_feature_worker
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.config.settings import AppSettings
@@ -382,6 +383,9 @@ class UnityLocaleDialog(QDialog):
         layout.addWidget(self.changes)
         details_header = QHBoxLayout()
         self.preview_status = QLabel("Chọn file nguồn và file nhận để bắt đầu.")
+        self.preview_status.setAccessibleName("Trạng thái truyền giữa CSV và Unity")
+        self.preview_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.preview_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.preview_status.setWordWrap(True)
         details_header.addWidget(self.preview_status, 1)
         self.details_button = QToolButton()
@@ -561,6 +565,7 @@ class UnityLocaleDialog(QDialog):
         else:
             self.preview_status.setText(self.pair_error or ("Bấm Xem trước để đối chiếu nội dung với mã trên tên file."
                                         if paired else "Chọn thư mục hoặc file nguồn và đích."))
+        self.preview_button.setToolTip("Đối chiếu nội dung theo key trước khi ghi." if paired else self.preview_status.text())
         self._update_action_emphasis()
         self.source_metric.setText("NGUỒN · chưa xem trước")
         self.before_metric.setText("ĐÍCH TRƯỚC · chưa xem trước")
@@ -578,10 +583,16 @@ class UnityLocaleDialog(QDialog):
         self.details_button.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
 
     def _update_action_emphasis(self):
+        if self.plan is None:
+            self.apply_button.setToolTip("Xem trước các thay đổi để có thể ghi dữ liệu.")
+        else:
+            target = "asset Unity" if self.importing() else "file CSV upload"
+            self.apply_button.setToolTip(f"Ghi dữ liệu đã xem trước vào {len(self.plan.changes)} {target}.")
         for button, primary in ((self.preview_button, self.plan is None), (self.apply_button, self.plan is not None)):
-            button.setProperty("primaryAction", primary)
-            button.style().unpolish(button)
-            button.style().polish(button)
+            if button.property("primaryAction") != primary:
+                button.setProperty("primaryAction", primary)
+                button.style().unpolish(button)
+                button.style().polish(button)
 
     def set_folder_files(self, role, paths, folder, issues=()):
         previous_folder = self.folders[role]
@@ -606,9 +617,9 @@ class UnityLocaleDialog(QDialog):
         self.pair_error = ""
         try:
             if self.folder_only:
-                missing = [role for role in self._roles() if not self.folders[role]]
+                missing = [TransferFoldersCard.roles[role] for role in self._roles() if not self.folders[role]]
                 if missing:
-                    raise ValueError("Chọn thư mục " + " và ".join(missing) + " trong Thư mục truyền dữ liệu.")
+                    raise ValueError("Chọn thư mục " + " và ".join(missing) + ".")
             issues = [message for role in (source_role, target_role) for message in self.folder_issues.get(role, ())]
             if issues:
                 raise ValueError("\n".join(issues))
@@ -616,6 +627,11 @@ class UnityLocaleDialog(QDialog):
                 self.export_paths = upload_destinations(self.asset_paths, self.upload_paths, self.folders["upload"], "")
             source = self.csv_paths if self.importing() else self.asset_paths
             target = self.asset_paths if self.importing() else self.export_paths
+            if self.folder_only:
+                empty = [TransferFoldersCard.patterns[role] for (role, paths) in ((source_role, source), (target_role, target))
+                         if not paths and role != "upload"]
+                if empty:
+                    raise ValueError("Chưa tìm thấy " + " và ".join(empty) + ". Kiểm tra thư mục rồi bấm Quét lại.")
             matched_targets = match_locale_targets(source, target, source_role, target_role)
             if anchor_target:
                 source[:] = match_locale_targets(target, source, target_role, source_role)
@@ -903,10 +919,12 @@ class UnityLocaleDialog(QDialog):
             self.plan = None
             self.details.appendPlainText("LỖI: " + worker.error)
             self.log_emitted.emit("FAIL", worker.error)
-            self.preview_status.setText("Không thể hoàn tất. Xem lỗi bên dưới và kiểm tra lại.")
+            self.preview_status.setText("Không thể hoàn tất. " + worker.error.splitlines()[0])
             self.details_button.show()
             self.details_button.setChecked(True)
             self.apply_button.setEnabled(False)
+            if self.folder_only:
+                self.safety_label.hide()
         elif audit_kind:
             self.progress.hide()
             review_sources(audit_kind, self, self.settings, worker.result, self.desc_annotations)
@@ -922,14 +940,16 @@ class UnityLocaleDialog(QDialog):
             self.backup_button.show()
             self.backup_button.setEnabled(True)
             self.progress.setValue(1)
-            self.preview_status.setText(f"Đã ghi {self.table.rowCount()} cặp file. Bản sao lưu sẵn sàng để mở.")
+            target = "asset Unity" if self.importing() else "file CSV upload"
+            next_step = ("Quay lại Unity và Refresh (Ctrl+R) để nạp bản dịch." if self.importing()
+                         else "Mở CSV ↔ Sheet để tải các file này lên bảng tính.")
+            self.preview_status.setText(f"Đã ghi {self.table.rowCount()} {target}. {next_step}")
             self.log_emitted.emit("SUCCESS", f"{self.preview_status.text()} {self.backup_path}")
-            self.details_button.setChecked(True)
+            if self.folder_only:
+                self.safety_label.hide()
             for row in range(self.table.rowCount()):
                 self.table.item(row, 9).setText("Đã ghi")
-            self.details.appendPlainText(f"Hoàn tất. Bản sao lưu: {self.backup_path}\n"
-                                         "Import: quay lại Unity và Refresh (Ctrl+R) nếu asset chưa cập nhật.\n"
-                                         "Export: thêm CSV upload_* vào luồng upload Google Sheets của ứng dụng.")
+            self.details.appendPlainText(f"Hoàn tất. Bản sao lưu: {self.backup_path}\n{next_step}")
         else:
             self.plan = worker.result
             self.safety_label.show()

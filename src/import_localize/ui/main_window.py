@@ -230,6 +230,7 @@ class MainWindow(QMainWindow):
         workflow_layout.setSpacing(0)
         workflow_layout.addWidget(self.action_card)
         self.action_card_layout.insertWidget(1, self.workspace, 1)
+        self.action_card_layout.addStretch()
         self.csv_page = require_object(self.action_pages, "csvActions", QWidget)
         self._sync_feature_controls()
         self.log_card_layout.setStretch(1, 1)
@@ -255,11 +256,13 @@ class MainWindow(QMainWindow):
         self.action_title_label = require_object(self.root, "actionTitleLabel", QLabel)
         require_object(self.root, "logTitleLabel", QLabel).setText("Nhật ký xử lý")
         self.action_subtitle_label.hide()
-        self.log_subtitle_label.hide()
-        self.start_button.setText("Upload CSV lên Sheet")
+        self.log_subtitle_label.setWordWrap(False)
+        self.log_subtitle_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.log_subtitle_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.log_subtitle_label.setAccessibleName("Hoạt động gần nhất")
+        self.log_subtitle_label.installEventFilter(self)
         self.start_button.setProperty("primaryAction", True)
         self.stop_button.setProperty("dangerAction", True)
-        self.download_export_tabs_button.setText("Tải CSV export từ Sheet")
 
         tools = QWidget(self.root)
         self.workspace_toolbar = tools
@@ -301,25 +304,38 @@ class MainWindow(QMainWindow):
         self.csv_tools_button.setMenu(menu)
         toolbar.addWidget(self.csv_tools_button)
         self.root.layout().insertWidget(1, tools)
+        sheet_card = QFrame()
+        sheet_card.setObjectName("sheetConnection")
+        sheet_layout = QVBoxLayout(sheet_card)
+        sheet_layout.setContentsMargins(12, 8, 12, 10)
+        sheet_layout.setSpacing(4)
+        sheet_header = QHBoxLayout()
+        sheet_name = QLabel("Bảng tính Google Sheets")
+        sheet_name.setProperty("sectionTitle", True)
+        sheet_name.setBuddy(self.sheet_url_edit)
+        sheet_header.addWidget(sheet_name, 1)
+        self.target_settings_button = QPushButton("Cài đặt Sheet…")
+        self.target_settings_button.clicked.connect(lambda: self.show_settings(initial_tab="target"))
+        sheet_header.addWidget(self.target_settings_button)
+        sheet_layout.addLayout(sheet_header)
         target_row = QHBoxLayout()
-        target_row.addWidget(QLabel("Bảng tính"))
         self.quick_sheet_url_edit = self.sheet_url_edit
         self.target_form.findChild(QLabel, "sheetUrlLabel").hide()
-        self.sheet_url_edit.setPlaceholderText("Dán link chia sẻ bảng tính từ Drive hoặc Google Sheets")
+        self.sheet_url_edit.setPlaceholderText("Dán liên kết từ Google Sheets hoặc Drive")
         self.sheet_url_edit.setClearButtonEnabled(True)
         self.sheet_url_edit.setAccessibleName("Link Google Sheet đích")
         target_row.addWidget(self.sheet_url_edit, 1)
         target_row.addWidget(self.open_sheet_button)
-        self.target_settings_button = QPushButton("Thiết lập đích…")
-        self.target_settings_button.clicked.connect(lambda: self.show_settings(initial_tab="target"))
-        target_row.addWidget(self.target_settings_button)
-        stack.insertLayout(0, target_row)
+        sheet_layout.addLayout(target_row)
         self.sheet_title_label = QLabel()
         self.sheet_title_label.setTextFormat(Qt.TextFormat.PlainText)
         self.sheet_title_label.setWordWrap(True)
-        stack.insertWidget(1, self.sheet_title_label)
+        self.sheet_title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.sheet_title_label.setProperty("muted", True)
+        sheet_layout.addWidget(self.sheet_title_label)
+        stack.insertWidget(0, sheet_card)
         self.folder_card = TransferFoldersCard(self.settings)
-        stack.insertWidget(2, self.folder_card)
+        stack.insertWidget(1, self.folder_card)
         self.folder_card.changed.connect(self.set_transfer_folder)
         self.folder_card.refresh_requested.connect(self.refresh_transfer_folders)
         self.folder_watcher = QFileSystemWatcher(self)
@@ -337,15 +353,19 @@ class MainWindow(QMainWindow):
         self._title_timer.timeout.connect(self._lookup_title)
         self.sheet_url_edit.textChanged.connect(self._schedule_title)
         self.sheet_url_edit.returnPressed.connect(self._schedule_title)
-        self._schedule_title()
-        self.target_summary = QLabel()
-        self.target_summary.setProperty("muted", True)
-        self.target_summary.setWordWrap(True)
+        self.target_summary = require_object(self.root, "csvSheetHint", QLabel)
+        self.upload_summary = require_object(self.root, "uploadSummary", QLabel)
+        self.download_summary = require_object(self.root, "downloadSummary", QLabel)
+        for label in (self.target_summary, self.upload_summary, self.download_summary):
+            label.setProperty("muted", True)
+            label.setWordWrap(True)
+            label.setTextFormat(Qt.TextFormat.PlainText)
         self.action_pages = require_object(self.root, "actionPages", QStackedWidget)
         self.action_pages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        csv_layout = require_object(self.root, "csvActionsLayout", QVBoxLayout)
-        csv_layout.insertWidget(0, self.target_summary)
-        self._update_target_summary()
+        self._schedule_title()
+        self.progress_label.setWordWrap(True)
+        self.progress_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.progress_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.progress_label.hide()
 
         self.log_toggle = QToolButton(self.log_card)
@@ -403,6 +423,7 @@ class MainWindow(QMainWindow):
         self.sheet_title_label.setText("Đang đọc tên bảng tính…" if valid else "Link Google Sheet chưa hợp lệ.")
         self.sheet_title_label.setVisible(bool(self.sheet_url_edit.text().strip()))
         self.sheet_title_label.setToolTip("")
+        self._update_transfer_buttons()
         self._title_timer.start(350)
 
     def _lookup_title(self):
@@ -435,16 +456,13 @@ class MainWindow(QMainWindow):
         Thread(target=lookup, daemon=True).start()
         self._title_timer.start(100)
 
-    def _update_target_summary(self, *_args) -> None:
-        count = len(self.file_infos)
-        self.target_summary.setText(f"{count} CSV upload → tab upload_*   ·   Tab export_* → thư mục CSV export")
-
     def _toggle_log(self, expanded: bool) -> None:
         self.settings.ui_log_expanded = expanded
         self.log_toggle.setText("Thu gọn nhật ký" if expanded else "Hiện nhật ký")
         self.log_toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
         self.log_placeholder.setVisible(expanded)
         self.clear_log_button.setVisible(expanded)
+        self.log_subtitle_label.setVisible(not expanded)
         self.log_card.setMaximumHeight(16777215 if expanded else 64)
         if hasattr(self, "log_container"):
             self.log_container.layout().setAlignment(Qt.AlignmentFlag(0) if expanded else Qt.AlignmentFlag.AlignTop)
@@ -481,7 +499,7 @@ class MainWindow(QMainWindow):
             self.start_download_export_tabs
         )
         self.stop_button.clicked.connect(self.stop_current_action)
-        self.clear_log_button.clicked.connect(self.log_edit.clear)
+        self.clear_log_button.clicked.connect(self._clear_log)
         self.settings_button.clicked.connect(self.show_settings)
         self.help_button.clicked.connect(self.show_help)
         self.theme_button.clicked.connect(self.toggle_theme)
@@ -553,6 +571,8 @@ class MainWindow(QMainWindow):
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Type.LayoutRequest:
             self._layout_timer.start()
+        elif obj is self.log_subtitle_label and event.type() == QEvent.Type.Resize:
+            self._elide_latest_log()
         return super().eventFilter(obj, event)
 
     def _apply_density(self, force: bool = False) -> None:
@@ -775,6 +795,7 @@ class MainWindow(QMainWindow):
         self._sync_shared_controls()
         base = self.workspace.pages[0] if self.workspace.pages else None
         self.workspace.setVisible(base is not None)
+        self.action_card_layout.setStretch(self.action_card_layout.count() - 1, int(base is None))
         if hasattr(base, "direction"):
             active = self.direct_transfer_button
         elif isinstance(base, UnityLocaleDialog):
@@ -796,6 +817,8 @@ class MainWindow(QMainWindow):
         self.save_settings()
         direction = "download" if self.settings.direct_direction == "download" else "upload"
         dialog = DirectSheetDialog(self.settings, direction, self, annotations=self.desc_annotations, folder_only=True)
+        paths, issues = self.folder_card.results["unity"]
+        dialog.set_folder_files(() if issues else paths, self.settings.unity_folder, issues)
         dialog.sheet.hide()
         dialog.close_button.hide()
         self.workspace.add_feature(dialog)
@@ -914,19 +937,40 @@ class MainWindow(QMainWindow):
             self.settings.unity_import_csv_files = [str(p) for p in selected]
         self.folder_card.set_result(role, paths, issues)
         self._update_transfer_buttons()
-        self._update_target_summary()
         if force or previous != (paths, issues):
             for page in self.workspace.pages:
                 if isinstance(page, UnityLocaleDialog):
                     page.set_folder_files(role, selected, folder, issues)
                 elif role == "unity" and hasattr(page, "direction"):
-                    page.set_folder_files(selected, folder)
+                    page.set_folder_files(selected, folder, issues)
             return True
         return False
 
     def _update_transfer_buttons(self):
-        self.start_button.setEnabled(self.worker is None and bool(self.file_infos))
-        self.download_export_tabs_button.setEnabled(self.worker is None and bool(self.settings.export_folder) and not self.folder_card.results["export"][1])
+        has_sheet = bool(sheet_id_from_link(self.sheet_url_edit.text()))
+        self.target_summary.setText("Dán liên kết bảng tính ở phía trên để truyền dữ liệu." if not self.sheet_url_edit.text().strip()
+                                    else "Kiểm tra lại liên kết bảng tính ở phía trên.")
+        self.target_summary.setVisible(not has_sheet)
+        if self.folder_card.results["upload"][1]:
+            upload = "Kiểm tra lỗi trong thư mục CSV upload."
+        elif self.file_infos:
+            upload = f"{len(self.file_infos)} tệp → tab upload_* cùng mã. Tab đã có sẽ được ghi đè."
+        elif self.settings.upload_folder:
+            upload = "Chưa tìm thấy tệp upload_<mã>.csv trong thư mục."
+        else:
+            upload = "Chọn thư mục CSV upload ở phía trên."
+        self.upload_summary.setText(upload)
+        export_issues = self.folder_card.results["export"][1]
+        if export_issues:
+            download = "Kiểm tra lỗi trong thư mục CSV export."
+        elif self.settings.export_folder:
+            download = "Lưu mỗi tab export_* thành một tệp trong thư mục CSV export."
+        else:
+            download = "Chọn thư mục CSV export để lưu tệp."
+        self.download_summary.setText(download)
+        ready = self.worker is None and has_sheet
+        self.start_button.setEnabled(ready and bool(self.file_infos))
+        self.download_export_tabs_button.setEnabled(ready and bool(self.settings.export_folder) and not export_issues)
 
     def _csv_audit_available(self):
         if self.worker is not None or any(page.worker is not None for page in self.workspace.pages):
@@ -1230,8 +1274,31 @@ class MainWindow(QMainWindow):
 
     def append_log(self, level: str, message: str) -> None:
         self.log_edit.append_entry(level, message)
+        self._set_latest_log(level.upper(), message)
         if level.upper() in {"FAIL", "ERROR"}:
             self.log_toggle.setChecked(True)
+
+    def _set_latest_log(self, level, message):
+        label = self.log_subtitle_label
+        label.setToolTip(message)
+        if label.property("level") != level:
+            label.setProperty("level", level)
+            label.style().unpolish(label)
+            label.style().polish(label)
+        self._elide_latest_log()
+
+    def _elide_latest_log(self):
+        label = self.log_subtitle_label
+        text = " ".join(label.toolTip().splitlines()) or "Chưa có hoạt động."
+        if label.property("level") == "WARNING":
+            text = "Cảnh báo · " + text
+        elif label.property("level") in ("FAIL", "ERROR"):
+            text = "Lỗi · " + text
+        label.setText(label.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, label.contentsRect().width()))
+
+    def _clear_log(self):
+        self.log_edit.clear()
+        self._set_latest_log("INFO", "")
 
     def save_settings(self) -> None:
         self.settings.sheet_url = self.sheet_url_edit.text().strip()

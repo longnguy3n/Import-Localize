@@ -8,7 +8,7 @@ import time
 from concurrent.futures import CancelledError
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from import_localize.services.desc_annotations import DescAnnotations, WRONG_LANGUAGE, locales_for_table
 from import_localize.services.csv_language_service import STATUS, COLORS, language_name
 from import_localize.services.language_audit_process import read_report
+from .audit_results import AuditResults
 from .feature_workspace import start_feature_worker
 from .unity_audit import asset_audit_sources
 
@@ -176,16 +177,17 @@ class CsvLanguageDialog(QDialog):
         self.help_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         actions.addWidget(self.help_button)
         layout.addLayout(actions)
+        row_hint = ("Số dòng tính theo CSV xuất từ asset Unity." if self.unity_assets else
+                    "Dòng CSV là dòng bắt đầu bản ghi, kể cả ô chứa nhiều dòng.")
         self.guidance = QLabel("Cảnh báo là dự đoán cần xem lại, không phải kết luận lỗi. "
                               "Tên riêng hoặc câu ngắn có thể chưa đủ dữ liệu. "
-                              "Mô hình không phân biệt biến thể vùng như pt-BR/pt-PT. "
-                              "Dòng CSV là dòng bắt đầu bản ghi, kể cả ô chứa nhiều dòng.")
+                              "Mô hình không phân biệt biến thể vùng như pt-BR/pt-PT. " + row_hint)
         self.guidance.setWordWrap(True)
         self.guidance.setProperty("muted", True)
         self.guidance.hide()
         layout.addWidget(self.guidance)
         self.files_label = QLabel()
-        self.files_label.setText("Chưa có CSV để kiểm tra. Kiểm tra thư mục CSV của chiều truyền đang dùng.")
+        self.files_label.setText("Chưa có tệp để kiểm tra. Chọn thư mục nguồn trong Thư mục truyền dữ liệu.")
         self.files_label.setWordWrap(True)
         layout.addWidget(self.files_label)
         self.summary = QTableWidget(0, 7)
@@ -252,7 +254,9 @@ class CsvLanguageDialog(QDialog):
         self.table.setToolTip("Chọn dòng để xem nguyên văn bên dưới. Kéo vạch tiêu đề để chỉnh cột; Shift + cuộn để cuộn ngang.")
         for i, width in enumerate((185, 200, 90, 180, 130, 145, 150, 420)):
             self.table.setColumnWidth(i, width)
-        layout.addWidget(self.table, 3)
+        self.results = AuditResults(self.table, self.search, self.reset_filters, self)
+        self.results.show_empty("Chưa có kết quả nhận diện.")
+        layout.addWidget(self.results, 3)
         self.content = QPlainTextEdit()
         self.content.setReadOnly(True)
         self.content.setPlaceholderText("Chọn một dòng để xem đầy đủ nội dung gốc, ngôn ngữ và lý do cảnh báo.")
@@ -356,8 +360,9 @@ class CsvLanguageDialog(QDialog):
         self.files_label.setText(f"{len(self.paths)} {'asset' if self.unity_assets else 'CSV'} · {names}")
         self.files_label.setToolTip("\n".join(map(str, self.paths)))
         self._set_busy(True)
+        self.results.show_empty("Đang nhận diện ngôn ngữ…")
         self.progress.setRange(0, 0)
-        self.status.setText("Đang đọc CSV và chuẩn bị mô hình offline…")
+        self.status.setText("Đang đọc tệp nguồn và chuẩn bị mô hình offline…")
         self.worker = LanguageWorker(self.paths, self, sources=self.sources, unity_assets=self.unity_assets)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.finished_scan)
@@ -379,8 +384,10 @@ class CsvLanguageDialog(QDialog):
         self.progress.setValue(0 if worker.cancelled or worker.error else 1)
         if worker.cancelled:
             self.status.setText("Đã dừng. Chưa có kết quả đầy đủ; bấm Kiểm tra lại để chạy lại.")
+            self.results.show_empty("Đã dừng nhận diện ngôn ngữ.")
         elif worker.error:
             self.status.setText("Không thể hoàn tất nhận diện.")
+            self.results.show_empty("Chưa có kết quả. Xem thông báo lỗi để biết chi tiết.")
             self.error_label.setText(worker.error)
         else:
             self.report = worker.result
@@ -422,6 +429,16 @@ class CsvLanguageDialog(QDialog):
         if row >= 0:
             self.column_combo.setCurrentIndex(row + 1)
 
+    def reset_filters(self):
+        with (QSignalBlocker(self.summary), QSignalBlocker(self.column_combo),
+              QSignalBlocker(self.filter_combo), QSignalBlocker(self.search)):
+            self.summary.clearSelection()
+            self.column_combo.setCurrentIndex(0)
+            self.filter_combo.setCurrentIndex(self.filter_combo.findData("all"))
+            self.search.clear()
+        self.filter_rows()
+        self.search.setFocus()
+
     def filter_rows(self, *_):
         selected = self.column_combo.currentData()
         status = self.filter_combo.currentData()
@@ -445,10 +462,20 @@ class CsvLanguageDialog(QDialog):
         self.update_mark_buttons()
         self.content.clear()
         self.content.hide()
-        if self.report:
-            self.result_label.setText(f"{len(rows)} ô theo bộ lọc" if rows else "Không có ô phù hợp bộ lọc. Thử chọn Tất cả dòng hoặc bỏ tìm kiếm.")
+        self.result_label.setText(f"{len(rows)} ô theo bộ lọc" if self.report else "")
+        if rows:
+            self.results.show_table()
+        elif not self.report:
+            self.results.show_empty("Chưa có kết quả nhận diện.")
+        elif any(column.cells for column in self.report.columns):
+            message = "Không có ô khớp bộ lọc hiện tại."
+            if status == "mismatch" and selected is None and not query:
+                message = "Không có dòng nghi sai ngôn ngữ trong các ô đã kiểm tra."
+            self.results.show_empty(message, "Xem tất cả dòng")
+        elif self.report.errors:
+            self.results.show_empty("Chưa có ô để hiển thị. Xem lỗi đọc dữ liệu bên dưới.")
         else:
-            self.result_label.setText("Chưa có kết quả nhận diện.")
+            self.results.show_empty("Không có ô ngôn ngữ trong dữ liệu đã kiểm tra.")
 
     def set_sheet_context(self, url, annotations):
         if self.annotations is not annotations:

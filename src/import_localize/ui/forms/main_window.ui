@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.24.1</string>
+         <string>v1.25.0</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -371,153 +371,127 @@
                 <property name="topMargin"><number>0</number></property>
                 <property name="rightMargin"><number>0</number></property>
                 <property name="bottomMargin"><number>0</number></property>
-            <item>
-             <widget class="QWidget" name="progressPage">
-              <layout class="QVBoxLayout" name="progressLayout">
-               <property name="spacing">
-                <number>3</number>
-               </property>
-               <property name="leftMargin">
-                <number>4</number>
-               </property>
-               <property name="topMargin">
-                <number>0</number>
-               </property>
-               <property name="rightMargin">
-                <number>4</number>
-               </property>
-               <property name="bottomMargin">
-                <number>0</number>
-               </property>
-               <item>
-                <widget class="QLabel" name="progressLabel">
-                 <property name="minimumSize">
-                  <size>
-                   <width>0</width>
-                   <height>17</height>
-                  </size>
-                 </property>
-                 <property name="text">
-                  <string>Sẵn sàng</string>
-                 </property>
-                 <property name="alignment">
-                  <set>Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QProgressBar" name="progressBar">
-                 <property name="minimumSize">
-                  <size>
-                   <width>0</width>
-                   <height>14</height>
-                  </size>
-                 </property>
-                 <property name="maximumSize">
-                  <size>
-                   <width>16777215</width>
-                   <height>14</height>
-                  </size>
-                 </property>
-                 <property name="value">
-                  <number>0</number>
-                 </property>
-                 <property name="textVisible">
-                  <bool>false</bool>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="unityLocaleButton">
-              <property name="text">
-               <string>Unity Locale — Replace Import / Export…</string>
-              </property>
-              <property name="toolTip">
-               <string>Nhập CSV vào locale.asset hoặc xuất CSV I2 Localization trực tiếp, có xem trước và sao lưu.</string>
-              </property>
-              <property name="minimumHeight"><number>36</number></property>
-             </widget>
-            </item>
-            <item>
-             <layout class="QHBoxLayout" name="actionButtonsLayout">
-              <property name="spacing">
-               <number>8</number>
-              </property>
-              <item>
-               <widget class="QPushButton" name="startButton">
-                <property name="minimumSize">
-                 <size>
-                  <width>210</width>
-                  <height>38</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>300</width>
-                  <height>16777215</height>
-                 </size>
-                </property>
-                <property name="text">
-                 <string>Import vào Google Sheet</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="downloadExportTabsButton">
-                <property name="minimumSize">
-                 <size>
-                  <width>184</width>
-                  <height>38</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>250</width>
-                  <height>16777215</height>
-                 </size>
-                </property>
-                <property name="text">
-                 <string>Tải các tab export_*</string>
-                </property>
-                <property name="toolTip">
-                 <string>Lưu toàn bộ tab export_* vào thư mục CSV export đã chọn.</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="stopButton">
-                <property name="minimumSize">
-                 <size>
-                  <width>92</width>
-                  <height>36</height>
-                 </size>
-                </property>
-                <property name="text">
-                 <string>Dừng</string>
-                </property>
-                <property name="visible">
-                 <bool>false</bool>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <spacer name="actionRightSpacer">
-                <property name="orientation">
-                 <enum>Qt::Orientation::Horizontal</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>40</width>
-                  <height>20</height>
-                 </size>
-                </property>
-               </spacer>
-              </item>
-             </layout>
-            </item>
+                <item><widget class="QLabel" name="csvSheetHint">
+                 <property name="wordWrap"><bool>true</bool></property>
+                </widget></item>
+                <item>
+                 <layout class="QHBoxLayout" name="uploadSummaryRow" stretch="1,0">
+                  <item>
+                   <layout class="QVBoxLayout" name="uploadSummaryText">
+                    <property name="spacing"><number>2</number></property>
+                    <item><widget class="QLabel" name="uploadTitle">
+                     <property name="text"><string>CSV upload → Sheet</string></property>
+                    </widget></item>
+                    <item><widget class="QLabel" name="uploadSummary">
+                     <property name="wordWrap"><bool>true</bool></property>
+                    </widget></item>
+                   </layout>
+                  </item>
+                  <item><widget class="QPushButton" name="startButton">
+                   <property name="minimumSize"><size><width>135</width><height>36</height></size></property>
+                   <property name="text"><string>Ghi lên Sheet</string></property>
+                  </widget></item>
+                 </layout>
+                </item>
+                <item><widget class="QFrame" name="transferDivider">
+                 <property name="frameShape"><enum>QFrame::Shape::HLine</enum></property>
+                 <property name="maximumHeight"><number>1</number></property>
+                </widget></item>
+                <item>
+                 <layout class="QHBoxLayout" name="downloadSummaryRow" stretch="1,0">
+                  <item>
+                   <layout class="QVBoxLayout" name="downloadSummaryText">
+                    <property name="spacing"><number>2</number></property>
+                    <item><widget class="QLabel" name="downloadTitle">
+                     <property name="text"><string>Sheet → CSV export</string></property>
+                    </widget></item>
+                    <item><widget class="QLabel" name="downloadSummary">
+                     <property name="wordWrap"><bool>true</bool></property>
+                    </widget></item>
+                   </layout>
+                  </item>
+                  <item><widget class="QPushButton" name="downloadExportTabsButton">
+                   <property name="minimumSize"><size><width>135</width><height>36</height></size></property>
+                   <property name="text"><string>Tải về CSV</string></property>
+                  </widget></item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QWidget" name="progressPage">
+                  <layout class="QVBoxLayout" name="progressLayout">
+                   <property name="spacing">
+                    <number>3</number>
+                   </property>
+                   <property name="leftMargin">
+                    <number>4</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>4</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="progressLabel">
+                     <property name="minimumSize">
+                      <size>
+                       <width>0</width>
+                       <height>17</height>
+                      </size>
+                     </property>
+                     <property name="text">
+                      <string>Sẵn sàng</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QProgressBar" name="progressBar">
+                     <property name="minimumSize">
+                      <size>
+                       <width>0</width>
+                       <height>14</height>
+                      </size>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>16777215</width>
+                       <height>14</height>
+                      </size>
+                     </property>
+                     <property name="value">
+                      <number>0</number>
+                     </property>
+                     <property name="textVisible">
+                      <bool>false</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="unityLocaleButton">
+                  <property name="text">
+                   <string>Unity Locale — Replace Import / Export…</string>
+                  </property>
+                  <property name="toolTip">
+                   <string>Nhập CSV vào locale.asset hoặc xuất CSV I2 Localization trực tiếp, có xem trước và sao lưu.</string>
+                  </property>
+                  <property name="minimumHeight"><number>36</number></property>
+                 </widget>
+                </item>
+                <item alignment="Qt::AlignmentFlag::AlignLeft">
+                 <widget class="QPushButton" name="stopButton">
+                  <property name="text"><string>Dừng</string></property>
+                  <property name="visible"><bool>false</bool></property>
+                 </widget>
+                </item>
                </layout>
               </widget>
              </widget>

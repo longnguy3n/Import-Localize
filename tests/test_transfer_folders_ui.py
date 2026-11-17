@@ -1,8 +1,41 @@
 from PySide6.QtWidgets import QFileDialog
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui import main_window
+from import_localize.ui.transfer_folders_card import TransferFoldersCard
 from test_unity_locale import ASSET
 from test_unity_locale_ui import app, drain
+
+
+def test_folder_card_distinguishes_unset_empty_and_invalid_folders(app, tmp_path, monkeypatch):
+    settings = AppSettings(upload_folder=str(tmp_path), export_folder=str(tmp_path))
+    card = TransferFoldersCard(settings)
+    changes = []
+    card.changed.connect(lambda role, folder: changes.append((role, folder)))
+    try:
+        card.show()
+        upload_field, upload_count, upload_action = card.rows["upload"]
+        assert upload_field.text() == str(tmp_path)
+        assert upload_count.text() == "0 tệp"
+        assert "upload_<mã>.csv" in upload_count.menu().actions()[0].text()
+        assert card.rows["unity"][1].isHidden()
+        assert card.rows["unity"][2].menu() is None
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *_: str(tmp_path / "other"))
+        upload_action.click()
+        upload_action.menu().actions()[0].trigger()
+        assert changes == [("upload", str(tmp_path / "other")), ("upload", "")]
+        card.toggle.setChecked(False)
+        issue = "Hai tệp upload trùng mã en."
+        card.set_result("upload", (), (issue,))
+        assert card.toggle.isChecked()
+        assert card.issue_labels["upload"].isVisible() and card.issue_labels["upload"].text() == issue
+        card.toggle.setChecked(False)
+        card.set_result("upload", (), (issue,))
+        assert not card.toggle.isChecked() and "1 lỗi" in card.summary.text()
+        card.set_result("upload", (tmp_path / "upload_en.csv",), ())
+        assert card.issue_labels["upload"].isHidden()
+        assert card.summary.text() == "Upload 1 · Export 0 · Unity —"
+    finally:
+        card.close()
 
 
 def test_saved_folders_route_both_csv_roles_and_assets(app, tmp_path, monkeypatch):

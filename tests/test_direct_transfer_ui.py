@@ -12,6 +12,23 @@ from test_unity_locale import ASSET
 from test_unity_locale_ui import app, drain
 
 
+def test_direct_preview_explains_missing_inputs_and_folder_scan_errors(app, tmp_path):
+    dialog = direct_sheet_dialog.DirectSheetDialog(AppSettings(), "upload", folder_only=True)
+    try:
+        assert "Google Sheets" in dialog.status.text() and "Unity locale" in dialog.status.text()
+        assert not dialog.preview_button.isEnabled()
+        dialog.set_sheet_context("https://docs.google.com/spreadsheets/d/example", dialog.annotations)
+        dialog.set_folder_files([], tmp_path)
+        assert "locale_<mã>.asset" in dialog.status.text()
+        dialog.set_folder_files([], tmp_path, ["Trùng mã vi"])
+        assert "Trùng mã vi" in dialog.status.text()
+        assert "Trùng mã vi" in dialog.preview_button.toolTip()
+        dialog.set_folder_files([tmp_path / "locale_vi.asset"], tmp_path)
+        assert dialog.preview_button.isEnabled() and "Trùng mã" not in dialog.status.text()
+    finally:
+        dialog.close()
+
+
 def test_direct_review_preview_snapshot_and_submit(app, tmp_path, monkeypatch):
     path = tmp_path / "different-filename.asset"
     path.write_text(ASSET)
@@ -61,6 +78,8 @@ def test_direct_review_preview_snapshot_and_submit(app, tmp_path, monkeypatch):
         drain(app, dialog)
         assert dialog.table.item(0, 1).text() == "upload_en"
         assert dialog.sheet.text() == "My Spreadsheet"
+        assert "My Spreadsheet" in dialog.status.text() and "thay nội dung 1 tab" in dialog.status.text()
+        assert "1 tab" in dialog.apply_button.toolTip()
         snapshot = dialog.plan
         dialog.apply_button.click()
         drain(app, dialog)

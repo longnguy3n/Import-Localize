@@ -178,7 +178,7 @@
             <string>&lt;h3&gt;Chọn thư mục truyền dữ liệu&lt;/h3&gt;
 &lt;p&gt;Trong card &lt;b&gt;Thư mục truyền dữ liệu&lt;/b&gt;, chọn CSV upload, CSV export và Unity locale theo vai trò cần dùng. Hai loại CSV có thể nằm chung thư mục. Bấm số tệp để xem tên các file, hoặc &lt;b&gt;Quét lại&lt;/b&gt; sau khi đổi tên hay di chuyển file. App nhớ ba đường dẫn cho lần mở sau.&lt;/p&gt;
 &lt;h3&gt;Nhập và xuất dữ liệu&lt;/h3&gt;
-&lt;p&gt;&lt;b&gt;CSV ↔ Sheet.&lt;/b&gt; Bấm &lt;b&gt;Upload CSV lên Sheet&lt;/b&gt; để nhập upload_&amp;lt;mã&amp;gt;.csv vào tab upload_&amp;lt;mã&amp;gt;. Bấm &lt;b&gt;Tải CSV export từ Sheet&lt;/b&gt; để lưu các tab export_&amp;lt;mã&amp;gt; về thư mục CSV export.&lt;/p&gt;
+&lt;p&gt;&lt;b&gt;CSV ↔ Sheet.&lt;/b&gt; Bấm &lt;b&gt;Ghi lên Sheet&lt;/b&gt; để nhập upload_&amp;lt;mã&amp;gt;.csv vào tab upload_&amp;lt;mã&amp;gt;. Bấm &lt;b&gt;Tải về CSV&lt;/b&gt; để lưu các tab export_&amp;lt;mã&amp;gt; về thư mục CSV export.&lt;/p&gt;
 &lt;p&gt;&lt;b&gt;CSV ↔ Unity.&lt;/b&gt; Chiều &lt;b&gt;CSV → Unity&lt;/b&gt; đưa export_&amp;lt;mã&amp;gt;.csv vào locale_&amp;lt;mã&amp;gt;.asset. Chiều &lt;b&gt;Unity → CSV&lt;/b&gt; ghi từng asset vào upload_&amp;lt;mã&amp;gt;.csv. Bấm &lt;b&gt;Xem trước&lt;/b&gt; trước khi ghi.&lt;/p&gt;
 &lt;p&gt;&lt;b&gt;Sheet ↔ Unity.&lt;/b&gt; Chọn bảng tính và thư mục Unity locale. Mỗi asset ghi trực tiếp lên tab upload cùng mã hoặc nhận từ tab export cùng mã. Lưu asset và thoát Play Mode trước khi ghi vào Unity. App sao lưu asset trước khi ghi.&lt;/p&gt;
 &lt;p&gt;Hai luồng Unity dùng cùng bảng xem trước. Đọc từng hàng từ &lt;b&gt;Nguồn&lt;/b&gt; sang &lt;b&gt;Đích&lt;/b&gt;. Các ô màu cho biết số key thêm (xanh lá), xóa (đỏ), sửa (vàng) và giữ (xám).&lt;/p&gt;

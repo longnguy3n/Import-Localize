@@ -148,12 +148,12 @@
                     </property>
                     <property name="maximumSize">
                      <size>
-                      <width>34</width>
+                      <width>16777215</width>
                       <height>34</height>
                      </size>
                     </property>
                     <property name="text">
-                     <string />
+                     <string>Mở Sheet</string>
                     </property>
                     <property name="toolTip">
                      <string>Mở Google Sheet</string>
