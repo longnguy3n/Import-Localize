@@ -1,0 +1,330 @@
+/* UU DS · Compact desktop. State colors are the base and foreground
+   composited at the specified opacity, since QSS has no overlay pseudo-element. */
+QWidget {
+    color: {{object-primary}};
+    font-size: 13px;
+    selection-color: {{object-primary}};
+    selection-background-color: {{background-interactive-muted}};
+}
+QMainWindow, QWidget#MainRoot, QWidget#contentWidget { background: {{background-subtle}}; }
+QFrame#topBar {
+    background: {{background-surface}};
+    border: none;
+    border-bottom: 1px solid {{border-muted}};
+}
+QLabel#appTitleLabel, QLabel#titleLabel { font-size: 23px; font-weight: 600; }
+QLabel#appSubtitleLabel, QLabel#versionLabel {
+    color: {{object-secondary}};
+    font-size: 13px;
+}
+QFrame#sheetConnection, QFrame#transferFoldersCard, QFrame#workflowFrame,
+QFrame#logCard, QFrame#targetCard, QFrame#oauthClientCard, QFrame#googleAccountCard,
+QFrame#updateSourceCard, QFrame#updateStatusCard, QFrame#helpSection {
+    background: {{background-surface}};
+    border: 1px solid {{border-muted}};
+    border-radius: 16px;
+}
+QDialog, QFrame#dialogCard { background: {{background-surface}}; }
+QFrame#actionCard, QDialog#embeddedTransferPage, QScrollArea#transferScroll,
+QWidget#transferViewport, QWidget#SettingsForm, QWidget#HelpForm {
+    background: transparent;
+    border: none;
+}
+QFrame#targetInnerPanel, QFrame#securityNotePanel, QFrame#helpNotePanel {
+    background: {{background-muted}};
+    border-radius: 8px;
+}
+QFrame#dialogDivider, QFrame#transferDivider {
+    background: {{border-muted}};
+    border: none;
+}
+QLabel[sectionTitle="true"], QLabel#actionTitleLabel, QLabel#logTitleLabel,
+QLabel#targetTitleLabel, QLabel#oauthClientTitleLabel,
+QLabel#googleAccountTitleLabel, QLabel#updateTitleLabel {
+    font-size: 16px;
+    font-weight: 600;
+}
+QLabel#uploadTitle, QLabel#downloadTitle, QLabel#progressLabel,
+QLabel#currentVersionValueLabel, QLabel#latestVersionValueLabel { font-weight: 600; }
+QLabel[muted="true"], QLabel#subtitleLabel, QLabel#targetSubtitleLabel,
+QLabel#logSubtitleLabel, QLabel#oauthClientHintLabel, QLabel#securityNoteLabel,
+QLabel#helpNoteLabel, QLabel#updateHintLabel, QLabel#updateStatusLabel { color: {{object-secondary}}; }
+QLabel#actionIconLabel, QLabel#logIconLabel, QLabel#targetIconLabel,
+QLabel#dialogIconLabel, QLabel#updateIconLabel,
+QLabel#oauthClientIconLabel, QLabel#googleAccountIconLabel {
+    background: {{background-subtle}};
+    border-radius: 8px;
+}
+
+/* Neutral tonal buttons share one hierarchy across the three workflows. */
+QPushButton, QToolButton {
+    min-height: 28px;
+    padding: 0 12px;
+    background: {{background-subtle}};
+    color: {{object-primary}};
+    border: 2px solid transparent;
+    border-radius: 16px;
+    font-weight: 500;
+}
+QPushButton:hover:enabled, QToolButton:hover:enabled { background: {{state:background-subtle:object-primary:5}}; }
+QPushButton:pressed:enabled, QToolButton:pressed:enabled { background: {{state:background-subtle:object-primary:10}}; }
+QPushButton:focus, QToolButton:focus { border-color: {{border-emphasized}}; }
+QPushButton:disabled, QToolButton:disabled {
+    background: {{background-disabled}};
+    color: {{object-disabled}};
+}
+QPushButton[primaryAction="true"], QPushButton#loginGoogleButton, QPushButton#installUpdateButton {
+    background: {{background-interactive}};
+    color: {{object-on-interactive}};
+}
+QPushButton[primaryAction="true"]:hover:enabled, QPushButton#loginGoogleButton:hover:enabled,
+QPushButton#installUpdateButton:hover:enabled { background: {{state:background-interactive:object-on-interactive:20}}; }
+QPushButton[primaryAction="true"]:pressed:enabled, QPushButton#loginGoogleButton:pressed:enabled,
+QPushButton#installUpdateButton:pressed:enabled { background: {{state:background-interactive:object-on-interactive:40}}; }
+QPushButton[primaryAction="true"]:disabled, QPushButton#loginGoogleButton:disabled,
+QPushButton#installUpdateButton:disabled { background: {{background-disabled}}; color: {{object-disabled}}; }
+QPushButton#downloadExportTabsButton {
+    background: {{background-surface}};
+    color: {{object-interactive}};
+    border-color: {{border-interactive}};
+}
+QPushButton#downloadExportTabsButton:hover:enabled { background: {{state:background-surface:object-interactive:5}}; }
+QPushButton#downloadExportTabsButton:pressed:enabled { background: {{state:background-surface:object-interactive:10}}; }
+QPushButton#downloadExportTabsButton:focus { border-color: {{border-emphasized}}; }
+QPushButton#downloadExportTabsButton:disabled {
+    color: {{object-disabled}};
+    border-color: {{border-muted}};
+}
+QPushButton[dangerAction="true"] {
+    background: {{background-surface}};
+    color: {{object-negative}};
+    border-color: {{border-negative}};
+}
+QPushButton[dangerAction="true"]:hover:enabled { background: {{state:background-surface:object-negative:5}}; }
+QPushButton[dangerAction="true"]:pressed:enabled { background: {{state:background-surface:object-negative:10}}; }
+QPushButton[dangerAction="true"]:focus { border-color: {{border-emphasized}}; }
+QPushButton[dangerAction="true"]:disabled { color: {{object-disabled}}; border-color: {{border-muted}}; }
+QPushButton#settingsButton, QPushButton#helpButton, QPushButton#closeIconButton {
+    padding: 0;
+    background: transparent;
+}
+QPushButton#settingsButton:hover, QPushButton#helpButton:hover, QPushButton#closeIconButton:hover {
+    background: {{state:background-surface:object-primary:5}};
+}
+QPushButton#settingsButton:pressed, QPushButton#helpButton:pressed, QPushButton#closeIconButton:pressed {
+    background: {{state:background-surface:object-primary:10}};
+}
+QToolButton::menu-button {
+    subcontrol-position: right;
+    width: 16px;
+    border-left: 1px solid {{border-muted}};
+}
+QToolButton[popupMode="1"] { padding-right: 16px; }
+QPushButton#themeButton { padding: 0 20px 0 12px; }
+QPushButton#themeButton::menu-indicator {
+    image: url(__ICON_CHEVRON_DOWN__);
+    width: 16px;
+    height: 16px;
+    subcontrol-position: center right;
+    right: 4px;
+}
+
+/* Tabs switch workspaces. The inset segmented control chooses transfer direction. */
+QTabWidget::pane { border: none; border-top: 1px solid {{border-muted}}; background: {{background-surface}}; }
+QPushButton[workflowTab="true"], QTabBar::tab {
+    background: transparent;
+    color: {{object-secondary}};
+    min-height: 28px;
+    padding: 2px 8px 6px;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    font-weight: 600;
+}
+QPushButton[workflowTab="true"]:hover:enabled { background-color: {{state:background-subtle:object-primary:5}}; }
+QPushButton[workflowTab="true"]:pressed:enabled { background-color: {{state:background-subtle:object-primary:10}}; }
+QTabBar::tab:hover:!selected { background-color: {{state:background-surface:object-primary:5}}; }
+QPushButton[workflowTab="true"]:checked, QTabBar::tab:selected {
+    color: {{object-interactive}};
+    background-image: url(__ICON_UU_ACTIVE_TAB__);
+    background-position: bottom center;
+    background-repeat: no-repeat;
+}
+QPushButton[workflowTab="true"]:focus, QTabBar:focus::tab:selected { border-color: {{border-emphasized}}; }
+QPushButton[workflowTab="true"]:disabled, QTabBar::tab:disabled { color: {{object-disabled}}; background: transparent; }
+QTabBar#transferDirections {
+    background: {{background-emphasized}};
+    border-radius: 16px;
+}
+QTabBar#transferDirections::tab {
+    min-height: 24px;
+    padding: 2px 12px;
+    background: transparent;
+    color: {{object-secondary}};
+    border: 2px solid transparent;
+    border-radius: 12px;
+    margin: 4px 2px 4px 0;
+    font-weight: 500;
+}
+QTabBar#transferDirections::tab:first { margin-left: 4px; }
+QTabBar#transferDirections::tab:last { margin-right: 4px; }
+QTabBar#transferDirections::tab:selected {
+    background: {{background-surface}};
+    background-image: none;
+    color: {{object-primary}};
+    font-weight: 600;
+}
+QTabBar#transferDirections::tab:hover:!selected { background: {{state:background-emphasized:object-primary:5}}; }
+QTabBar#transferDirections::tab:selected:hover { background: {{state:background-surface:object-primary:5}}; }
+QTabBar#transferDirections:focus::tab:selected { border-color: {{border-emphasized}}; }
+QTabBar#transferDirections::tab:disabled { color: {{object-disabled}}; }
+
+/* Compact fields use the platform font and keep selection and error states visible. */
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {
+    color: {{object-primary}};
+    placeholder-text-color: {{object-secondary}};
+    background: {{background-surface}};
+    border: 1px solid {{border-muted}};
+    border-radius: 8px;
+    padding: 0 8px;
+}
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { min-height: 30px; }
+QPlainTextEdit, QTextEdit { padding: 8px; }
+QLineEdit:hover:enabled, QComboBox:hover:enabled { background: {{state:background-surface:object-secondary:5}}; }
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QPlainTextEdit:focus, QTextEdit:focus {
+    border-color: {{border-emphasized}};
+    background: {{background-surface}};
+}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QPlainTextEdit:disabled {
+    color: {{object-disabled}};
+    background: {{background-muted}};
+}
+QLineEdit QToolButton { min-height: 0; padding: 0; border: none; background: transparent; }
+QComboBox { padding-right: 28px; }
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+    width: 24px;
+    border: none;
+}
+QComboBox::down-arrow { image: url(__ICON_CHEVRON_DOWN__); width: 16px; height: 16px; }
+QComboBox QAbstractItemView, QMenu {
+    color: {{object-primary}};
+    background: {{background-surface}};
+    border: 1px solid {{border-muted}};
+    border-radius: 16px;
+    padding: 8px;
+    selection-background-color: {{background-interactive-muted}};
+    selection-color: {{object-interactive}};
+}
+QMenu::item { border-radius: 12px; padding: 8px 24px; min-height: 20px; }
+QMenu::item:selected { background: {{state:background-surface:object-primary:5}}; }
+QMenu::item:checked { background: {{background-accent-subtle}}; color: {{object-interactive}}; }
+QMenu::item:checked:selected { background: {{state:background-accent-subtle:object-interactive:5}}; }
+QMenu::item:disabled { color: {{object-disabled}}; }
+QMenu::separator { height: 1px; margin: 4px 8px; background: {{border-muted}}; }
+QCheckBox { spacing: 8px; }
+QCheckBox:disabled { color: {{object-disabled}}; }
+QCheckBox::indicator, QTableView::indicator {
+    width: 20px; height: 20px;
+    border: 2px solid {{border}};
+    border-radius: 8px;
+    background: {{background-surface}};
+}
+QCheckBox::indicator:checked, QTableView::indicator:checked {
+    image: url(__ICON_UU_CHECK__);
+    background: {{background-interactive}};
+    border-color: {{border-interactive}};
+}
+QCheckBox::indicator:hover:unchecked { background: {{state:background-surface:object-secondary:5}}; }
+QCheckBox::indicator:hover:checked { background: {{state:background-interactive:object-on-interactive:20}}; }
+QCheckBox::indicator:pressed:checked { background: {{state:background-interactive:object-on-interactive:40}}; }
+QCheckBox:focus::indicator { border-color: {{border-emphasized}}; }
+QCheckBox::indicator:disabled { border-color: {{border-muted}}; background: {{background-disabled}}; }
+QGroupBox {
+    background: {{background-surface}};
+    border: 1px solid {{border-muted}};
+    border-radius: 12px;
+    margin-top: 12px;
+    padding: 12px 8px 8px;
+}
+QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; font-weight: 600; }
+
+/* Keep resize handles and focus visible in the wide, scrollable review grids. */
+QTableView, QListView, QTreeView {
+    color: {{object-primary}};
+    background: {{background-surface}};
+    alternate-background-color: {{background-muted}};
+    border: 1px solid {{border-muted}};
+    border-radius: 8px;
+    gridline-color: {{border-muted}};
+    selection-background-color: {{background-interactive-muted}};
+    selection-color: {{object-primary}};
+}
+QTableView:focus, QListView:focus, QTreeView:focus { border-color: {{border-emphasized}}; }
+QHeaderView::section, QTableCornerButton::section {
+    color: {{object-secondary}};
+    background: {{background-muted}};
+    border: none;
+    border-bottom: 1px solid {{border-muted}};
+    border-right: 1px solid {{border}};
+    min-height: 31px;
+    padding: 0 12px;
+    font-weight: 600;
+}
+QHeaderView::section:horizontal:hover { background: {{state:background-muted:object-primary:5}}; }
+QHeaderView::section:horizontal:pressed { background: {{state:background-muted:object-primary:10}}; }
+QTableView::item { padding: 4px 12px; }
+QTableView::item:selected, QListView::item:selected, QTreeView::item:selected {
+    background: {{background-interactive-muted}};
+    color: {{object-primary}};
+}
+QSplitter::handle { background: {{border}}; }
+QSplitter::handle:hover { background: {{state:border:object-primary:20}}; }
+QSplitter::handle:horizontal { width: 8px; margin: 0 2px; }
+QSplitter::handle:vertical { height: 8px; margin: 2px 0; }
+QSplitter#cardsSplitter::handle:vertical { border-radius: 2px; margin: 2px 16px; }
+QScrollBar:vertical { width: 12px; background: {{background-muted}}; margin: 0; }
+QScrollBar:horizontal { height: 12px; background: {{background-muted}}; margin: 0; }
+QScrollBar::handle {
+    background: {{border-emphasized}};
+    border: 2px solid {{background-muted}};
+    border-radius: 6px;
+}
+QScrollBar::handle:vertical { min-height: 32px; }
+QScrollBar::handle:horizontal { min-width: 32px; }
+QScrollBar::handle:hover { background: {{state:border-emphasized:object-primary:20}}; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+QProgressBar { background: {{background-subtle}}; color: {{object-primary}}; border: none; border-radius: 6px; text-align: center; }
+QProgressBar::chunk { background: {{background-interactive}}; border-radius: 6px; }
+QScrollArea#logConsole {
+    background: {{background-muted}};
+    border: 1px solid {{border-muted}};
+    border-radius: 8px;
+}
+QWidget#logViewport, QWidget#logContent, QWidget#logRow { background: {{background-muted}}; }
+QLabel#logTimestamp, QLabel#logLevel { color: {{object-secondary}}; font-size: 11px; }
+QLabel#logLevel { font-weight: 600; }
+QLabel#logLevel[level="SUCCESS"], QLabel#logMessage[level="SUCCESS"],
+QLabel#logSubtitleLabel[level="SUCCESS"] { color: {{object-positive}}; }
+QLabel#folderIssue, QLabel#logLevel[level="FAIL"], QLabel#logLevel[level="ERROR"],
+QLabel#logMessage[level="FAIL"], QLabel#logMessage[level="ERROR"],
+QLabel#logSubtitleLabel[level="FAIL"], QLabel#logSubtitleLabel[level="ERROR"] { color: {{object-negative}}; }
+QLabel#logLevel[level="WARNING"], QLabel#logSubtitleLabel[level="WARNING"] {
+    color: {{object-on-warning}};
+    background: {{background-warning-muted}};
+    border-radius: 4px;
+    padding: 0 4px;
+}
+QLabel#logMessage[level="WARNING"] { color: {{object-primary}}; }
+QToolTip {
+    background: {{background-inverted}};
+    color: {{object-primary-inverted}};
+    border: none;
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 11px;
+}

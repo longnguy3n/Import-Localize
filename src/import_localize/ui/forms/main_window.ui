@@ -170,12 +170,12 @@
         </property>
         <property name="maximumSize">
          <size>
-          <width>58</width>
+          <width>16777215</width>
           <height>25</height>
          </size>
         </property>
         <property name="text">
-         <string>v1.25.0</string>
+         <string>v1.26.0</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -228,23 +228,11 @@
       </item>
       <item>
        <widget class="QPushButton" name="themeButton">
-        <property name="minimumSize">
-         <size>
-          <width>36</width>
-          <height>36</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>36</width>
-          <height>36</height>
-         </size>
-        </property>
         <property name="text">
-         <string />
+         <string>Giao diện</string>
         </property>
         <property name="toolTip">
-         <string>Chuyển chế độ sáng tối</string>
+         <string>Chọn giao diện</string>
         </property>
        </widget>
       </item>

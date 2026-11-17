@@ -4,14 +4,14 @@ from concurrent.futures import CancelledError
 from html import escape
 from pathlib import Path
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QThread, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QPlainTextEdit, QPushButton, QSplitter, QTableView, QVBoxLayout, QWidget,
 )
 
 from import_localize.services.csv_compare_service import CsvComparison, compare_csv_files
-from .change_colors import STATUS_COLORS, STATUS_COLORS_DARK
+from .change_colors import status_colors
 from .feature_workspace import start_feature_worker
 
 STATUS_LABELS = {"added": "+ Key mới", "removed": "− Đã xóa", "changed": "≠ Thay đổi", "unchanged": "= Không đổi"}
@@ -76,7 +76,6 @@ class ComparisonModel(QAbstractTableModel):
         diff, col = self.rows[index.row()]
         column = index.column()
         table = getattr(self.parent(), "table", None)
-        dark = table is not None and table.palette().color(QPalette.ColorRole.Base).lightness() < 128
         if role == SORT_ROLE:
             if column == 0:
                 return ("added", "changed", "removed", "unchanged").index(diff.status)
@@ -87,11 +86,10 @@ class ComparisonModel(QAbstractTableModel):
             record = diff.before if column == 3 else diff.after
             return (record.get(col, "") if col is not None else diff.key) if record is not None else ""
         if column == 0:
-            background, foreground = (STATUS_COLORS_DARK if dark else STATUS_COLORS)[diff.status]
             if role == Qt.ItemDataRole.BackgroundRole:
-                return QColor(background)
+                return QColor(status_colors(table)[diff.status][0])
             if role == Qt.ItemDataRole.ForegroundRole:
-                return QColor(foreground)
+                return QColor(status_colors(table)[diff.status][1])
             if role == Qt.ItemDataRole.FontRole:
                 font = QFont()
                 font.setBold(True)
@@ -108,14 +106,11 @@ class ComparisonModel(QAbstractTableModel):
             if value == "":
                 return '(rỗng)'
             return value if role == Qt.ItemDataRole.ToolTipRole else value.replace("\r\n", "\n").replace("\n", " ↵ ").replace("\t", " ⇥ ")
-        changed = diff.status != "unchanged"
-        if changed and column in (3, 4):
-            if role == Qt.ItemDataRole.BackgroundRole:
-                old_color, new_color = ("#482330", "#173e2b") if dark else ("#ffe7e7", "#dcfce7")
-                return QColor(old_color if column == 3 else new_color)
-            if role == Qt.ItemDataRole.ForegroundRole:
-                old_color, new_color = ("#fda4af", "#86efac") if dark else ("#7f1d1d", "#14532d")
-                return QColor(old_color if column == 3 else new_color)
+        if diff.status != "unchanged" and column in (3, 4) and role in (
+            Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ForegroundRole
+        ):
+            background, foreground = status_colors(table)["removed" if column == 3 else "added"]
+            return QColor(background if role == Qt.ItemDataRole.BackgroundRole else foreground)
         return None
 
 
@@ -293,8 +288,9 @@ class CsvCompareDialog(QDialog):
         self.log_emitted.emit("SUCCESS", f"Đã so sánh {Path(self.paths[0]).name} và {Path(self.paths[1]).name}.")
         self.result = result
         self.summary_label.setTextFormat(Qt.TextFormat.RichText)
+        colors = status_colors(self.table)
         summary = " &nbsp; ".join(
-            f'<span style="background-color:{STATUS_COLORS[status][0]};color:{STATUS_COLORS[status][1]};">'
+            f'<span style="background-color:{colors[status][0]};color:{colors[status][1]};">'
             f'&nbsp;<b>{label}: {result.count(status)}</b>&nbsp;</span>'
             for status, label in (("added", "Key mới"), ("removed", "Đã xóa"), ("changed", "Thay đổi"), ("unchanged", "Không đổi"))
         )

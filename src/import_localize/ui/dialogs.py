@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 import threading
 
-from PySide6.QtCore import QUrl, Qt, QSize
+from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,7 +43,7 @@ from import_localize.services.update_service import (
     launch_prepared_update,
     normalize_repository,
 )
-from import_localize.ui.assets import icon, set_button_icon
+from import_localize.ui.assets import set_button_icon, set_label_icon
 from import_localize.ui.ui_loader import load_ui, require_object
 from import_localize.workers.oauth_worker import OAuthWorker
 from import_localize.workers.update_worker import (
@@ -203,11 +203,11 @@ class SettingsDialog(_DesignerDialog):
         )
 
         self._prepare_card(self.dialog_card)
-        self.dialog_icon_label.setPixmap(icon("settings").pixmap(QSize(22, 22)))
-        self.oauth_client_icon_label.setPixmap(icon("oauth").pixmap(QSize(18, 18)))
-        self.google_account_icon_label.setPixmap(icon("google").pixmap(QSize(18, 18)))
-        self.security_note_icon_label.setPixmap(icon("info").pixmap(QSize(15, 15)))
-        self.update_icon_label.setPixmap(icon("download").pixmap(QSize(18, 18)))
+        set_label_icon(self.dialog_icon_label, "settings", 22)
+        set_label_icon(self.oauth_client_icon_label, "oauth", 18)
+        set_label_icon(self.google_account_icon_label, "google", 18)
+        set_label_icon(self.security_note_icon_label, "info", 15)
+        set_label_icon(self.update_icon_label, "download", 18)
         set_button_icon(self.close_icon_button, "close", 16)
         set_button_icon(self.choose_oauth_button, "folder", 15)
         set_button_icon(self.open_config_button, "folder", 15)
@@ -585,8 +585,8 @@ class HelpDialog(_DesignerDialog):
         require_object(self.form, "helpTextBrowser", QTextBrowser)
 
         self._prepare_card(dialog_card)
-        dialog_icon.setPixmap(icon("help").pixmap(QSize(22, 22)))
-        note_icon.setPixmap(icon("info").pixmap(QSize(15, 15)))
+        set_label_icon(dialog_icon, "help", 22)
+        set_label_icon(note_icon, "info", 15)
         set_button_icon(close_icon_button, "close", 16)
         close_button.clicked.connect(self.accept)
         close_icon_button.clicked.connect(self.accept)

@@ -6,6 +6,7 @@ from queue import Empty, SimpleQueue
 
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QTimer, QUrl, Qt, QSize
 from PySide6.QtGui import (
+    QActionGroup,
     QColor,
     QCloseEvent,
     QKeySequence,
@@ -54,7 +55,7 @@ from import_localize.services.csv_service import (
 )
 from import_localize.services.google_service import oauth_configuration_status, preview_sheet_title
 from import_localize.services.update_service import UpdateRelease, is_newer_version
-from import_localize.ui.assets import icon, load_logo, set_button_icon
+from import_localize.ui.assets import load_logo, refresh_theme_icons, set_button_icon, set_label_icon
 from import_localize.ui.csv_compare_dialog import CsvCompareDialog
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 from import_localize.ui.dialogs import HelpDialog, SettingsDialog
@@ -73,7 +74,7 @@ from import_localize.services.transfer_files import scan_folder
 
 
 class MainWindow(QMainWindow):
-    """Main Import Localize window using the same visual system as SK Export."""
+    """Workspace for transfers, reviews and their shared settings."""
 
     COMPACT_BREAKPOINT = 690
 
@@ -191,13 +192,21 @@ class MainWindow(QMainWindow):
 
     def _configure_widgets(self) -> None:
         self.logo_label.setPixmap(load_logo(40))
-        self.target_icon_label.setPixmap(icon("sheet").pixmap(QSize(18, 18)))
-        self.action_icon_label.setPixmap(icon("rocket").pixmap(QSize(18, 18)))
-        self.log_icon_label.setPixmap(icon("terminal").pixmap(QSize(18, 18)))
+        set_label_icon(self.target_icon_label, "sheet", 18)
+        set_label_icon(self.action_icon_label, "rocket", 18)
+        set_label_icon(self.log_icon_label, "terminal", 18)
 
         set_button_icon(self.settings_button, "settings", 18)
         set_button_icon(self.help_button, "help", 18)
-        set_button_icon(self.theme_button, "moon", 18)
+        theme_menu = QMenu(self.theme_button)
+        theme_menu.setMinimumWidth(240)
+        self.theme_choices = QActionGroup(theme_menu)
+        for key, label in (("light", "Sáng"), ("dark", "Tối"), ("uu", "UU DS · Cam")):
+            action = theme_menu.addAction(label)
+            action.setData(key)
+            action.setCheckable(True)
+            self.theme_choices.addAction(action)
+        self.theme_button.setMenu(theme_menu)
         set_button_icon(self.open_sheet_button, "external-link", 14)
         set_button_icon(self.clear_log_button, "trash", 15)
         set_button_icon(self.download_export_tabs_button, "download", 16)
@@ -502,7 +511,7 @@ class MainWindow(QMainWindow):
         self.clear_log_button.clicked.connect(self._clear_log)
         self.settings_button.clicked.connect(self.show_settings)
         self.help_button.clicked.connect(self.show_help)
-        self.theme_button.clicked.connect(self.toggle_theme)
+        self.theme_choices.triggered.connect(self._select_theme)
         self._add_files_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
         self._add_files_shortcut.activated.connect(self.show_transfer_folders)
         self._target_shortcut = QShortcut(QKeySequence("Ctrl+L"), self.quick_sheet_url_edit)
@@ -625,10 +634,10 @@ class MainWindow(QMainWindow):
         for button in (
             self.settings_button,
             self.help_button,
-            self.theme_button,
         ):
             button.setFixedSize(header_button, header_button)
             button.setIconSize(QSize(max(16, header_button // 2), max(16, header_button // 2)))
+        self.theme_button.setFixedHeight(header_button)
 
         for layout in (
             self.target_card_layout,
@@ -645,7 +654,7 @@ class MainWindow(QMainWindow):
         )
         for label, icon_name in icon_map:
             label.setFixedSize(icon_box, icon_box)
-            label.setPixmap(icon(icon_name).pixmap(QSize(icon_pixmap, icon_pixmap)))
+            set_label_icon(label, icon_name, icon_pixmap)
 
         self.root.updateGeometry()
         QTimer.singleShot(0, self._refresh_minimum_height)
@@ -712,29 +721,38 @@ class MainWindow(QMainWindow):
         self._refresh_minimum_height()
 
     def apply_theme(self, name: str) -> None:
-        theme = "dark" if name == "dark" else "light"
-        path = THEMES_DIR / f"{theme}.qss"
+        choices = self.theme_choices.actions()
+        selected = next((action for action in choices if action.data() == name), choices[0])
+        theme = selected.data()
         try:
-            stylesheet = path.read_text(encoding="utf-8")
-            combo_arrow = (ICONS_DIR / "chevron-down.svg").resolve().as_posix()
-            stylesheet = stylesheet.replace("__ICON_CHEVRON_DOWN__", combo_arrow)
-            self.setStyleSheet(stylesheet)
-        except OSError:
-            self.setStyleSheet("")
+            if theme == "uu":
+                from .uu_theme import stylesheet as uu_stylesheet
+                stylesheet = uu_stylesheet()
+            else:
+                stylesheet = (THEMES_DIR / f"{theme}.qss").read_text(encoding="utf-8")
+                combo_arrow = (ICONS_DIR / "chevron-down.svg").resolve().as_posix()
+                stylesheet = stylesheet.replace("__ICON_CHEVRON_DOWN__", combo_arrow)
+        except (OSError, ValueError) as error:
+            self.append_log("WARNING", f"Không đọc được giao diện {selected.text()}: {error}")
+            if self.styleSheet():
+                for action in choices:
+                    if action.data() == self.settings.theme:
+                        action.setChecked(True)
+                        break
+                return
+            if theme != "light":
+                self.apply_theme("light")
+                return
+            stylesheet = ""
+        self.setProperty("uiTheme", theme)
+        self.setStyleSheet(stylesheet)
+        refresh_theme_icons(self)
+        selected.setChecked(True)
         self.settings.theme = theme
-        set_button_icon(
-            self.theme_button,
-            "sun" if theme == "dark" else "moon",
-            18,
-        )
-        self.theme_button.setToolTip(
-            "Chuyển sang chế độ sáng"
-            if theme == "dark"
-            else "Chuyển sang chế độ tối"
-        )
+        self.theme_button.setToolTip("Chọn giao diện · Đang dùng " + selected.text())
 
-    def toggle_theme(self) -> None:
-        self.apply_theme("light" if self.settings.theme == "dark" else "dark")
+    def _select_theme(self, action) -> None:
+        self.apply_theme(action.data())
         self.save_settings()
 
     def show_settings(

@@ -73,6 +73,9 @@ def run_self_test(report_path: str) -> int:
             assert window.cards_splitter.count() == 2 and window.workflow_frame.isAncestorOf(window.action_card)
             assert len(window.folder_card.rows) == 3
             assert not window.grab().isNull(), "Main window could not render"
+            window.apply_theme("uu")
+            app.processEvents()
+            assert window.property("uiTheme") == "uu" and not window.grab().isNull(), "UU DS could not render"
             assert window.start_button.isVisibleTo(window) and window.download_export_tabs_button.isVisibleTo(window)
             window.unity_locale_button.click()
             assert window.settings_button.isEnabled()
@@ -214,6 +217,7 @@ def run_self_test(report_path: str) -> int:
             report = {
                 "status": "ok", "qt_version": qVersion(),
                 "platform": app.platformName(), "main_window_rendered": True,
+                "uu_theme": True,
                 "csv_comparison": True,
                 "unity_locale": True,
                 "locale_duplicates": True,

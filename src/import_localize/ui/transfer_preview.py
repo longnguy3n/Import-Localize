@@ -1,11 +1,11 @@
 """Compact, read-only preview shared by folder-based transfers."""
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QColor, QPainter, QPalette
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QHeaderView, QStyle, QStyledItemDelegate, QTableWidget, QTableWidgetItem,
 )
 
-from .change_colors import STATUS_COLORS, STATUS_COLORS_DARK
+from .change_colors import status_colors
 
 
 class ChangeCountDelegate(QStyledItemDelegate):
@@ -16,8 +16,7 @@ class ChangeCountDelegate(QStyledItemDelegate):
         if text == "—":
             super().paint(painter, option, index)
             return
-        dark = option.widget.palette().color(QPalette.ColorRole.Base).lightness() < 128
-        colors = STATUS_COLORS_DARK if dark else STATUS_COLORS
+        colors = status_colors(option.widget)
         background, foreground = colors[self.statuses[index.column() - 3]]
         width = min(option.rect.width() - 4, max(30, option.fontMetrics.horizontalAdvance(text) + 16))
         height = min(option.rect.height() - 4, option.fontMetrics.height() + 4)

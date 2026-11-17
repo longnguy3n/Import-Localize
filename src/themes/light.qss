@@ -41,7 +41,6 @@ QLabel#versionLabel {
 
 QPushButton#settingsButton,
 QPushButton#helpButton,
-QPushButton#themeButton,
 QPushButton#closeIconButton {
     min-width: 34px;
     min-height: 34px;
@@ -55,7 +54,6 @@ QPushButton#closeIconButton {
 
 QPushButton#settingsButton:hover,
 QPushButton#helpButton:hover,
-QPushButton#themeButton:hover,
 QPushButton#closeIconButton:hover {
     background: #eaf8f1;
     border-color: #ccebdc;

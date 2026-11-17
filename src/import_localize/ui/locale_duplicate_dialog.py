@@ -16,6 +16,7 @@ from import_localize.services.locale_duplicate_service import scan_duplicates, p
 from import_localize.services.unity_locale_service import apply_plan
 from .locale_diff import variant_documents
 from .feature_workspace import start_feature_worker
+from .uu_theme import color, uses_uu
 
 
 class DuplicateWorker(QThread):
@@ -33,8 +34,8 @@ class DuplicateWorker(QThread):
 class VariantPanel(QFrame):
     chosen = Signal(int)
 
-    def __init__(self, index, label, document):
-        super().__init__()
+    def __init__(self, index, label, document, parent=None):
+        super().__init__(parent)
         self.index, self.label = index, label
         self.setObjectName("duplicateVariant")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -72,9 +73,14 @@ class VariantPanel(QFrame):
         self.title.setText(("ĐANG GIỮ BẢN NÀY · " if selected else "Bấm để giữ · ") + self.label)
         border = "#2772d8" if selected else "#b8c9c1"
         background = "#e7f1ff" if selected else "transparent"
+        title = "#174b8a"
+        if uses_uu(self):
+            border = color("border-interactive" if selected else "border-muted")
+            background = color("background-interactive-muted" if selected else "background-surface")
+            title = color("object-interactive")
         self.setStyleSheet(f"QFrame#duplicateVariant {{ border: 2px solid {border}; "
                            f"border-radius: 6px; background: {background}; }}")
-        self.title.setStyleSheet("QLabel { color: #174b8a; font-weight: bold; }" if selected else "")
+        self.title.setStyleSheet(f"color: {title}; font-weight: bold;" if selected else "")
 
 
 class LocaleDuplicateDialog(QDialog):
@@ -326,7 +332,7 @@ class LocaleDuplicateDialog(QDialog):
             positions = ", ".join(str(i + 1) for i in variant.indices)
             label = f"Bản {index + 1} · {len(variant.indices)} bản ghi · vị trí term {positions}"
             self.keep_combo.addItem(label, index)
-            panel = VariantPanel(index, label, documents[index])
+            panel = VariantPanel(index, label, documents[index], self)
             panel.chosen.connect(self.select_panel)
             self.variants.addWidget(panel)
         selected = self.choices.get((group.path, group.key))

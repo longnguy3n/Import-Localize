@@ -5,6 +5,45 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 
 
+def test_theme_menu_changes_in_place_and_restores_choice(app, tmp_path, monkeypatch):
+    repo = SettingsRepository(tmp_path / "settings.json")
+    repo.save(AppSettings(theme="dark", auto_check_updates=False))
+    monkeypatch.setattr(main_window, "SettingsRepository", lambda: repo)
+    window = main_window.MainWindow()
+    window.show()
+    window.resize(660, 700)
+    app.processEvents()
+    size = window.size()
+    try:
+        menu = window.theme_button.menu()
+        actions = {action.data(): action for action in menu.actions()}
+        assert actions["dark"].isChecked()
+        assert "UU DS" in actions["uu"].text()
+        for open_view, theme in (
+            (window.show_files, "uu"),
+            (window.show_unity_locale, "light"),
+            (window.show_direct_transfer, "uu"),
+        ):
+            open_view()
+            pages = list(window.workspace.pages)
+            assert window.theme_button.isVisible() and window.theme_button.isEnabled()
+            assert window.rect().contains(window.theme_button.mapTo(window, window.theme_button.rect().center()))
+            actions[theme].trigger()
+            app.processEvents()
+            assert window.property("uiTheme") == theme
+            assert [action.data() for action in menu.actions() if action.isChecked()] == [theme]
+            assert repo.load().theme == theme
+            assert window.size() == size and window.workspace.pages == pages
+    finally:
+        window.close()
+    reopened = main_window.MainWindow()
+    try:
+        assert reopened.theme_choices.checkedAction().data() == "uu"
+        assert reopened.property("uiTheme") == "uu"
+    finally:
+        reopened.close()
+
+
 def test_settings_edit_keeps_active_tool_and_shared_state(app, tmp_path, monkeypatch):
     repo = SettingsRepository(tmp_path / "settings.json")
     repo.save(AppSettings(auto_check_updates=False))

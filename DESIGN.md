@@ -15,6 +15,7 @@ The application is an operating tool for CSV localization, Unity locale assets a
 ## Visual system
 
 - Native Windows/PySide6 controls and Segoe UI; retain the green product identity with restrained neutral light/dark surfaces.
+- The optional **UU DS · Cam** theme uses the UU brand and Compact desktop density. The product mark and workflow layout come from the existing desktop screens. The Qt adapter resolves semantic color roles from the UU DS native token export (`semantic.color.uu` and its primitive references) stored in `src/themes/uu/colors.json`. Its QSS template and foreground state layers live in `src/themes/uu.qss` and `ui/uu_theme.py`. Keep the three choices independent of window size and workflow state.
 - Global states live in `src/themes/light.qss` and `dark.qss`. Use `primaryAction`, `dangerAction`, and `muted` properties instead of new local color systems.
 - Visible header separators, resize affordances and scrollbars; readable selected/disabled/focus states in both themes. Semantic table colors require readable foregrounds.
 - No decorative shadows on top of bordered main panels. Use spacing and labels to separate controls.
