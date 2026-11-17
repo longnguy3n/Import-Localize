@@ -3,7 +3,6 @@ from PySide6.QtWidgets import QDialog
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui import main_window
 from import_localize.ui.shared_files_dialog import SharedFilesDialog
-from test_unity_locale_ui import app
 
 
 def test_shared_file_changes_follow_workflows_and_survive_restart(app, tmp_path, monkeypatch):

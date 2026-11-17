@@ -3,7 +3,6 @@ from PySide6.QtWidgets import QFileDialog
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui import main_window
-from test_unity_locale_ui import app
 
 
 def test_export_uses_visible_destination_and_survives_navigation(app, tmp_path, monkeypatch):

@@ -17,15 +17,6 @@ def color(role: str) -> str:
     return _colors()[role]
 
 
-def uses_uu(widget) -> bool:
-    while widget is not None:
-        theme = widget.property("uiTheme")
-        if theme is not None:
-            return theme == "uu"
-        widget = widget.parent()
-    return False
-
-
 def _state_color(base_role: str, object_role: str, percentage: str) -> str:
     # QSS has no overlay pseudo-element. Compose the foreground over its base,
     # retaining alpha on ghost controls so the underlying panel still shows.

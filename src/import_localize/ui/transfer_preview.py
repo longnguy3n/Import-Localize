@@ -16,7 +16,7 @@ class ChangeCountDelegate(QStyledItemDelegate):
         if text == "—":
             super().paint(painter, option, index)
             return
-        colors = status_colors(option.widget)
+        colors = status_colors()
         background, foreground = colors[self.statuses[index.column() - 3]]
         width = min(option.rect.width() - 4, max(30, option.fontMetrics.horizontalAdvance(text) + 16))
         height = min(option.rect.height() - 4, option.fontMetrics.height() + 4)

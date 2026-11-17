@@ -6,7 +6,6 @@ from queue import Empty, SimpleQueue
 
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QTimer, QUrl, Qt, QSize
 from PySide6.QtGui import (
-    QActionGroup,
     QColor,
     QCloseEvent,
     QKeySequence,
@@ -46,7 +45,7 @@ from import_localize.app.constants import (
     MIN_WINDOW_HEIGHT,
     MIN_WINDOW_WIDTH,
 )
-from import_localize.app.paths import FORMS_DIR, ICONS_DIR, IMAGES_DIR, THEMES_DIR
+from import_localize.app.paths import FORMS_DIR, IMAGES_DIR
 from import_localize.config.settings import SettingsRepository
 from import_localize.models.import_job import CsvFileInfo, ImportJob
 from import_localize.services.csv_service import (
@@ -55,7 +54,7 @@ from import_localize.services.csv_service import (
 )
 from import_localize.services.google_service import oauth_configuration_status, preview_sheet_title
 from import_localize.services.update_service import UpdateRelease, is_newer_version
-from import_localize.ui.assets import load_logo, refresh_theme_icons, set_button_icon, set_label_icon
+from import_localize.ui.assets import load_logo, set_button_icon, set_label_icon
 from import_localize.ui.csv_compare_dialog import CsvCompareDialog
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 from import_localize.ui.dialogs import HelpDialog, SettingsDialog
@@ -109,7 +108,6 @@ class MainWindow(QMainWindow):
         self._configure_widgets()
         self._connect_signals()
         self._restore_settings()
-        self.apply_theme(self.settings.theme)
         self._set_initial_geometry()
         self.refresh_transfer_folders()
 
@@ -131,7 +129,6 @@ class MainWindow(QMainWindow):
         self.version_label.setText(f"v{APP_VERSION}")
         self.help_button = require_object(root, "helpButton", QPushButton)
         self.settings_button = require_object(root, "settingsButton", QPushButton)
-        self.theme_button = require_object(root, "themeButton", QPushButton)
 
         self.cards_splitter = require_object(root, "cardsSplitter", QSplitter)
 
@@ -198,15 +195,6 @@ class MainWindow(QMainWindow):
 
         set_button_icon(self.settings_button, "settings", 18)
         set_button_icon(self.help_button, "help", 18)
-        theme_menu = QMenu(self.theme_button)
-        theme_menu.setMinimumWidth(240)
-        self.theme_choices = QActionGroup(theme_menu)
-        for key, label in (("light", "Sáng"), ("dark", "Tối"), ("uu", "UU DS · Cam")):
-            action = theme_menu.addAction(label)
-            action.setData(key)
-            action.setCheckable(True)
-            self.theme_choices.addAction(action)
-        self.theme_button.setMenu(theme_menu)
         set_button_icon(self.open_sheet_button, "external-link", 14)
         set_button_icon(self.clear_log_button, "trash", 15)
         set_button_icon(self.download_export_tabs_button, "download", 16)
@@ -270,8 +258,6 @@ class MainWindow(QMainWindow):
         self.log_subtitle_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.log_subtitle_label.setAccessibleName("Hoạt động gần nhất")
         self.log_subtitle_label.installEventFilter(self)
-        self.start_button.setProperty("primaryAction", True)
-        self.stop_button.setProperty("dangerAction", True)
 
         tools = QWidget(self.root)
         self.workspace_toolbar = tools
@@ -511,7 +497,6 @@ class MainWindow(QMainWindow):
         self.clear_log_button.clicked.connect(self._clear_log)
         self.settings_button.clicked.connect(self.show_settings)
         self.help_button.clicked.connect(self.show_help)
-        self.theme_choices.triggered.connect(self._select_theme)
         self._add_files_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
         self._add_files_shortcut.activated.connect(self.show_transfer_folders)
         self._target_shortcut = QShortcut(QKeySequence("Ctrl+L"), self.quick_sheet_url_edit)
@@ -637,7 +622,6 @@ class MainWindow(QMainWindow):
         ):
             button.setFixedSize(header_button, header_button)
             button.setIconSize(QSize(max(16, header_button // 2), max(16, header_button // 2)))
-        self.theme_button.setFixedHeight(header_button)
 
         for layout in (
             self.target_card_layout,
@@ -720,41 +704,6 @@ class MainWindow(QMainWindow):
         self._apply_density(force=True)
         self._refresh_minimum_height()
 
-    def apply_theme(self, name: str) -> None:
-        choices = self.theme_choices.actions()
-        selected = next((action for action in choices if action.data() == name), choices[0])
-        theme = selected.data()
-        try:
-            if theme == "uu":
-                from .uu_theme import stylesheet as uu_stylesheet
-                stylesheet = uu_stylesheet()
-            else:
-                stylesheet = (THEMES_DIR / f"{theme}.qss").read_text(encoding="utf-8")
-                combo_arrow = (ICONS_DIR / "chevron-down.svg").resolve().as_posix()
-                stylesheet = stylesheet.replace("__ICON_CHEVRON_DOWN__", combo_arrow)
-        except (OSError, ValueError) as error:
-            self.append_log("WARNING", f"Không đọc được giao diện {selected.text()}: {error}")
-            if self.styleSheet():
-                for action in choices:
-                    if action.data() == self.settings.theme:
-                        action.setChecked(True)
-                        break
-                return
-            if theme != "light":
-                self.apply_theme("light")
-                return
-            stylesheet = ""
-        self.setProperty("uiTheme", theme)
-        self.setStyleSheet(stylesheet)
-        refresh_theme_icons(self)
-        selected.setChecked(True)
-        self.settings.theme = theme
-        self.theme_button.setToolTip("Chọn giao diện · Đang dùng " + selected.text())
-
-    def _select_theme(self, action) -> None:
-        self.apply_theme(action.data())
-        self.save_settings()
-
     def show_settings(
         self,
         _checked: bool = False,
@@ -767,7 +716,6 @@ class MainWindow(QMainWindow):
         previous_input_option = self.settings.value_input_option
         dialog = SettingsDialog(self, initial_tab=initial_tab, target_form=self.target_form,
                                 settings=self.settings, repository=self.settings_repository)
-        dialog.setStyleSheet(self.styleSheet())
         try:
             dialog.exec()
         finally:
@@ -895,7 +843,6 @@ class MainWindow(QMainWindow):
 
     def show_help(self) -> None:
         dialog = HelpDialog(self)
-        dialog.setStyleSheet(self.styleSheet())
         dialog.exec()
 
     def show_transfer_folders(self):

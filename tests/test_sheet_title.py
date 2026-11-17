@@ -7,7 +7,6 @@ from PySide6.QtTest import QTest
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.services import google_service
 from import_localize.ui import main_window
-from test_unity_locale_ui import app
 
 
 def test_cached_connection_uses_current_title(monkeypatch):

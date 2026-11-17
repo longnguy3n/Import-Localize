@@ -6,7 +6,7 @@ from import_localize.config.settings import AppSettings
 from import_localize.ui import unity_locale_dialog
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 from test_unity_locale import ASSET
-from test_unity_locale_ui import app, drain
+from test_unity_locale_ui import drain
 
 
 @pytest.mark.parametrize("exporting", [False, True])

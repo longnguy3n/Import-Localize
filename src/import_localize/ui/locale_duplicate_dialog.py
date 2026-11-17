@@ -16,7 +16,7 @@ from import_localize.services.locale_duplicate_service import scan_duplicates, p
 from import_localize.services.unity_locale_service import apply_plan
 from .locale_diff import variant_documents
 from .feature_workspace import start_feature_worker
-from .uu_theme import color, uses_uu
+from .uu_theme import color
 
 
 class DuplicateWorker(QThread):
@@ -71,13 +71,9 @@ class VariantPanel(QFrame):
     def set_selected(self, selected):
         self.setProperty("selected", selected)
         self.title.setText(("ĐANG GIỮ BẢN NÀY · " if selected else "Bấm để giữ · ") + self.label)
-        border = "#2772d8" if selected else "#b8c9c1"
-        background = "#e7f1ff" if selected else "transparent"
-        title = "#174b8a"
-        if uses_uu(self):
-            border = color("border-interactive" if selected else "border-muted")
-            background = color("background-interactive-muted" if selected else "background-surface")
-            title = color("object-interactive")
+        border = color("border-interactive" if selected else "border-muted")
+        background = color("background-interactive-muted" if selected else "background-surface")
+        title = color("object-interactive")
         self.setStyleSheet(f"QFrame#duplicateVariant {{ border: 2px solid {border}; "
                            f"border-radius: 6px; background: {background}; }}")
         self.title.setStyleSheet(f"color: {title}; font-weight: bold;" if selected else "")

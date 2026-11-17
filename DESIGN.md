@@ -14,13 +14,12 @@ The application is an operating tool for CSV localization, Unity locale assets a
 
 ## Visual system
 
-- Native Windows/PySide6 controls and Segoe UI; retain the green product identity with restrained neutral light/dark surfaces.
-- The optional **UU DS · Cam** theme uses the UU brand and Compact desktop density. The product mark and workflow layout come from the existing desktop screens. The Qt adapter resolves semantic color roles from the UU DS native token export (`semantic.color.uu` and its primitive references) stored in `src/themes/uu/colors.json`. Its QSS template and foreground state layers live in `src/themes/uu.qss` and `ui/uu_theme.py`. Keep the three choices independent of window size and workflow state.
-- Global states live in `src/themes/light.qss` and `dark.qss`. Use `primaryAction`, `dangerAction`, and `muted` properties instead of new local color systems.
-- Visible header separators, resize affordances and scrollbars; readable selected/disabled/focus states in both themes. Semantic table colors require readable foregrounds.
+- Apply **UU DS · Cam** across the Qt application at startup. Use native Windows/PySide6 controls, Segoe UI, the product mark and Compact desktop density.
+- The Qt adapter resolves semantic colors from the UU DS native token export in `src/themes/uu/colors.json`. Shared styles and interaction states live in `src/themes/uu.qss` and `src/import_localize/ui/uu_theme.py`. Use the existing `primaryAction`, `dangerAction`, and `muted` properties.
+- Keep header separators, resize handles, scrollbars and keyboard focus visible. Semantic table colors require readable foregrounds.
 - No decorative shadows on top of bordered main panels. Use spacing and labels to separate controls.
 - Preserve user-adjusted column widths, key/file selection and scroll position where possible. Do not rebuild tables just to update write status.
 
 ## Validation
 
-Review actual rendering at 660×700 and 1100×850 for the main workspace, plus normal/narrow/expanded feature dialogs. Check both themes and empty, populated, selected, busy, completed and error states. Run the UI regressions and all service tests; bundled Windows/offscreen EXE self-tests remain required before release. Visual checks use isolated settings and synthetic write results and never mutate a live Sheet or Unity project.
+Review actual rendering at 660×700 and 1100×850 for the main workspace, plus normal/narrow/expanded feature dialogs. Check empty, populated, selected, busy, completed and error states. Run the UI regressions and service tests, followed by bundled Windows and offscreen EXE self-tests. Visual checks use isolated settings and synthetic write results.

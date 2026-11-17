@@ -1,6 +1,6 @@
 # Import Localize
 
-Để thử giao diện **UU DS**, chọn **Giao diện → UU DS · Cam** ở góc trên bên phải. App áp dụng ngay trên trang đang mở và nhớ lựa chọn cho lần sau. Cùng menu này có hai giao diện **Sáng** và **Tối**.
+Ứng dụng dùng **UU DS · Cam** cho cả ba luồng truyền dữ liệu, phần cài đặt và các cửa sổ kiểm tra. Giao diện này tự áp dụng khi mở app sau khi cập nhật.
 
 Chọn **CSV ↔ Sheet** để dùng hai nút **Ghi lên Sheet** và **Tải về CSV** trong cùng card. Với **CSV ↔ Unity** và **Sheet ↔ Unity**, chọn chiều truyền ở đầu card rồi bấm **Xem trước**. Khi làm việc với Sheet, dán link chia sẻ Google Sheets hoặc Drive và kiểm tra tên bảng hiện dưới ô link.
 

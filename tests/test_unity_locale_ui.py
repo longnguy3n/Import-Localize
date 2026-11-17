@@ -1,15 +1,12 @@
 """Offline integration: no Google account and no live Unity project writes."""
 import os
 import time
-from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import pytest
-from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QPushButton
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.services.unity_locale_service import read_asset
@@ -17,15 +14,6 @@ from import_localize.ui import unity_locale_dialog
 from import_localize.ui.main_window import MainWindow
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 from test_unity_locale import ASSET
-
-
-@pytest.fixture(scope="module")
-def app():
-    application = QApplication.instance() or QApplication([])
-    if Path("C:/Windows/Fonts/segoeui.ttf").exists():
-        QFontDatabase.addApplicationFont("C:/Windows/Fonts/segoeui.ttf")
-        application.setFont(QFont("Segoe UI", 10))
-    return application
 
 
 def drain(app, dialog):

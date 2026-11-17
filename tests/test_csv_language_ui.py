@@ -10,7 +10,6 @@ from import_localize.ui.csv_language_dialog import CsvLanguageDialog
 from import_localize.ui.main_window import MainWindow
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 from test_csv_language import write_csv
-from test_unity_locale_ui import app
 
 
 def wait(app, dialog):

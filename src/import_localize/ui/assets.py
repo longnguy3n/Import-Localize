@@ -7,12 +7,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import QAbstractButton, QLabel
 
 from import_localize.app.paths import APP_LOGO_PNG, APP_LOGO_SVG, ICONS_DIR
-from import_localize.ui.uu_theme import color, uses_uu
-
-
-def icon(name: str) -> QIcon:
-    """Return an SVG icon from the application assets directory."""
-    return QIcon(str(ICONS_DIR / f"{name}.svg"))
+from import_localize.ui.uu_theme import color
 
 
 def load_logo(width: int) -> QPixmap:
@@ -30,7 +25,7 @@ def load_logo(width: int) -> QPixmap:
 @lru_cache(maxsize=96)
 def _tinted_icon(name: str, size: int, foreground: str, disabled: str) -> QIcon:
     """Render the original SVG silhouette at the native and high-DPI sizes."""
-    source = icon(name)
+    source = QIcon(str(ICONS_DIR / f"{name}.svg"))
     result = QIcon()
     for scale in (1, 2, 3):
         side = size * scale
@@ -49,35 +44,14 @@ def _tinted_icon(name: str, size: int, foreground: str, disabled: str) -> QIcon:
 
 
 def set_button_icon(button: QAbstractButton, name: str, size: int = 16) -> None:
-    button.setProperty("assetIconName", name)
-    if uses_uu(button):
-        button.ensurePolished()
-        # Read the exact foregrounds applied to this button by the theme.
-        palette = button.palette()
-        normal = palette.color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText).name()
-        disabled = palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText).name()
-        asset = _tinted_icon(name, size, normal, disabled)
-    else:
-        asset = icon(name)
-    button.setIcon(asset)
+    button.ensurePolished()
+    palette = button.palette()
+    normal = palette.color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText).name()
+    disabled = palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText).name()
+    button.setIcon(_tinted_icon(name, size, normal, disabled))
     button.setIconSize(QSize(size, size))
 
 
 def set_label_icon(label: QLabel, name: str, size: int) -> None:
-    label.setProperty("assetIconName", name)
-    label.setProperty("assetIconSize", size)
-    if uses_uu(label):
-        asset = _tinted_icon(name, size, color("object-secondary"), color("object-disabled"))
-    else:
-        asset = icon(name)
+    asset = _tinted_icon(name, size, color("object-secondary"), color("object-disabled"))
     label.setPixmap(asset.pixmap(QSize(size, size), label.devicePixelRatioF()))
-
-
-def refresh_theme_icons(window) -> None:
-    """Repaint the registered product icons when this window changes theme."""
-    for button in window.findChildren(QAbstractButton):
-        if name := button.property("assetIconName"):
-            set_button_icon(button, name, button.iconSize().width())
-    for label in window.findChildren(QLabel):
-        if name := label.property("assetIconName"):
-            set_label_icon(label, name, label.property("assetIconSize"))

@@ -9,7 +9,7 @@ from import_localize.services.direct_transfer import TransferPlan, TransferPair
 from import_localize.ui import direct_sheet_dialog, unity_locale_dialog
 from import_localize.services.unity_locale_service import ChangeStats
 from test_unity_locale import ASSET
-from test_unity_locale_ui import app, drain
+from test_unity_locale_ui import drain
 
 
 def test_direct_preview_explains_missing_inputs_and_folder_scan_errors(app, tmp_path):

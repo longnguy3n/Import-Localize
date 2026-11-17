@@ -1,7 +1,6 @@
 """Workspace navigation and preference regression checks, with no network."""
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui import main_window
-from test_unity_locale_ui import app
 
 
 def test_inline_target_tools_log_and_preferences(app, tmp_path, monkeypatch):

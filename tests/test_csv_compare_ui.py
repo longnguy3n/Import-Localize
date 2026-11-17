@@ -1,32 +1,18 @@
 """Offline Qt integration checks; settings are isolated from the real account."""
 import os
-import sys
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest
 from PySide6.QtCore import QItemSelectionModel, QTimer, Qt
-from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui.csv_compare_dialog import CsvCompareDialog
 from import_localize.ui.dialogs import SettingsDialog
 from import_localize.ui.main_window import MainWindow
-
-
-@pytest.fixture(scope="module")
-def app():
-    application = QApplication.instance() or QApplication([])
-    font_path = Path("C:/Windows/Fonts/segoeui.ttf")
-    if font_path.exists():
-        QFontDatabase.addApplicationFont(str(font_path))
-        application.setFont(QFont("Segoe UI", 10))
-    return application
 
 
 def drain_worker(app, dialog):

@@ -120,14 +120,6 @@ QToolButton::menu-button {
     border-left: 1px solid {{border-muted}};
 }
 QToolButton[popupMode="1"] { padding-right: 16px; }
-QPushButton#themeButton { padding: 0 20px 0 12px; }
-QPushButton#themeButton::menu-indicator {
-    image: url(__ICON_CHEVRON_DOWN__);
-    width: 16px;
-    height: 16px;
-    subcontrol-position: center right;
-    right: 4px;
-}
 
 /* Tabs switch workspaces. The inset segmented control chooses transfer direction. */
 QTabWidget::pane { border: none; border-top: 1px solid {{border-muted}}; background: {{background-surface}}; }

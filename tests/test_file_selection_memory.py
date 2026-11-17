@@ -8,7 +8,6 @@ from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui.main_window import MainWindow
 from import_localize.ui.unity_locale_dialog import UnityLocaleDialog
 from import_localize.ui.locale_duplicate_dialog import LocaleDuplicateDialog
-from test_unity_locale_ui import app
 
 
 def test_unity_remembers_order_mode_and_new_export_targets(app, tmp_path):

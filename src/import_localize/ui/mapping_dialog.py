@@ -7,7 +7,7 @@ from pathlib import Path
 from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAPPING
 
 from PySide6.QtCore import QItemSelectionModel, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit,
@@ -641,7 +641,6 @@ class MappingDialog(QDialog):
         if not self.report:
             return
         self.issues_table.ensurePolished()
-        dark = self.issues_table.palette().color(QPalette.ColorRole.Base).lightness() < 128
         rows = self.files_table.selectionModel().selectedRows()
         path = self.files_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole) if rows else None
         status, query = self.filter_combo.currentData(), self.search.text().strip().casefold()
@@ -692,8 +691,8 @@ class MappingDialog(QDialog):
                 affected = issues if col == 1 else [i for i in issues if file_column and i.path == self.report.files[col - 4]]
                 if affected:
                     definite = any(i.status == "wrong" for i in affected)
-                    item.setBackground(QColor(("#4c2020" if definite else "#45371d") if dark else ("#fee2e2" if definite else "#fef3c7")))
-                    item.setForeground(QColor(("#fecaca" if definite else "#fde68a") if dark else ("#7f1d1d" if definite else "#78350f")))
+                    item.setBackground(QColor("#fee2e2" if definite else "#fef3c7"))
+                    item.setForeground(QColor("#7f1d1d" if definite else "#78350f"))
                 if file_column:
                     file_path = self.report.files[col - 4]
                     refs = [(locale, line, v) for locale, entries in self.references[key].items()

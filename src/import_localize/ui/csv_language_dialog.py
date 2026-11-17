@@ -9,7 +9,7 @@ from concurrent.futures import CancelledError
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QTableView,
@@ -121,12 +121,7 @@ class LanguageRowsModel(QAbstractTableModel):
             return None
         cell = self.rows[index.row()]
         if role in (Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ForegroundRole) and index.column() == 0:
-            palette = self.parent().table.palette()
-            dark_colors = {"match": ("#173d2a", "#bbf7d0"), "mismatch": ("#4c2020", "#fecaca"),
-                           "uncertain": ("#45371d", "#fde68a"), "short": ("#293932", "#d2ded7"),
-                           "unmapped": ("#45371d", "#fde68a")}
-            colors = dark_colors if palette.color(QPalette.ColorRole.Base).lightness() < 128 else COLORS
-            return QColor(colors[cell.status][0 if role == Qt.ItemDataRole.BackgroundRole else 1])
+            return QColor(COLORS[cell.status][0 if role == Qt.ItemDataRole.BackgroundRole else 1])
         if role == Qt.ItemDataRole.ToolTipRole:
             return f"{cell.path}\nDòng bắt đầu bản ghi: {cell.line}\n{cell.text}"
         if role == Qt.ItemDataRole.DisplayRole:
@@ -401,10 +396,9 @@ class CsvLanguageDialog(QDialog):
                     item = QTableWidgetItem(str(value))
                     item.setToolTip(str(col.path) if j == 0 else str(value))
                     if j == 5 and counts["mismatch"]:
-                        self.summary.ensurePolished()
-                        dark = self.summary.palette().color(QPalette.ColorRole.Base).lightness() < 128
-                        item.setBackground(QColor("#4c2020" if dark else "#ffe5e5"))
-                        item.setForeground(QColor("#fecaca" if dark else "#a1232b"))
+                        background, foreground = COLORS["mismatch"]
+                        item.setBackground(QColor(background))
+                        item.setForeground(QColor(foreground))
                     self.summary.setItem(i, j, item)
                 self.column_combo.addItem(f"{col.path.name} / {col.column}", i)
             self.error_label.setText("\n".join(self.report.errors))
@@ -416,9 +410,6 @@ class CsvLanguageDialog(QDialog):
             col.counts["mismatch"] for col in self.report.columns) else "SUCCESS"
         self.log_emitted.emit(level, self.status.text() + ("\n" + self.error_label.text() if self.error_label.text() else ""))
         self.error_label.setVisible(bool(self.error_label.text()))
-        self.ensurePolished()
-        dark = self.palette().color(QPalette.ColorRole.Window).lightness() < 128
-        self.error_label.setStyleSheet("color: " + ("#fecaca" if dark else "#a1232b"))
         self._set_busy(False)
         worker.deleteLater()
         if self._closing:

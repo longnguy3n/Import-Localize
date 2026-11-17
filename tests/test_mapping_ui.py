@@ -7,7 +7,6 @@ from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAP
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui.mapping_dialog import MappingDialog, MappingWorker, snapshots
-from test_unity_locale_ui import app
 
 
 def test_mapping_source_and_detail_panels_open_when_needed(app, tmp_path):
@@ -68,7 +67,6 @@ def test_themed_resize_handles_and_focused_table_restore(app, tmp_path):
     from PySide6.QtTest import QTest
     paths = [tmp_path / f"DG_Localization - upload_{code}.csv" for code in ("en", "vi", "pt-BR")]
     dialog = MappingDialog(AppSettings(), paths)
-    dialog.setStyleSheet((Path(__file__).parents[1] / "src/themes/light.qss").read_text(encoding="utf-8"))
     try:
         dialog.report = report(paths)
         dialog.render_report()

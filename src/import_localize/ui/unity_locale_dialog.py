@@ -504,7 +504,6 @@ class UnityLocaleDialog(QDialog):
     def check_csv_languages(self):
         from .csv_language_dialog import CsvLanguageDialog
         dialog = CsvLanguageDialog(self.csv_paths, self, annotations=self.desc_annotations)
-        dialog.setStyleSheet(self.styleSheet())
         open_child_feature(self, dialog)
 
     def check_duplicates(self):

@@ -53,7 +53,9 @@ def run_self_test(report_path: str) -> int:
             os.environ["APPDATA"] = directory
             os.environ["XDG_CONFIG_HOME"] = directory
             from PySide6.QtCore import qVersion
+            from PySide6.QtGui import QPalette
             from import_localize.app.bootstrap import create_application
+            from import_localize.ui.uu_theme import color
             from import_localize.ui.main_window import MainWindow
             from import_localize.ui.csv_compare_dialog import ComparisonModel
             from import_localize.services.csv_compare_service import compare_csv_files
@@ -73,9 +75,8 @@ def run_self_test(report_path: str) -> int:
             assert window.cards_splitter.count() == 2 and window.workflow_frame.isAncestorOf(window.action_card)
             assert len(window.folder_card.rows) == 3
             assert not window.grab().isNull(), "Main window could not render"
-            window.apply_theme("uu")
-            app.processEvents()
-            assert window.property("uiTheme") == "uu" and not window.grab().isNull(), "UU DS could not render"
+            primary_fill = window.start_button.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Button)
+            assert primary_fill.name().lower() == color("background-interactive").lower(), "UU DS not active at startup"
             assert window.start_button.isVisibleTo(window) and window.download_export_tabs_button.isVisibleTo(window)
             window.unity_locale_button.click()
             assert window.settings_button.isEnabled()

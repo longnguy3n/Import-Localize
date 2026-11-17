@@ -3,7 +3,7 @@ from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui import main_window
 from import_localize.ui.transfer_folders_card import TransferFoldersCard
 from test_unity_locale import ASSET
-from test_unity_locale_ui import app, drain
+from test_unity_locale_ui import drain
 
 
 def test_folder_card_distinguishes_unset_empty_and_invalid_folders(app, tmp_path, monkeypatch):
@@ -120,27 +120,25 @@ def test_folder_preview_appears_only_after_diff_and_resets_on_switch(app, tmp_pa
         window.close()
 
 
-def test_preview_count_colors_follow_theme_and_keep_filenames_readable(app):
-    from import_localize.app.paths import THEMES_DIR
+def test_preview_uses_uu_count_colors_and_keeps_filenames_readable(app):
     from import_localize.services.unity_locale_service import ChangeStats
-    from import_localize.ui.change_colors import STATUS_COLORS, STATUS_COLORS_DARK
     from import_localize.ui.transfer_preview import TransferPreview
+    from import_localize.ui.uu_theme import color
 
     preview = TransferPreview()
     preview.resize(1100, 150)
     try:
         preview.show_changes([("export_en.csv", "locale_en.asset", ChangeStats(
             10, 9, 10, 2, 1, 3, 5, "CSV", "term"), "Chi tiết")])
-        for theme, colors in (("light", STATUS_COLORS), ("dark", STATUS_COLORS_DARK)):
-            preview.setStyleSheet((THEMES_DIR / f"{theme}.qss").read_text(encoding="utf-8"))
-            app.processEvents()
-            for column, status in enumerate(("added", "removed", "changed", "unchanged"), 3):
-                cell = preview.visualItemRect(preview.item(0, column))
-                image = preview.viewport().grab(cell).toImage()
-                # Check the painted badge: global QSS can override ordinary item backgrounds.
-                background = colors[status][0]
-                assert any(image.pixelColor(x, image.height() // 2).name() == background
-                           for x in range(image.width()))
+        app.processEvents()
+        backgrounds = ("background-positive-muted", "background-negative-muted",
+                       "background-warning-muted", "background-subtle")
+        for column, token in enumerate(backgrounds, 3):
+            cell = preview.visualItemRect(preview.item(0, column))
+            image = preview.viewport().grab(cell).toImage()
+            # Check the painted badge: global QSS can override ordinary item backgrounds.
+            assert any(image.pixelColor(x, image.height() // 2).name() == color(token).lower()
+                       for x in range(image.width()))
         preview.resize(320, 150)
         app.processEvents()
         assert preview.columnWidth(0) >= preview.fontMetrics().horizontalAdvance("locale_pt-BR.asset")

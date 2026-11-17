@@ -1,27 +1,16 @@
 """Regression: starting work in Settings must not navigate to the target tab."""
 import os
-from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QWidget
 
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.services.update_service import UpdateRelease
 from import_localize.ui import dialogs
-
-
-@pytest.fixture(scope="module")
-def app():
-    instance = QApplication.instance() or QApplication([])
-    if Path("C:/Windows/Fonts/segoeui.ttf").exists():
-        QFontDatabase.addApplicationFont("C:/Windows/Fonts/segoeui.ttf")
-        instance.setFont(QFont("Segoe UI", 10))
-    return instance
 
 
 @pytest.fixture

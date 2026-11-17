@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>v1.26.0</string>
+         <string>v1.26.1</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -223,16 +223,6 @@
         </property>
         <property name="toolTip">
          <string>Hướng dẫn sử dụng</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="themeButton">
-        <property name="text">
-         <string>Giao diện</string>
-        </property>
-        <property name="toolTip">
-         <string>Chọn giao diện</string>
         </property>
        </widget>
       </item>
@@ -376,6 +366,7 @@
                    </layout>
                   </item>
                   <item><widget class="QPushButton" name="startButton">
+                   <property name="primaryAction" stdset="0"><bool>true</bool></property>
                    <property name="minimumSize"><size><width>135</width><height>36</height></size></property>
                    <property name="text"><string>Ghi lên Sheet</string></property>
                   </widget></item>
@@ -476,6 +467,7 @@
                 </item>
                 <item alignment="Qt::AlignmentFlag::AlignLeft">
                  <widget class="QPushButton" name="stopButton">
+                  <property name="dangerAction" stdset="0"><bool>true</bool></property>
                   <property name="text"><string>Dừng</string></property>
                   <property name="visible"><bool>false</bool></property>
                  </widget>

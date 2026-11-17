@@ -17,7 +17,6 @@ class AppSettings:
     first_row_is_header: bool = True
     strict_headers: bool = True
     add_source_column: bool = False
-    theme: str = "light"
     last_csv_dir: str = ""
     last_export_dir: str = ""
     upload_folder: str = ""

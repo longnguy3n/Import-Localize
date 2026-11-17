@@ -75,7 +75,6 @@ class ComparisonModel(QAbstractTableModel):
             return None
         diff, col = self.rows[index.row()]
         column = index.column()
-        table = getattr(self.parent(), "table", None)
         if role == SORT_ROLE:
             if column == 0:
                 return ("added", "changed", "removed", "unchanged").index(diff.status)
@@ -87,9 +86,9 @@ class ComparisonModel(QAbstractTableModel):
             return (record.get(col, "") if col is not None else diff.key) if record is not None else ""
         if column == 0:
             if role == Qt.ItemDataRole.BackgroundRole:
-                return QColor(status_colors(table)[diff.status][0])
+                return QColor(status_colors()[diff.status][0])
             if role == Qt.ItemDataRole.ForegroundRole:
-                return QColor(status_colors(table)[diff.status][1])
+                return QColor(status_colors()[diff.status][1])
             if role == Qt.ItemDataRole.FontRole:
                 font = QFont()
                 font.setBold(True)
@@ -109,7 +108,7 @@ class ComparisonModel(QAbstractTableModel):
         if diff.status != "unchanged" and column in (3, 4) and role in (
             Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ForegroundRole
         ):
-            background, foreground = status_colors(table)["removed" if column == 3 else "added"]
+            background, foreground = status_colors()["removed" if column == 3 else "added"]
             return QColor(background if role == Qt.ItemDataRole.BackgroundRole else foreground)
         return None
 
@@ -288,7 +287,7 @@ class CsvCompareDialog(QDialog):
         self.log_emitted.emit("SUCCESS", f"Đã so sánh {Path(self.paths[0]).name} và {Path(self.paths[1]).name}.")
         self.result = result
         self.summary_label.setTextFormat(Qt.TextFormat.RichText)
-        colors = status_colors(self.table)
+        colors = status_colors()
         summary = " &nbsp; ".join(
             f'<span style="background-color:{colors[status][0]};color:{colors[status][1]};">'
             f'&nbsp;<b>{label}: {result.count(status)}</b>&nbsp;</span>'

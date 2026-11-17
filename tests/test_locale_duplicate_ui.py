@@ -6,7 +6,7 @@ from import_localize.ui import locale_duplicate_dialog
 from import_localize.ui.locale_duplicate_dialog import LocaleDuplicateDialog
 from import_localize.services.locale_duplicate_service import scan_duplicates
 from test_locale_duplicates import duplicate_asset
-from test_unity_locale_ui import app, drain
+from test_unity_locale_ui import drain
 from import_localize.config.settings import AppSettings
 from import_localize.config.settings import SettingsRepository
 from import_localize.ui.main_window import MainWindow

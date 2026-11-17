@@ -1,47 +1,45 @@
+import json
+
+import pytest
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QAbstractButton
+
 from import_localize.config.settings import AppSettings, SettingsRepository
 from import_localize.ui import main_window
-from test_unity_locale_ui import app
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
+from import_localize.ui.uu_theme import stylesheet
 
 
-def test_theme_menu_changes_in_place_and_restores_choice(app, tmp_path, monkeypatch):
+@pytest.mark.parametrize("legacy_theme", [None, "light", "dark", "uu"], ids=["fresh", "light", "dark", "uu"])
+def test_uu_startup_with_fresh_and_legacy_settings(app, tmp_path, monkeypatch, legacy_theme):
     repo = SettingsRepository(tmp_path / "settings.json")
-    repo.save(AppSettings(theme="dark", auto_check_updates=False))
+    if legacy_theme is not None:
+        repo.path.write_text(json.dumps({
+            "theme": legacy_theme, "window_width": 660, "window_height": 700,
+            "auto_check_updates": False, "unity_folder": str(tmp_path),
+        }), encoding="utf-8")
     monkeypatch.setattr(main_window, "SettingsRepository", lambda: repo)
+    monkeypatch.setattr(main_window.MainWindow, "_auto_check_updates", lambda _: None)
     window = main_window.MainWindow()
     window.show()
-    window.resize(660, 700)
     app.processEvents()
     size = window.size()
     try:
-        menu = window.theme_button.menu()
-        actions = {action.data(): action for action in menu.actions()}
-        assert actions["dark"].isChecked()
-        assert "UU DS" in actions["uu"].text()
-        for open_view, theme in (
-            (window.show_files, "uu"),
-            (window.show_unity_locale, "light"),
-            (window.show_direct_transfer, "uu"),
-        ):
+        assert app.styleSheet() == stylesheet()
+        assert window.findChild(QAbstractButton, "themeButton") is None
+        if legacy_theme is not None:
+            assert size == QSize(660, 700)
+            assert window.folder_card.rows["unity"][0].text() == str(tmp_path)
+        for open_view in (window.show_files, window.show_unity_locale, window.show_direct_transfer):
             open_view()
-            pages = list(window.workspace.pages)
-            assert window.theme_button.isVisible() and window.theme_button.isEnabled()
-            assert window.rect().contains(window.theme_button.mapTo(window, window.theme_button.rect().center()))
-            actions[theme].trigger()
             app.processEvents()
-            assert window.property("uiTheme") == theme
-            assert [action.data() for action in menu.actions() if action.isChecked()] == [theme]
-            assert repo.load().theme == theme
-            assert window.size() == size and window.workspace.pages == pages
+            assert window.size() == size and window.settings_button.isVisible()
     finally:
         window.close()
-    reopened = main_window.MainWindow()
-    try:
-        assert reopened.theme_choices.checkedAction().data() == "uu"
-        assert reopened.property("uiTheme") == "uu"
-    finally:
-        reopened.close()
+    saved = json.loads(repo.path.read_text(encoding="utf-8"))
+    assert "theme" not in saved
+    assert (saved["window_width"], saved["window_height"]) == size.toTuple()
+    if legacy_theme is not None:
+        assert saved["unity_folder"] == str(tmp_path)
 
 
 def test_settings_edit_keeps_active_tool_and_shared_state(app, tmp_path, monkeypatch):
