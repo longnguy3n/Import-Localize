@@ -273,14 +273,19 @@ def _audit_cell(index, row, locale, actual, source_locale, source, source_proble
             candidates = hints
         contextual = candidates & hints
         chosen = contextual or candidates
-        expected = " | ".join(index.by_id[i]["translations"][locale] + (suffix if label else "") for i in sorted(chosen))
+        options = list(dict.fromkeys(index.by_id[i]["translations"][locale] + (suffix if label else "") for i in sorted(chosen)))
+        expected = " | ".join(options)
+        source_term = source if label else matched
         signature = tuple(sorted(chosen))
         if signature in seen:
             continue
         seen.add(signature)
         checked = True
         if len(chosen) != 1 or (any(index.by_id[i]["context_required"] for i in chosen) and not contextual):
-            issues.append(("review", expected, "Thuật ngữ có nhiều nghĩa/cần ngữ cảnh; chưa tự chọn mapping"))
+            present = [term for term in options if (_visible(actual) == normalize(term) if label else _contains(actual, term))]
+            evidence = ("Bản dịch khớp “" + "”, “".join(present) + "”" if present
+                        else "Bản dịch chưa khớp phương án nào")
+            issues.append(("review", expected, f"Nguồn “{source_term}”. {evidence}. Cần ngữ cảnh để xác nhận nghĩa."))
             continue
         entry = index.by_id[next(iter(chosen))]
         expected = entry["translations"][locale] + (suffix if label else "")
@@ -289,18 +294,24 @@ def _audit_cell(index, row, locale, actual, source_locale, source, source_proble
         rejected = [r for r in entry["rejected"] if r["locale"] == locale and any(_contains(actual, f) for f in r["forms"])]
         if rejected:
             definite = any(not r["condition"] for r in rejected)
+            matches = [f"“{form}”" + (f" ({r['condition']})" if r["condition"] else "")
+                       for r in rejected for form in r["forms"] if _contains(actual, form)]
             issues.append(("wrong" if definite else "review", expected,
-                           "Có cách dịch đã bị loại bỏ" + ("; cần đối chiếu điều kiện: " + "; ".join(r["condition"] for r in rejected) if not definite else "")))
+                           f"Nguồn “{source_term}”. Bản dịch dùng dạng bị loại: " + ", ".join(matches)))
         elif correct:
             continue
         elif variants:
-            issues.append(("review", expected, "Có biến thể đích có điều kiện: " + "; ".join(v["condition"] or "cần xác định ngữ cảnh" for v in variants)))
+            issues.append(("review", expected, f"Nguồn “{source_term}”. Bản dịch dùng biến thể: " + "; ".join(
+                f"“{v['text']}” ({v['condition'] or 'cần xác định ngữ cảnh'})" for v in variants)))
         elif not actual.strip():
-            issues.append(("wrong", expected, "Thiếu bản dịch của thuật ngữ đã xác định"))
+            issues.append(("wrong", expected, f"Nguồn “{source_term}”. Ô bản dịch đang trống."))
         elif label:
-            issues.append(("wrong", expected, "Tên/nhãn không khớp bản dịch chuẩn"))
+            issues.append(("wrong", expected, f"Nguồn “{source_term}”. Nhãn hiện tại “{actual}” khác nhãn chuẩn “{expected}”."))
         else:
-            issues.append(("review", expected, "Chưa tìm thấy thuật ngữ chuẩn trong câu; cần kiểm tra nghĩa và biến đổi ngữ pháp"))
+            aliases = [form for form in entry["aliases"][locale] if _contains(actual, form)]
+            observed = " Tìm thấy cách viết “" + "”, “".join(aliases) + "”." if aliases else ""
+            issues.append(("review", expected, f"Nguồn có “{source_term}”. Chưa tìm thấy “{expected}” trong bản dịch."
+                           + observed + " Cần kiểm tra cách diễn đạt trong câu."))
     return issues, checked
 
 

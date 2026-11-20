@@ -180,9 +180,7 @@ class LocaleDuplicateDialog(QDialog):
         self.group_label.setWordWrap(True)
         self.group_label.setTextFormat(Qt.TextFormat.PlainText)
         comparison_layout.addWidget(self.group_label)
-        legend = QLabel('<span style="background-color:#ffe7a3;color:#603e00;"> Đoạn khác nhau </span>'
-                        ' · <span style="background-color:#e2e7ee;color:#526172;"> Không có đoạn tương ứng </span>'
-                        ' · Dấu “·” = khoảng trắng; [xuống dòng] = xuống dòng trong đoạn khác.')
+        legend = QLabel("Đối chiếu với Bản 1 · − đỏ: dòng gốc có thay đổi · + xanh: dòng tương ứng ở bản khác. Bấm bản muốn giữ.")
         legend.setWordWrap(True)
         comparison_layout.addWidget(legend)
         choice_row = QHBoxLayout()

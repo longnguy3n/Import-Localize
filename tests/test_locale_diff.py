@@ -1,63 +1,27 @@
+from html import escape
 from types import SimpleNamespace
 
-from import_localize.ui.locale_diff import difference_marks, highlighted_text, variant_documents
+from import_localize.ui.locale_diff import variant_documents
+from import_localize.ui.change_colors import status_colors
 
 
-def test_insert_delete_replace_and_unicode():
-    marks = difference_marks(["Ability", "Ability:"])
-    assert marks == [([], {7}), ([(7, 8)], set())]
-    assert "không có" in highlighted_text("Ability", *marks[0])
-    assert '<span style="background-color:#ffe7a3;color:#603e00;">:</span>' in highlighted_text("Ability:", *marks[1])
-    assert difference_marks(["xin chào 😀", "xin chào 🌟"]) == [([(9, 10)], set()), ([(9, 10)], set())]
+def documents(*texts):
+    variants = [SimpleNamespace(term={"Languages": [text, "Giống"]}) for text in texts]
+    return variant_documents(variants, [{"Name": "English", "Code": "en"}, {"Name": "Việt", "Code": "vi"}])
 
 
-def test_identical_and_three_variants_are_compared_against_each_other():
-    assert difference_marks(["same", "same"]) == [([], set()), ([], set())]
-    marks = difference_marks(["abc", "axc", "abz"])
-    # The third variant differs in b as well as z when compared with variant 2.
-    assert (1, 2) in marks[0][0] and (2, 3) in marks[0][0]
-    assert any(start <= 1 and end >= 3 for start, end in marks[2][0])
+def test_compare_lines_first_and_preserve_literal_text():
+    old, new = documents("Hello <b>one</b> {0}\nKeep\nLast", "Hello <b>two</b> {0}\nKeep\nAdded\nLast")
+    for html in (old, new):
+        assert "[không có]" not in html and "[xuống dòng]" not in html
+        assert "  Keep\n" in html and escape("</b> {0}") in html
+        assert "Việt (vi)</b> · Giống nhau" in html
+    assert ">one</b>" in old and ">two</b>" in new and "Added" in new and "Added" not in old
+    assert status_colors()["removed"][0] in old and status_colors()["added"][0] in new
 
 
-def test_whitespace_and_missing_or_empty_content_are_visible():
-    marks = difference_marks(["hello", "hello \n"])
-    html = highlighted_text("hello \n", *marks[1])
-    assert "·[xuống dòng]<br/>" in html
-    assert "Chưa có nội dung" in highlighted_text("", [], set())
-    marks = difference_marks(["", "new"])
-    assert "không có" in highlighted_text("", *marks[0])
-    assert "#ffe7a3" in highlighted_text("new", *marks[1])
-
-
-def test_language_sections_escape_tags_and_label_unchanged_languages():
-    variants = [SimpleNamespace(term={"Languages": [value, "xin chào"]})
-                for value in ('Text <br> {0}', 'Text {0}')]
-    docs = variant_documents(variants, [{"Name": "English", "Code": "en"}, {"Name": "Tiếng Việt", "Code": "vi"}])
-    assert "English (en)" in docs[0] and "Tiếng Việt (vi)" in docs[0]
-    assert "Có khác biệt" in docs[0] and "Giống nhau" in docs[0]
-    assert "&lt;br&gt;" in docs[0] and "<br>" not in docs[0]
-    assert "không có" in docs[1]
-
-
-def test_shared_formatting_always_visible_and_only_differences_highlighted():
-    variants = [SimpleNamespace(term={"Languages": [value]}) for value in (
-        '<color=red><b>Hello</b></color>', '<color=red><b>Hello!</b></color>')]
-    languages = [{"Name": "English", "Code": "en"}]
-    full = variant_documents(variants, languages)
-    assert "&lt;color=red&gt;" in full[0]
-    assert "&lt;b&gt;Hello" in full[0] and "&lt;/b&gt;&lt;/color&gt;" in full[0]
-    assert "#ffe7a3" not in full[0]  # unchanged text/tag stays uncolored
-    assert '<span style="background-color:#ffe7a3;color:#603e00;">!</span>' in full[1]
-    variants[1].term["Languages"][0] = '<color=blue><b>Hello</b></color>'
-    docs = variant_documents(variants, languages)
-    assert "&lt;color=" in docs[0] and "#ffe7a3" in docs[0]
-    assert "&lt;b&gt;Hello&lt;/b&gt;&lt;/color&gt;" in docs[0]
-
-
-def test_inserted_break_does_not_split_shared_closing_tag():
-    variants = [SimpleNamespace(term={"Languages": [value]}) for value in (
-        '<color=red>Hello</color>', '<color=red>Hello<br></color>')]
-    docs = variant_documents(variants, [{"Name": "English", "Code": "en"}])
-    assert "&lt;/color&gt;" in docs[0]
-    assert "&lt;/color&gt;" in docs[1]
-    assert "&lt;br&gt;" in docs[1] and "không có" in docs[0]
+def test_all_variants_compare_with_first_and_empty_has_no_placeholder_in_text():
+    base, blank, extended = documents("Hi 😀", "", "Hi 😀!")
+    assert "Ô trống" in blank and "Hi" not in blank
+    assert "😀" in base and "😀" in extended and "<b>!</b>" in extended
+    assert status_colors()["removed"][0] in base

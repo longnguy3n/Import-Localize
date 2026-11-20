@@ -182,3 +182,12 @@ def test_case_equivalent_source_aliases_are_allowed(tmp_path, data):
     data["entries"][0]["aliases"]["en"].append("dmg")
     report = run(tmp_path, data, [["Key", "English", "Vietnamese"], ["cf_damage_title", "DMG", "ST"]])
     assert not report.issues
+
+def test_review_explains_candidate_presence_without_marking_wrong(tmp_path, data):
+    data["entries"] = [entry("wrath", "Wrath", "Phẫn Nộ", "Ira", context_required=True)]
+    report = run(tmp_path, data, [["Key", "English", "Vietnamese"],
+                                  ["a", "Wrath", "Phẫn Nộ"], ["b", "Wrath", "Giận Dữ"]])
+    vi = {i.key: i for i in report.issues if i.locale == "vi"}
+    assert "khớp “Phẫn Nộ”" in vi["a"].reason
+    assert "chưa khớp phương án nào" in vi["b"].reason and "Wrath" in vi["b"].reason
+    assert not report.wrong_keys
