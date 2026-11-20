@@ -7,11 +7,12 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyMod
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QPlainTextEdit, QPushButton, QSplitter, QTableView, QVBoxLayout, QWidget,
+    QLineEdit, QTextEdit, QPushButton, QSplitter, QTableView, QVBoxLayout, QWidget,
 )
 
 from import_localize.services.csv_compare_service import CsvComparison, compare_csv_files
 from .change_colors import status_colors
+from .transfer_diff_dialog import marked_values
 from .feature_workspace import start_feature_worker
 
 STATUS_LABELS = {"added": "+ Key mới", "removed": "− Đã xóa", "changed": "≠ Thay đổi", "unchanged": "= Không đổi"}
@@ -200,8 +201,8 @@ class CsvCompareDialog(QDialog):
         panes = QSplitter(Qt.Orientation.Horizontal)
         panes.setHandleWidth(8)
         panes.setChildrenCollapsible(False)
-        self.old_text = QPlainTextEdit()
-        self.new_text = QPlainTextEdit()
+        self.old_text = QTextEdit()
+        self.new_text = QTextEdit()
         for title, pane in (("Bản cũ", self.old_text), ("Bản mới", self.new_text)):
             pane.setReadOnly(True)
             panel = QWidget()
@@ -317,9 +318,14 @@ class CsvCompareDialog(QDialog):
         source_index = self.sort_model.mapToSource(current)
         diff, col = self.model.rows[source_index.row()]
         self.detail_label.setText(f"{diff.key} · {self.result.columns.get(col, 'key')} — Bản cũ (trái) / Bản mới (phải)")
-        for widget, record in ((self.old_text, diff.before), (self.new_text, diff.after)):
-            value = (record.get(col) if col is not None else diff.key) if record is not None else None
-            widget.setPlainText(value if value is not None else "Không tồn tại")
+        values = [None if record is None else diff.key if col is None else record.get(col)
+                  for record in (diff.before, diff.after)]
+        marked = marked_values(values[0] or "", values[1] or "")
+        for widget, value, html in zip((self.old_text, self.new_text), values, marked):
+            if value is None:
+                widget.setPlainText("Không tồn tại")
+            else:
+                widget.setHtml(f'<span style="white-space:pre-wrap">{html}</span>')
 
     def _swap(self):
         self.paths = self.paths[1], self.paths[0]

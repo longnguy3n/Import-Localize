@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 
 from .change_colors import status_colors
+from .transfer_diff_dialog import TransferDiffDialog
 
 
 class ChangeCountDelegate(QStyledItemDelegate):
@@ -38,9 +39,12 @@ class TransferPreview(QTableWidget):
     def __init__(self):
         super().__init__(0, 7)
         self.setAccessibleName("Thay đổi theo key")
-        self.setHorizontalHeaderLabels(["Nguồn", "Đích", "Trước → Sau", "Thêm", "Xóa", "Sửa", "Giữ"])
+        self.setHorizontalHeaderLabels(["Nguồn · xem chi tiết", "Đích", "Trước → Sau", "Thêm", "Xóa", "Sửa", "Giữ"])
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+        self.changes = []
+        self.cellClicked.connect(self._show_diff)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setWordWrap(False)
         self.setTextElideMode(Qt.TextElideMode.ElideMiddle)
@@ -56,6 +60,7 @@ class TransferPreview(QTableWidget):
         self.hide()
 
     def show_changes(self, changes):
+        self.changes = changes
         self.setRowCount(len(changes))
         for row, (source, target, stats, detail) in enumerate(changes):
             before = "—" if stats.before_count is None else stats.before_count
@@ -63,13 +68,27 @@ class TransferPreview(QTableWidget):
                       stats.added, stats.removed, stats.updated, stats.unchanged)
             for column, value in enumerate(values):
                 item = QTableWidgetItem("—" if value is None else str(value))
-                item.setToolTip(f"{source} → {target}\n{detail}")
+                item.setToolTip(f"{source} → {target}\n{detail}\nBấm hoặc nhấn Enter để xem chi tiết theo key.")
                 if column >= 2:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.setItem(row, column, item)
         self.show()
         self.resizeRowsToContents()
         self._fit_preview()
+
+    def _show_diff(self, row, column):
+        if 0 <= row < len(self.changes):
+            source, target, stats, _ = self.changes[row]
+            status = ChangeCountDelegate.statuses[column - 3] if column >= 3 else ""
+            dialog = TransferDiffDialog(source, target, stats, status, self)
+            dialog.exec()
+            dialog.deleteLater()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._show_diff(self.currentRow(), self.currentColumn())
+        else:
+            super().keyPressEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

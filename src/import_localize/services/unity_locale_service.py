@@ -52,6 +52,14 @@ class LocaleAsset:
 
 
 @dataclass
+class KeyChange:
+    key: str
+    status: str
+    before: list[dict]
+    after: list[dict]
+
+
+@dataclass
 class ChangeStats:
     source_count: int
     before_count: int | None
@@ -63,6 +71,7 @@ class ChangeStats:
     source_unit: str
     target_unit: str
     duplicate_before: int = 0
+    details: tuple[KeyChange, ...] = ()
 
 
 @dataclass
@@ -373,6 +382,16 @@ def import_change(asset: LocaleAsset, rows: list[list[str]], *, matched_language
                         len(old_keys - new_keys), len(changed_keys), len(old_keys & new_keys) - len(changed_keys),
                         "dòng CSV", "term")
     stats.duplicate_before = len(asset.terms) - len(old_keys)
+    def fields(term, languages):
+        kind, description, translations = content(term, languages)
+        return {"Type": TERM_TYPES[kind] if 0 <= kind < len(TERM_TYPES) else str(kind),
+                "Desc": description, **dict(translations)}
+
+    previous = {}
+    for term in asset.terms:
+        previous.setdefault(term["Term"], []).append(fields(term, asset.languages))
+    current = {key: [fields(term, new_languages)] for key, term in terms.items()}
+    stats.details = _key_changes(previous, current, changed_keys)
     summary = (f"{stats.source_count} dòng CSV → {stats.after_count} term; đích trước {stats.before_count}; "
                f"thêm {stats.added}, xóa {stats.removed}, sửa {stats.updated}, giữ {stats.unchanged}")
     return FileChange(asset.path, asset.original, after, summary, tuple(warnings), stats=stats)
@@ -582,19 +601,35 @@ def _records_by_key(rows):
     return values
 
 
+def _key_changes(previous, current, changed_keys):
+    details = []
+    for key in sorted(previous.keys() | current.keys()):
+        if key not in previous:
+            status = "added"
+        elif key not in current:
+            status = "removed"
+        elif key in changed_keys:
+            status = "changed"
+        else:
+            status = "unchanged"
+        details.append(KeyChange(key, status, previous.get(key, []), current.get(key, [])))
+    return tuple(details)
+
+
 def export_change_stats(old_rows, new_rows, source_count, target_unit):
     stats = ChangeStats(source_count, None, len(new_rows) - 1, None, None, None, None, "term", target_unit)
     if old_rows is not None:
         current = _records_by_key(new_rows)
         previous = _records_by_key(old_rows)
         shared = current.keys() & previous.keys()
-        changed = sum(current[key] != previous[key] for key in shared)
+        changed = {key for key in shared if current[key] != previous[key]}
         stats.before_count = len(old_rows) - 1
         stats.duplicate_before = stats.before_count - len(previous)
         stats.added = len(current.keys() - previous.keys())
         stats.removed = len(previous.keys() - current.keys())
-        stats.updated = changed
-        stats.unchanged = len(shared) - changed
+        stats.updated = len(changed)
+        stats.unchanged = len(shared) - len(changed)
+        stats.details = _key_changes(previous, current, changed)
     return stats
 
 

@@ -357,13 +357,12 @@ class DirectSheetDialog(QDialog):
                     item = QTableWidgetItem(text)
                     item.setToolTip(str(pair.asset_path) if col == (0 if self.upload else 1) else text)
                     self.table.setItem(row, col, item)
-            if self.folder_only:
-                changes = []
-                for pair in self.plan.pairs:
-                    names = (pair.asset_path.name, pair.tab_name) if self.upload else (pair.tab_name, pair.asset_path.name)
-                    changes.append((*names, pair.stats, pair.summary))
-                    self.log_emitted.emit("INFO", f"{names[0]} → {names[1]} · {pair.summary}")
-                self.changes.show_changes(changes)
+            changes = []
+            for pair in self.plan.pairs:
+                names = (pair.asset_path.name, pair.tab_name) if self.upload else (pair.tab_name, pair.asset_path.name)
+                changes.append((*names, pair.stats, pair.summary))
+                self.log_emitted.emit("INFO", f"{names[0]} → {names[1]} · {pair.summary}")
+            self.changes.show_changes(changes)
             self.table.resizeRowsToContents()
             self.table.setMinimumHeight(min(280, self.table.horizontalHeader().height() + self.table.verticalHeader().length() + 6))
             count, title = len(self.plan.pairs), self.plan.spreadsheet_name

@@ -78,6 +78,10 @@ def test_import_replace_unicode_and_metadata(asset, tmp_path):
     ])
     plan = prepare_import([asset], [source])
     assert "thêm 1, xóa 1" in plan.changes[0].summary
+    details = {item.key: item for item in plan.changes[0].stats.details}
+    assert {k: v.status for k, v in details.items()} == {"001": "changed", "new": "added", "obsolete": "removed"}
+    assert details["001"].before == [{"Type": "Text", "Desc": "old description", "en": "yes"}]
+    assert details["001"].after[0]["en"] == translation
     assert asset.read_bytes() == original  # preview is read-only
     backup = apply_plan(plan, tmp_path / "backups")
     loaded = read_asset(asset)

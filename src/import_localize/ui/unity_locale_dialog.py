@@ -545,8 +545,8 @@ class UnityLocaleDialog(QDialog):
         self.apply_button.setEnabled(False)
         self.review_button.setEnabled(bool(self.asset_paths))
         self.table.setRowCount(0)
+        self.changes.hide()
         if self.folder_only:
-            self.changes.hide()
             self.backup_button.hide()
             self.safety_label.hide()
             self.table.hide()
@@ -952,10 +952,8 @@ class UnityLocaleDialog(QDialog):
         else:
             self.plan = worker.result
             self.safety_label.show()
-            if self.folder_only:
-                self.changes.show_changes([(c.source_path.name, c.path.name, c.stats, c.summary) for c in self.plan.changes])
-            else:
-                self.table.show()
+            self.table.hide()
+            self.changes.show_changes([(c.source_path.name, c.path.name, c.stats, c.summary) for c in self.plan.changes])
             self.details_button.show()
             self.table.setRowCount(len(self.plan.changes))
             stats = [change.stats for change in self.plan.changes]

@@ -6,6 +6,36 @@ from test_unity_locale import ASSET
 from test_unity_locale_ui import drain
 
 
+def test_transfer_diff_opens_filtered_and_preserves_unity_markup(app, monkeypatch):
+    from import_localize.services.unity_locale_service import export_change_stats
+    from import_localize.ui.transfer_preview import TransferPreview, TransferDiffDialog
+
+    header = ["Key", "English"]
+    stats = export_change_stats(
+        [header, ["skill", "Win <b>one</b>"], ["obsolete", "Removed"]],
+        [header, ["skill", "Win <b>two</b>"], ["fresh", "Added"]], 2, "Sheet")
+    preview = TransferPreview()
+    preview.show_changes([("locale_en.asset", "upload_en", stats, "")])
+    opened = []
+
+    def inspect(dialog):
+        opened.append(dialog.filter.currentData())
+        assert dialog.keys.count() == 1
+        text = dialog.viewer.toPlainText()
+        assert "Win <b>one</b>" in text and "Win <b>two</b>" in text
+        dialog.filter.setCurrentIndex(0)
+        assert dialog.keys.count() == 3
+        dialog.search.setText("FRESH")
+        assert dialog.keys.count() == 1 and "Added" in dialog.viewer.toPlainText()
+
+    monkeypatch.setattr(TransferDiffDialog, "exec", inspect)
+    try:
+        preview.cellClicked.emit(0, 5)
+        assert opened == ["changed"]
+    finally:
+        preview.close()
+
+
 def test_folder_card_distinguishes_unset_empty_and_invalid_folders(app, tmp_path, monkeypatch):
     settings = AppSettings(upload_folder=str(tmp_path), export_folder=str(tmp_path))
     card = TransferFoldersCard(settings)
