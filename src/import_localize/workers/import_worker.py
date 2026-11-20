@@ -10,6 +10,7 @@ from threading import Event
 from PySide6.QtCore import QThread, Signal
 
 from import_localize.models.import_job import ImportJob
+from import_localize.services.desc_annotations import clean_upload_mapping
 from import_localize.services.csv_service import (
     CsvImportError,
     inspect_csv,
@@ -34,9 +35,10 @@ class ImportWorker(QThread):
     log_emitted = Signal(str, str)
     completed = Signal(bool, str)
 
-    def __init__(self, job: ImportJob, parent=None, *, annotations=None):
+    def __init__(self, job: ImportJob, parent=None, *, annotations=None, mapping_path=None):
         super().__init__(parent)
         self.annotations = annotations
+        self.mapping_path = mapping_path
         self.job = job
         self._cancel_event = Event()
 
@@ -117,6 +119,7 @@ class ImportWorker(QThread):
             validate_csv_header(bundle.header, parse_tab_code(file_job.sheet_name, "upload"), info.path.name)
             upload_plans.append((bundle, file_job))
 
+        clean_upload_mapping(upload_plans, self.mapping_path, self._is_cancelled)
         self.progress_changed.emit(53, "Đang ghi nhanh nhiều tab lên Google Sheets")
         validate_upload_headers(connection, existing_targets, cancel_callback=self._is_cancelled)
         if self.job.upload_folder:

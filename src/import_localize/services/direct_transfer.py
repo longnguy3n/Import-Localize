@@ -7,6 +7,7 @@ from typing import Literal
 
 from import_localize.models.import_job import CsvBundle, ImportJob
 from import_localize.services import google_service as sheets
+from import_localize.services.desc_annotations import clean_upload_mapping
 from import_localize.services.csv_service import bundle_from_asset_rows, validate_worksheet_title
 from import_localize.services.transfer_files import (
     TransferFileError, parse_tab_code, validate_asset_language, validate_csv_header,
@@ -39,7 +40,7 @@ class TransferPlan:
 
 def prepare_transfer(direction, spreadsheet_url: str, asset_paths: list[Path], *,
                      value_input_option="RAW", asset_folder="", progress_callback=None,
-                     cancel_callback=None, annotations=None) -> TransferPlan:
+                     cancel_callback=None, annotations=None, mapping_path=None) -> TransferPlan:
     if direction not in ("upload", "download"):
         raise ValueError("Chiều chuyển không hợp lệ.")
     if not asset_paths:
@@ -55,6 +56,7 @@ def prepare_transfer(direction, spreadsheet_url: str, asset_paths: list[Path], *
     prefix = role + "_"
     tabs = sheets.transfer_tabs(connection, role)
     seen = set()
+    upload_targets = []
     for i, path in enumerate(asset_paths, 1):
         sheets._check_cancel(cancel_callback)
         asset = read_asset(Path(path))
@@ -90,10 +92,10 @@ def prepare_transfer(direction, spreadsheet_url: str, asset_paths: list[Path], *
                 if payload.decode("utf-8-sig").strip():
                     old_rows = parse_locale_csv(payload, name, ",")
                     validate_csv_header(old_rows[0], key, name, language_name=asset.languages[0]["Name"])
-            stats = export_change_stats(old_rows, [bundle.header, *bundle.rows], len(asset.terms), "dòng Sheet")
             removed = len(rows) - 1 - count
             if removed:
                 summary += f" · bỏ {removed} dòng trùng key"
+            upload_targets.append((asset.path, name, count, summary, tab.id if tab else None, old_rows, len(asset.terms)))
         else:
             if tab is None:
                 raise UnityLocaleError(f"{asset.path.name}: không tìm thấy tab {name} trong {connection.spreadsheet_name}.")
@@ -108,8 +110,14 @@ def prepare_transfer(direction, spreadsheet_url: str, asset_paths: list[Path], *
             stats = change.stats
             count = len(rows) - 1
             summary = "\n".join((change.summary, *change.warnings))
-        plan.pairs.append(TransferPair(asset.path, name, count, summary, tab.id if tab else None, stats))
+            plan.pairs.append(TransferPair(asset.path, name, count, summary, tab.id, stats))
         sheets._progress(progress_callback, i * 100 // len(asset_paths), f"Đã xem trước {name}")
+    if direction == "upload":
+        clean_upload_mapping(plan.uploads, mapping_path, cancel_callback)
+        for target, (bundle, _) in zip(upload_targets, plan.uploads):
+            path, name, count, summary, tab_id, old_rows, terms = target
+            stats = export_change_stats(old_rows, [bundle.header, *bundle.rows], terms, "dòng Sheet")
+            plan.pairs.append(TransferPair(path, name, count, summary, tab_id, stats))
     sheets._check_cancel(cancel_callback)
     check_folder_selections(folders)
     return plan

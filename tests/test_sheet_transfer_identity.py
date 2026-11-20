@@ -43,3 +43,30 @@ def test_single_sheet_cannot_bypass_filename_or_language(tmp_path, monkeypatch, 
     monkeypatch.setattr(import_worker, "upload_bundles_fast", lambda *a, **kw: pytest.fail("unexpected write"))
     with pytest.raises((CsvImportError, TransferFileError)):
         worker._run_upload(SimpleNamespace(spreadsheet_name="Book"))
+
+def test_upload_rechecks_old_mapping_desc_against_current_sibling_csvs(tmp_path, monkeypatch):
+    from pathlib import Path
+    from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAPPING
+    import csv
+
+    paths = []
+    for code, lang, values in (("en", "English", ("Deal DMG", "Deal DMG")),
+                               ("vi", "Vietnamese", ("Gây ST", "Gây sát thương"))):
+        path = tmp_path / f"upload_{code}.csv"
+        paths.append(str(path))
+        with path.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(["Key", "Desc", lang])
+            writer.writerow(["fixed", "note\nWrong mapping\nWrong languague", values[0]])
+            writer.writerow(["pending", "Wrong mapping", values[1]])
+    notes = DescAnnotations()
+    notes.set_mark("vi", "fixed", WRONG_MAPPING)
+    worker = import_worker.ImportWorker(ImportJob(tuple(paths), "url"), annotations=notes,
+        mapping_path=Path(__file__).parent / "fixtures/mapping_v2.json")
+    monkeypatch.setattr(import_worker, "transfer_tabs", lambda *_: {})
+    monkeypatch.setattr(import_worker, "validate_upload_headers", lambda *a, **kw: None)
+    writes = []
+    monkeypatch.setattr(import_worker, "upload_bundles_fast", lambda _, plans, **kw: writes.extend(plans))
+    worker._run_upload(SimpleNamespace(spreadsheet_name="Book"))
+    assert writes[1][0].rows == [["fixed", "note\nWrong languague", "Gây ST"],
+                                ["pending", "Wrong mapping", "Gây sát thương"]]

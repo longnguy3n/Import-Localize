@@ -60,6 +60,7 @@ class MappingReport:
     checked_cells: int = 0
     unmapped_cells: int = 0
     records: list[MappingRecord] = field(default_factory=list)
+    verified_cells: set[tuple[str, str, str]] = field(default_factory=set)
 
     @property
     def wrong_keys(self) -> set[str]:
@@ -339,6 +340,7 @@ def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=N
                 sources[row.family, row.key, locale].add(value)
     total = sum(len(row.values) for row in rows)
     done = 0
+    unresolved = set()
     if progress_callback:
         progress_callback(0, total, "Đang đối chiếu mapping")
     for row in rows:
@@ -367,10 +369,16 @@ def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=N
                 found = [("review", "", "Thiếu bản nguồn English cùng nhóm file/key; chưa đủ dữ liệu đối chiếu")]
                 checked = False
             report.checked_cells += int(checked)
+            cell = (locale, row.key, actual)
+            if checked and not found:
+                report.verified_cells.add(cell)
+            else:
+                unresolved.add(cell)
             report.unmapped_cells += int(not checked)
             for status, expected, reason in found:
                 report.issues.append(MappingIssue(row.path, row.line, row.key, locale, source, actual, expected, reason, status))
             done += 1
             if progress_callback and (done % 50 == 0 or done == total):
                 progress_callback(done, total, f"{row.path.name}: {done}/{total} ô")
+    report.verified_cells.difference_update(unresolved)
     return report

@@ -861,7 +861,7 @@ def read_worksheet_csv(connection, worksheet, *, log_callback=None, cancel_callb
 
 
 def _annotated_export(content, title, annotations):
-    if not annotations:
+    if annotations is None or not annotations.has_export_changes():
         return content
     from import_localize.services.desc_annotations import locales_for_table
     rows = list(csv.reader(io.StringIO(content.decode("utf-8-sig"), newline="")))

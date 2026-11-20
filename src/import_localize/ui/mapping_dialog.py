@@ -580,6 +580,8 @@ class MappingDialog(QDialog):
             self.log_emitted.emit("FAIL", worker.error)
         else:
             self.report, self.snapshot = worker.result, worker.snapshot
+            if self.annotations.reconcile_mapping(self.report):
+                self.desc_marks_changed.emit()
             self.render_report()
             self.log_emitted.emit("WARNING" if self.report.issues else "SUCCESS", self.status.text())
         worker.deleteLater()

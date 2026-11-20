@@ -180,3 +180,15 @@ def test_direct_preview_compares_existing_tab_by_key(world):
     assert (stats.before_count, stats.after_count) == (2, 2)
     assert (stats.added, stats.removed, stats.updated, stats.unchanged) == (1, 1, 1, 0)
     assert state.reads == [4] and not state.writes
+
+def test_direct_preview_and_write_drop_corrected_mapping_marker(world, tmp_path):
+    state, asset = world
+    source = ASSET.replace("Term: 001", "Term: cf_damage_title").replace("- yes", "- DMG").replace("old description", "Wrong mapping")
+    asset.write_text(source, encoding="utf-8")
+    mapping = Path(__file__).parent / "fixtures/mapping_v2.json"
+    plan = direct.prepare_transfer("upload", "url", [asset], mapping_path=mapping)
+    change = next(c for c in plan.pairs[0].stats.details if c.key == "cf_damage_title")
+    assert change.after[0]["Desc"] == ""
+    direct.apply_transfer(plan, tmp_path / "backups")
+    assert next(r for r in state.writes[0][2] if r[0] == change.key)[2] == ""
+    assert asset.read_text(encoding="utf-8") == source

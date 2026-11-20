@@ -12,7 +12,7 @@ from .transfer_preview import TransferPreview
 from .feature_workspace import TransferDirections, open_child_feature
 from import_localize.app.paths import USER_CONFIG_DIR
 from import_localize.services.direct_transfer import apply_transfer, prepare_transfer
-from import_localize.services.desc_annotations import DescAnnotations
+from import_localize.services.desc_annotations import DescAnnotations, upload_mapping_path
 from .unity_audit import asset_audit_sources, review_sources
 
 
@@ -285,11 +285,12 @@ class DirectSheetDialog(QDialog):
         direction, url, paths = self.direction, self.url, list(self.paths)
         asset_folder = self.asset_folder
         option = self.settings.value_input_option
-        annotations = self.annotations.snapshot()
+        mapping = upload_mapping_path(self.settings)
+        annotations = self.annotations.snapshot(include_verified=not mapping)
         self.status.setText("Đang xác định bảng tính và ghép các tab…")
         self.start_task("preview", lambda progress, cancel: prepare_transfer(
             direction, url, paths, value_input_option=option, progress_callback=progress,
-            cancel_callback=cancel, annotations=annotations, asset_folder=asset_folder,
+            cancel_callback=cancel, annotations=annotations, asset_folder=asset_folder, mapping_path=mapping,
         ))
 
     def apply(self):

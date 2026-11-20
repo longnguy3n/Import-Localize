@@ -58,6 +58,15 @@ def test_annotate_snapshot_then_reopen_without_touching_files(app, tmp_path):
         reopened.select_visible()
         reopened.unmark()
         assert not annotations
+        reopened.select_visible()
+        reopened.mark()
+        sources[Path("upload_vi.csv")] = b"Key,Vietnamese\ncf_damage_title,ST\n"
+        reopened.scan()
+        drain(app, reopened)
+        assert not reopened.report.wrong_keys
+        assert not annotations.has("vi", "cf_damage_title", WRONG_MAPPING)
+        rows = [["Key", "Desc", "Vietnamese"], ["cf_damage_title", "new\r\nWrong mapping", "ST"]]
+        assert annotations.snapshot().apply_rows(rows, ["vi"])[1][1] == "new"
     finally:
         reopened.reject()
 

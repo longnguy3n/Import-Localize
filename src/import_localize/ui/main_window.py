@@ -62,7 +62,7 @@ from import_localize.ui.ui_loader import load_ui, require_object
 from import_localize.ui.widgets import BottomAlignedLogView
 from import_localize.workers.export_tabs_worker import ExportTabsWorker
 from import_localize.workers.import_worker import ImportWorker
-from import_localize.services.desc_annotations import DescAnnotations
+from import_localize.services.desc_annotations import DescAnnotations, upload_mapping_path
 from import_localize.services.sheet_link import sheet_id_from_link
 from import_localize.workers.update_worker import UpdateCheckWorker
 
@@ -1100,7 +1100,9 @@ class MainWindow(QMainWindow):
         self.progress_label.setText("Đang chuẩn bị upload CSV lên Sheet…")
         self.set_running(True)
 
-        worker = ImportWorker(job, self, annotations=self.desc_annotations.snapshot())
+        mapping = upload_mapping_path(self.settings)
+        worker = ImportWorker(job, self, annotations=self.desc_annotations.snapshot(include_verified=not mapping),
+                              mapping_path=mapping)
         self.worker = worker
         worker.progress_changed.connect(self.on_progress)
         worker.log_emitted.connect(self.append_log)

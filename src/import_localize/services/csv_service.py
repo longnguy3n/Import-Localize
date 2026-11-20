@@ -272,7 +272,7 @@ def _build_bundle(job, inputs, progress_callback, log_callback, cancel_callback,
             _log(log_callback, f"Bỏ qua {info.path.name}: file không có dữ liệu.")
             continue
 
-        if job.first_row_is_header and annotations:
+        if job.first_row_is_header and annotations is not None and annotations.has_export_changes():
             from import_localize.services.desc_annotations import locales_for_table
             locales = locales_for_table(rows[0], info.target_sheet_name or job.sheet_name)
             rows = annotations.apply_rows(rows, locales)
