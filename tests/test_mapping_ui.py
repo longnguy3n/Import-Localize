@@ -42,6 +42,9 @@ def test_annotate_snapshot_then_reopen_without_touching_files(app, tmp_path):
         dialog.scan()
         drain(app, dialog)
         assert dialog.report.wrong_keys == {"cf_damage_title"}
+        dialog.issues_table.selectRow(0)
+        detail = dialog.detail.toPlainText()
+        assert "− Nhãn hiện tại / + Mapping chuẩn" in detail and "wrong" in detail and "ST" in detail
         dialog.select_visible()
         dialog.mark()
         assert annotations.has("vi", "cf_damage_title", WRONG_MAPPING)

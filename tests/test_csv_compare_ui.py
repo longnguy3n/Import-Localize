@@ -40,7 +40,7 @@ def test_compare_filter_details_swap_and_close(app, csv_pair):
     assert dialog.model.rowCount() == 3
     dialog.filter_combo.setCurrentIndex(dialog.filter_combo.findData("added"))
     assert {diff.key for diff, _ in dialog.model.rows} == {"c"}
-    assert dialog.new_text.toPlainText() == "New"
+    assert "New" in dialog.diff_view.toPlainText() and "+" in dialog.diff_view.toPlainText()
     dialog.search_edit.setText("missing")
     assert dialog.model.rowCount() == 0
     dialog.search_edit.clear()
@@ -157,12 +157,12 @@ def test_sort_all_columns_keeps_detail_mapping_and_status_colors(app, csv_pair):
                 source = proxy.mapToSource(index)
                 diff, col = dialog.model.rows[source.row()]
                 assert diff.key in dialog.detail_label.text()
-                assert dialog.new_text.toPlainText() == diff.after[col]
+                assert diff.after[col] in dialog.diff_view.toPlainText()
                 assert dialog.model.data(source, Qt.ItemDataRole.BackgroundRole) is not None
             values = [proxy.index(row, column).data(Qt.ItemDataRole.UserRole + 1) for row in range(proxy.rowCount())]
             expected = sorted(values, key=lambda value: (value.casefold(), value) if isinstance(value, str) else (value,), reverse=order == Qt.SortOrder.DescendingOrder)
             assert values == expected
     dialog.search_edit.setText("b")
     assert dialog.sort_model.rowCount() == 1
-    assert dialog.new_text.toPlainText() == "Goodbye"
+    assert "Goodbye" in dialog.diff_view.toPlainText() and "Bye" in dialog.diff_view.toPlainText()
     dialog.reject()

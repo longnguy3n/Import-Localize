@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, QUrl, Qt, Slot, Signal, QEvent
 from PySide6.QtGui import QDesktopServices, QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QTextBrowser, QProgressBar, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget, QFrame, QToolButton,
 )
@@ -182,7 +182,12 @@ class LocaleDuplicateDialog(QDialog):
         comparison_layout.addWidget(self.group_label)
         legend = QLabel("Đối chiếu với Bản 1 · − đỏ: dòng gốc có thay đổi · + xanh: dòng tương ứng ở bản khác. Bấm bản muốn giữ.")
         legend.setWordWrap(True)
-        comparison_layout.addWidget(legend)
+        legend_row = QHBoxLayout()
+        legend_row.addWidget(legend, 1)
+        self.full = QCheckBox("Hiện toàn văn")
+        legend_row.addWidget(self.full)
+        comparison_layout.addLayout(legend_row)
+        self.full.toggled.connect(self.show_group)
         choice_row = QHBoxLayout()
         choice_row.addWidget(QLabel("Giữ lại:"))
         self.keep_combo = QComboBox()
@@ -321,7 +326,7 @@ class LocaleDuplicateDialog(QDialog):
         self.group_label.setToolTip(str(group.path) + "\nBấm khung nội dung để giữ bản đó; app chuyển tới key cần chọn tiếp theo.")
         if group.conflict:
             self.keep_combo.addItem("— Chọn bản giữ lại sau khi so sánh nội dung —", None)
-        documents = variant_documents(group.variants, asset.languages)
+        documents = variant_documents(group.variants, asset.languages, self.full.isChecked())
         for index, variant in enumerate(group.variants):
             positions = ", ".join(str(i + 1) for i in variant.indices)
             label = f"Bản {index + 1} · {len(variant.indices)} bản ghi · vị trí term {positions}"

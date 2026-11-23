@@ -49,6 +49,7 @@ class MappingIssue:
     expected: str
     reason: str
     status: str
+    whole_label: bool = False
 
 
 @dataclass
@@ -262,8 +263,8 @@ def _audit_cell(index, row, locale, actual, source_locale, source, source_proble
             found, label = whole, True
     if not found:
         if source_problem and locale != source_locale:
-            return [("review", "", source_problem)], False
-        return [], False
+            return [("review", "", source_problem)], False, False
+        return [], False, False
 
     issues, checked = [], False
     seen = set()
@@ -313,7 +314,7 @@ def _audit_cell(index, row, locale, actual, source_locale, source, source_proble
             observed = " Tìm thấy cách viết “" + "”, “".join(aliases) + "”." if aliases else ""
             issues.append(("review", expected, f"Nguồn có “{source_term}”. Chưa tìm thấy “{expected}” trong bản dịch."
                            + observed + " Cần kiểm tra cách diễn đạt trong câu."))
-    return issues, checked
+    return issues, checked, label
 
 
 def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=None, cancel_callback=None, *, sources=None) -> MappingReport:
@@ -363,7 +364,7 @@ def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=N
             # Self-source monolingual prose cannot establish that a translation
             # omitted a term. Only key-bound labels can be checked that way.
             self_source = len(row.values) == 1 and locale != "en" and source_locale == locale
-            found, checked = _audit_cell(index, row, locale, actual, source_locale, source,
+            found, checked, label = _audit_cell(index, row, locale, actual, source_locale, source,
                                          source_problem)
             if self_source and (not checked or not index.for_key(row.key)[0]):
                 found = [("review", "", "Thiếu bản nguồn English cùng nhóm file/key; chưa đủ dữ liệu đối chiếu")]
@@ -376,7 +377,8 @@ def audit_mapping(mapping_path: Path, csv_paths: list[Path], progress_callback=N
                 unresolved.add(cell)
             report.unmapped_cells += int(not checked)
             for status, expected, reason in found:
-                report.issues.append(MappingIssue(row.path, row.line, row.key, locale, source, actual, expected, reason, status))
+                report.issues.append(MappingIssue(row.path, row.line, row.key, locale, source, actual, expected, reason, status,
+                                                  whole_label=label and status == "wrong"))
             done += 1
             if progress_callback and (done % 50 == 0 or done == total):
                 progress_callback(done, total, f"{row.path.name}: {done}/{total} ô")

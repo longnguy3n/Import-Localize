@@ -6,13 +6,13 @@ from pathlib import Path
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QThread, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QTextEdit, QPushButton, QSplitter, QTableView, QVBoxLayout, QWidget,
 )
 
 from import_localize.services.csv_compare_service import CsvComparison, compare_csv_files
 from .change_colors import status_colors
-from .transfer_diff_dialog import marked_values
+from .line_diff import field_diff
 from .feature_workspace import start_feature_worker
 
 STATUS_LABELS = {"added": "+ Key mới", "removed": "− Đã xóa", "changed": "≠ Thay đổi", "unchanged": "= Không đổi"}
@@ -197,23 +197,14 @@ class CsvCompareDialog(QDialog):
         self.detail_label = QLabel("Chọn một dòng để xem đầy đủ nội dung và sao chép.")
         self.detail_label.setTextFormat(Qt.TextFormat.PlainText)
         self.detail_label.setWordWrap(True)
-        detail_layout.addWidget(self.detail_label)
-        panes = QSplitter(Qt.Orientation.Horizontal)
-        panes.setHandleWidth(8)
-        panes.setChildrenCollapsible(False)
-        self.old_text = QTextEdit()
-        self.new_text = QTextEdit()
-        for title, pane in (("Bản cũ", self.old_text), ("Bản mới", self.new_text)):
-            pane.setReadOnly(True)
-            panel = QWidget()
-            panel_layout = QVBoxLayout(panel)
-            panel_layout.setContentsMargins(0, 0, 0, 0)
-            label = QLabel(title)
-            label.setProperty("sectionTitle", True)
-            panel_layout.addWidget(label)
-            panel_layout.addWidget(pane)
-            panes.addWidget(panel)
-        detail_layout.addWidget(panes)
+        detail_header = QHBoxLayout()
+        detail_header.addWidget(self.detail_label, 1)
+        self.full = QCheckBox("Hiện toàn văn")
+        detail_header.addWidget(self.full)
+        detail_layout.addLayout(detail_header)
+        self.diff_view = QTextEdit()
+        self.diff_view.setReadOnly(True)
+        detail_layout.addWidget(self.diff_view)
         splitter.addWidget(details)
         splitter.setSizes([400, 180])
         layout.addWidget(splitter, 1)
@@ -230,6 +221,7 @@ class CsvCompareDialog(QDialog):
         self.filter_combo.currentIndexChanged.connect(self._filter)
         self.search_edit.textChanged.connect(self._filter)
         self.table.selectionModel().currentRowChanged.connect(self._show_detail)
+        self.full.toggled.connect(lambda: self._show_detail(self.table.currentIndex()))
         self.pickers = []
         if choices is not None:
             row = QHBoxLayout()
@@ -306,26 +298,20 @@ class CsvCompareDialog(QDialog):
         self.visible_label.setText(f"Đang hiển thị {count} key / {len(self.model.rows)} ô dữ liệu")
         if self.result and not self.model.rows:
             self.visible_label.setText("Không có key phù hợp bộ lọc hoặc hai CSV không có khác biệt.")
-        self.old_text.clear()
-        self.new_text.clear()
+        self.diff_view.clear()
         self.detail_label.setText("Chọn một dòng để xem đầy đủ nội dung và sao chép.")
         if self.model.rows:
             self.table.setCurrentIndex(self.sort_model.index(0, 0))
 
-    def _show_detail(self, current, _previous):
+    def _show_detail(self, current, _previous=None):
         if not current.isValid():
             return
         source_index = self.sort_model.mapToSource(current)
         diff, col = self.model.rows[source_index.row()]
-        self.detail_label.setText(f"{diff.key} · {self.result.columns.get(col, 'key')} — Bản cũ (trái) / Bản mới (phải)")
+        self.detail_label.setText(f"{diff.key} · {self.result.columns.get(col, 'key')} — − Bản cũ / + Bản mới")
         values = [None if record is None else diff.key if col is None else record.get(col)
                   for record in (diff.before, diff.after)]
-        marked = marked_values(values[0] or "", values[1] or "")
-        for widget, value, html in zip((self.old_text, self.new_text), values, marked):
-            if value is None:
-                widget.setPlainText("Không tồn tại")
-            else:
-                widget.setHtml(f'<span style="white-space:pre-wrap">{html}</span>')
+        self.diff_view.setHtml(field_diff(*values, self.full.isChecked()))
 
     def _swap(self):
         self.paths = self.paths[1], self.paths[0]

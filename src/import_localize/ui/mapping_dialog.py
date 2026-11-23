@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from html import escape
 from collections import defaultdict
 from pathlib import Path
 from import_localize.services.desc_annotations import DescAnnotations, WRONG_MAPPING
@@ -10,12 +11,13 @@ from PySide6.QtCore import QItemSelectionModel, QSignalBlocker, QThread, QTimer,
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QTextBrowser, QCheckBox, QDialogButtonBox,
     QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
     QWidget,
 )
 
 from .audit_results import AuditResults
+from .line_diff import field_diff
 from .feature_workspace import start_feature_worker
 from .unity_audit import asset_audit_sources
 
@@ -289,12 +291,14 @@ class MappingDialog(QDialog):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter, 1)
-        self.detail = QPlainTextEdit()
+        self.detail = QTextBrowser()
         self.detail.setReadOnly(True)
         self.detail.setMaximumHeight(90)
         self.detail.setPlaceholderText("Chọn một phát hiện để xem đầy đủ nguồn, bản dịch và lý do.")
         self.detail.hide()
         layout.addWidget(self.detail)
+        self.issues_table.cellDoubleClicked.connect(self.open_comparison)
+        self.issues_table.setToolTip("Bấm đúp vào một key để xem chi tiết đối chiếu.")
         self.bottom_panel = QWidget(self)
         bottom = QHBoxLayout(self.bottom_panel)
         bottom.setContentsMargins(0, 0, 0, 0)
@@ -716,6 +720,19 @@ class MappingDialog(QDialog):
             self.detail.hide()
             return
         key = self.visible_keys[rows[0].row()]
+        self.detail.setHtml(self.comparison_html(key, False))
+        self.detail.setVisible(not self.focus_mode)
+
+    def comparison_html(self, key, full):
+        parts = []
+        for issue in self.key_issues[key]:
+            parts.append(f"<b>{escape(issue.locale)} · {escape(issue.path.name)} · Dòng {issue.line}</b>"
+                         f"<p>{escape(issue.reason)}</p>")
+            if getattr(issue, "whole_label", False):
+                parts.append("<p>− Nhãn hiện tại / + Mapping chuẩn</p>")
+                parts.append(field_diff(issue.actual, issue.expected, full))
+            else:
+                parts.append(f"<p>Mapping chuẩn: {escape(issue.expected)}</p>")
         lines = [f"Key: {key}", self.mark_description(key)[1]]
         for file_path in self.report.files:
             lines.append(f"\n{file_path} — Tham chiếu")
@@ -725,10 +742,30 @@ class MappingDialog(QDialog):
             if not refs:
                 lines.append("Không có key trong file này.")
         for issue in self.key_issues[key]:
-            lines.append(f"\n{issue.locale} · {issue.path.name} · Dòng {issue.line}\nLý do: {issue.reason}\n"
-                         f"Mapping chuẩn: {issue.expected}\nNguồn: {issue.source}\nHiện tại: {issue.actual}")
-        self.detail.setPlainText("\n".join(lines))
-        self.detail.setVisible(not self.focus_mode)
+            lines.append(f"\n{issue.locale} · Nguồn: {issue.source}\nHiện tại: {issue.actual}")
+        parts.append('<p style="white-space:pre-wrap">' + escape("\n".join(lines)) + '</p>')
+        return "".join(parts)
+
+    def open_comparison(self, row, column):
+        if column == 0 or not 0 <= row < len(self.visible_keys):
+            return
+        key = self.visible_keys[row]
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Đối chiếu mapping · {key}")
+        dialog.resize(820, 520)
+        layout = QVBoxLayout(dialog)
+        full = QCheckBox("Hiện toàn văn")
+        full.setVisible(any(getattr(i, "whole_label", False) for i in self.key_issues[key]))
+        layout.addWidget(full)
+        view = QTextBrowser()
+        view.setHtml(self.comparison_html(key, False))
+        full.toggled.connect(lambda checked: view.setHtml(self.comparison_html(key, checked)))
+        layout.addWidget(view)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(dialog.reject)
+        layout.addWidget(close)
+        dialog.exec()
+        dialog.deleteLater()
 
     def mark(self):
         self.set_desc_marks(True)
