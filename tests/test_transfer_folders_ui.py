@@ -6,6 +6,29 @@ from test_unity_locale import ASSET
 from test_unity_locale_ui import drain
 
 
+def test_long_transfer_diff_pairs_lines_and_expands_context(app):
+    from import_localize.services.unity_locale_service import export_change_stats
+    from import_localize.ui.transfer_diff_dialog import TransferDiffDialog
+
+    lines = [f"Rule {i}" for i in range(20)]
+    old, new = lines.copy(), lines.copy()
+    old[8] = "Take <b>75%</b> damage"
+    new[8] = "Take <b>50%</b> damage"
+    header = ["Key", "English", "Desc"]
+    stats = export_change_stats([header, ["arena", "\n".join(old), "note"]],
+                                [header, ["arena", "\n".join(new), "note"]], 1, "Sheet")
+    dialog = TransferDiffDialog("export_en", "locale_en.asset", stats, "changed", None)
+    text = dialog.viewer.toPlainText()
+    assert text.index("Rule 7") < text.index("75%") < text.index("50%") < text.index("Rule 9")
+    assert "6 dòng không đổi" in text and "Rule 0" not in text and "note" not in text
+    assert "−" in text and "+" in text
+    dialog.full.setChecked(True)
+    expanded = dialog.viewer.toPlainText()
+    assert "Rule 0" in expanded and "Rule 19" in expanded and "note" in expanded
+    assert "dòng không đổi" not in expanded and expanded.count("Rule 7") == 1
+    dialog.close()
+
+
 def test_transfer_diff_opens_filtered_and_preserves_unity_markup(app, monkeypatch):
     from import_localize.services.unity_locale_service import export_change_stats
     from import_localize.ui.transfer_preview import TransferPreview, TransferDiffDialog
